@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { Button, Card, Toggle, PageHeader, Input } from '@/components/ui'
 import { useAppStore } from '@/store/useAppStore'
 import { tavus } from '@/services/tavus'
+import { GeminiKeyCard } from '@/features/recruiter/GeminiKeyCard'
 
 const API_FIELDS = [
   { key: 'tavus',     label: 'Tavus API Key',         placeholder: 'ta_xxxxxxxxxxxxxxxxxxxxxxxx', hint: 'Required — from tavus.io → Settings → API Keys' },
@@ -92,6 +93,9 @@ export default function SettingsPage() {
           </Button>
         </div>
       </Card>
+
+      {/* Gemini key — server-side (AI Interview module) */}
+      <GeminiKeyCard />
 
       {/* Webhook */}
       <Card className="mb-5 divide-y divide-border">

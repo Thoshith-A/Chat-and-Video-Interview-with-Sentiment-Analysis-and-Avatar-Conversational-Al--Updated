@@ -46,7 +46,7 @@ export function Button({ variant = 'primary', size = 'md', loading, icon, childr
 }
 
 /* ─── Input ──────────────────────────────────────────────────────────────── */
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'prefix'> {
   label?: string; hint?: string; error?: string
   suffix?: React.ReactNode; prefix?: React.ReactNode
 }

@@ -3,13 +3,14 @@ import { cn } from '@/components/ui'
 import { useAppStore } from '@/store/useAppStore'
 
 const LINKS = [
-  { to: '/setup',     label: 'Setup' },
-  { to: '/interview', label: 'Interview' },
-  { to: '/results',   label: 'Results' },
-  { to: '/replicas',  label: 'Replicas' },
-  { to: '/personas',  label: 'Personas' },
-  { to: '/analytics', label: 'Analytics' },
-  { to: '/settings',  label: 'Settings' },
+  { to: '/sessions',      label: 'Sessions' },
+  { to: '/templates',     label: 'Templates' },
+  { to: '/question-sets', label: 'Question Sets' },
+  { to: '/setup',         label: 'Setup' },
+  { to: '/interview',     label: 'Interview' },
+  { to: '/results',       label: 'Results' },
+  { to: '/analytics',     label: 'Analytics' },
+  { to: '/settings',      label: 'Settings' },
 ]
 
 export function Nav() {
@@ -20,22 +21,13 @@ export function Nav() {
     <header className="sticky top-0 z-40 bg-white border-b border-[#dde8e0]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
       <div className="max-w-[1440px] mx-auto px-6 h-[60px] flex items-center justify-between gap-6">
 
-        {/* Brand — leaf icon + wordmark exactly like screenshot */}
+        {/* Brand — exact TalbotIQ logo PNG (public/talbotiq-logo.png) */}
         <button
-          onClick={() => navigate('/setup')}
-          className="flex items-center gap-2.5 focus:outline-none flex-shrink-0"
+          onClick={() => navigate('/sessions')}
+          className="flex items-center focus:outline-none flex-shrink-0"
+          aria-label="TalbotIQ home"
         >
-          <svg width="26" height="26" viewBox="0 0 80 80" fill="none">
-            <path d="M8,62 L26,14 L44,22 L26,70 Z" fill="#0d5c3a"/>
-            <path d="M30,10 L58,10 L58,36 L30,36 Z" fill="#e8a020" transform="rotate(-10 44 23)"/>
-            <path d="M28,22 L48,14 L52,40 L32,48 Z" fill="#28a865"/>
-          </svg>
-          <span
-            className="font-black text-[1.1rem] tracking-tight text-neutral-900"
-            style={{ fontFamily: 'Inter, sans-serif', letterSpacing: '-0.03em' }}
-          >
-            TALBOTIQ
-          </span>
+          <img src="/talbotiq-logo.png" alt="TalbotIQ" className="h-10 w-auto" />
         </button>
 
         {/* Nav tabs — pill style exactly matching screenshot */}

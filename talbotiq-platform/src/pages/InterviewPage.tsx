@@ -219,7 +219,7 @@ export default function InterviewPage() {
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   <Badge variant={metrics.confidence > 70 ? 'success' : 'warning'}>{metrics.confidence > 70 ? 'Confident' : 'Moderate'}</Badge>
                   <Badge variant={metrics.anxiety < 15 ? 'success' : 'warning'}>{metrics.anxiety < 15 ? 'Calm' : 'Some Anxiety'}</Badge>
-                  <Badge variant={metrics.engagement > 70 ? 'success' : 'default'}>Engaged</Badge>
+                  <Badge variant={metrics.engagement > 70 ? 'success' : 'neutral'}>Engaged</Badge>
                 </div>
 
                 {/* Override input */}
@@ -253,7 +253,7 @@ export default function InterviewPage() {
 
           {/* Status bar */}
           <div className="p-3 border-t border-brand-border flex items-center justify-between">
-            <Badge variant={liveConv?.status === 'active' ? 'success' : 'default'}>{liveConv?.status ?? 'connecting'}</Badge>
+            <Badge variant={liveConv?.status === 'active' ? 'success' : 'neutral'}>{liveConv?.status ?? 'connecting'}</Badge>
             <button onClick={handleEndInterview} className="text-xs text-red-400 hover:text-red-300 font-semibold">End Interview</button>
           </div>
         </div>
