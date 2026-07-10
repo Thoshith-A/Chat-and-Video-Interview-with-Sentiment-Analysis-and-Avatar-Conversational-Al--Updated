@@ -14,6 +14,10 @@ import type {
   ChatbotSessionState,
   SubmitChatAnswerRequest,
   SaveChatDraftRequest,
+  BeginChatRequest,
+  VoiceCatalog,
+  AnalyticsSummary,
+  AnalyticsFilters,
 } from '@shared/types'
 
 const BASE = '/api'
@@ -129,7 +133,8 @@ export const sessionsApi = {
 
 /* ─── Chatbot (conversational) track ────────────────────────────────────── */
 export const chatbotApi = {
-  begin: (id: string) => http<ChatbotSessionState>(`/sessions/${id}/chat/begin`, { method: 'POST' }),
+  begin: (id: string, body?: BeginChatRequest) =>
+    http<ChatbotSessionState>(`/sessions/${id}/chat/begin`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   state: (id: string) => http<ChatbotSessionState>(`/sessions/${id}/chat/state`),
   answer: (id: string, body: SubmitChatAnswerRequest) =>
     http<ChatbotSessionState>(`/sessions/${id}/chat/answer`, { method: 'POST', body: JSON.stringify(body) }),
@@ -137,4 +142,32 @@ export const chatbotApi = {
     http<{ ok: boolean }>(`/sessions/${id}/chat/draft`, { method: 'POST', body: JSON.stringify(body) }),
   skipThinking: (id: string) =>
     http<ChatbotSessionState>(`/sessions/${id}/chat/skip-thinking`, { method: 'POST' }),
+  // The question is now presented (composer enabled) → start its clock server-side.
+  questionPresented: (id: string) =>
+    http<ChatbotSessionState>(`/sessions/${id}/chat/question-presented`, { method: 'POST' }),
+}
+
+/* ─── Analytics (aggregate dashboard) ───────────────────────────────────── */
+export const analyticsApi = {
+  summary: (filters: AnalyticsFilters = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.track) qs.set('track', filters.track)
+    if (filters.templateId) qs.set('templateId', filters.templateId)
+    if (filters.role) qs.set('role', filters.role)
+    if (filters.dateFrom) qs.set('dateFrom', filters.dateFrom)
+    if (filters.dateTo) qs.set('dateTo', filters.dateTo)
+    const q = qs.toString()
+    return http<AnalyticsSummary>(`/analytics${q ? `?${q}` : ''}`)
+  },
+}
+
+/* ─── Voice track (catalog + preview; the live call uses a WebSocket) ────── */
+export const voicesApi = {
+  catalog: () => http<VoiceCatalog>('/voices'),
+  // Returns base64 PCM (24 kHz) for the preview player.
+  sample: (voiceId: string, text?: string) =>
+    http<{ voiceId: string; mimeType: string; audio: string }>(`/voices/${voiceId}/sample`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
 }

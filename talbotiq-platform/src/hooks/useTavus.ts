@@ -146,6 +146,16 @@ export function useUpdateConversation() {
   })
 }
 
+export function useConversationTranscript(id: string, poll = false) {
+  return useQuery({
+    queryKey: [...QK.conversation(id), 'transcript'],
+    queryFn: () => tavus.getConversationTranscript(id),
+    enabled: !!id,
+    refetchInterval: poll ? 2000 : false,
+    retry: false,
+  })
+}
+
 export function useEndConversation() {
   const qc = useQueryClient()
   return useMutation({

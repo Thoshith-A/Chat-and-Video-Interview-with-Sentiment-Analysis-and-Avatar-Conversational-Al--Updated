@@ -57,6 +57,23 @@ export function keyStatus() {
   }
 }
 
+/**
+ * Strip markdown/formatting the model sometimes emits (asterisks for bold/bullets,
+ * backticks, heading hashes) and collapse whitespace — question text must be
+ * clean, plain prose. Leaves underscores alone (used in category/skill slugs).
+ */
+export function cleanQuestionText(s: string | undefined): string {
+  return (s ?? '')
+    .replace(/\*+/g, '')        // **bold** / * bullets
+    .replace(/`+/g, '')         // `code`
+    .replace(/^\s*#+\s*/gm, '') // # headings
+    .replace(/\s*[—–]\s*/g, ', ') // em/en dashes read as AI — use commas (keep word hyphens)
+    .replace(/,\s*,/g, ',')
+    .replace(/,\s*([.!?])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 async function withRetry<T>(fn: () => Promise<T>, tries = 3): Promise<T> {
   let lastErr: unknown
   for (let i = 0; i < tries; i++) {
@@ -87,6 +104,8 @@ export async function generateQuestions(opts: {
   const { resumeText, role, seniority, count } = opts
   const prompt = `You are an expert interviewer. Based on the candidate's résumé below, write exactly ${count} interview questions tailored to a ${seniority ?? ''} ${role} role.
 Mix behavioral and role-specific/technical questions, grounded in the candidate's actual experience. For each question include a short category and concise ideal-answer notes a human scorer can use.
+Keep each question SHORT and conversational: ONE or two sentences, at most ~30 words, single-focus, never compound or multi-part.
+Write the question text as PLAIN TEXT only: no markdown, no asterisks (*), no bullets, no bold, no backticks. Do NOT use em dashes or en dashes ("—" or "–") — use commas or periods instead.
 
 RÉSUMÉ:
 """
@@ -115,7 +134,7 @@ ${resumeText.slice(0, 16000)}
     }),
   )
   const parsed = JSON.parse(res.text ?? '[]') as GeneratedQuestion[]
-  return parsed.slice(0, count)
+  return parsed.slice(0, count).map((q) => ({ ...q, text: cleanQuestionText(q.text) }))
 }
 
 /* ─── Resume PDF → Question Set generation ──────────────────────────────── */
@@ -155,6 +174,8 @@ export async function generateQuestionsFromPdf(
 ${styleLine}
 ${difficultyLine}
 Each question MUST be specific to THIS résumé — reference real technologies, projects, or experiences from it. Avoid duplicates and generic filler.
+Keep each question SHORT and conversational: ONE or two sentences, at most ~30 words, single-focus. Never bundle multiple questions together (no "and how... and why..."). Ask one clear thing.
+Write the question text as PLAIN TEXT only: no markdown, no asterisks (*), no bullets, no bold, no backticks, no headings. Do NOT use em dashes or en dashes ("—" or "–") — use commas or periods instead (they read as AI-written).
 For each question provide: the question text, its type ("technical" or "non_technical"), a category (e.g. coding, system_design, behavioral, situational, culture_fit), a difficulty (easy|medium|hard), a skillTag (the résumé skill/topic it targets, e.g. React, Kafka, leadership), and a one-sentence rationale for why it fits this candidate.
 Return ONLY JSON matching the provided schema.`
 
@@ -199,7 +220,11 @@ Return ONLY JSON matching the provided schema.`
   )
 
   const parsed = JSON.parse(res.text ?? '{"questions":[]}') as { questions: GeneratedInterviewQuestion[] }
-  const all = Array.isArray(parsed.questions) ? parsed.questions : []
+  const all = (Array.isArray(parsed.questions) ? parsed.questions : []).map((q) => ({
+    ...q,
+    text: cleanQuestionText(q.text),
+    rationale: cleanQuestionText(q.rationale),
+  }))
   if (style !== 'mix') return all.slice(0, total)
 
   // Enforce the exact technical / non-technical split for "mix".

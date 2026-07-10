@@ -1,8 +1,8 @@
 # TalbotIQ Platform — React + TypeScript + Vite + Express
 
-A HireVue-style **AI Interview module** (Chat + Video Avatar tracks) layered on the
-existing TalbotIQ Tavus app. Candidates take a timed, one-question-at-a-time
-interview; recruiters configure everything and review AI-scored results.
+A HireVue-style **AI Interview module** (Chat, Chatbot, **Voice**, and Video Avatar
+tracks) layered on the existing TalbotIQ Tavus app. Candidates take an interview;
+recruiters configure everything and review AI-scored results.
 
 ## Quick Start
 
@@ -85,12 +85,48 @@ Reuses the same timing engine, config, and results pipeline. Camera/mic preview 
 `TODO(video-avatar)` in `src/features/interview/components/CameraRecorder.tsx` and
 can plug into the existing Tavus integration (`src/services/tavus.ts`).
 
+### Voice track (real-time AI voice agent)
+A live, voice-only interview: warm time-aware greeting → **"are you ready?"** →
+tailored questions one at a time with brief varied acknowledgments → warm wrap-up.
+Reuses résumé upload, adaptive/fixed question config, and the transcript →
+KPI-scoring/PDF pipeline; adds spoken audio + selectable **voices & personas**.
+
+- **Engine:** Gemini **Live API** (native audio) via `@google/genai` `ai.live.connect`
+  (`engine: 'pipeline'` — Cloud STT→Gemini→TTS — is a typed flag, not yet built).
+- **Data path:** browser mic (`getUserMedia`) → 16 kHz PCM → **our backend WebSocket**
+  `/api/voice/:sessionId` → `server/services/voice.ts` relays to Gemini Live → 24 kHz
+  audio streamed back → Web-Audio playback. **The key never leaves the server.** VAD +
+  barge-in are built in; there is **no** forced "Thinking…" delay (voice is low-latency).
+- **Backend owns the ordered plan + coverage**; the model handles natural delivery,
+  readiness interpretation, and acknowledgments under a strict on-interview guardrail
+  prompt (asks only the planned questions, steers back on off-topic, never says numbers).
+- **Config** (per template): persona, voice (with in-editor **preview**), barge-in,
+  language — `src/features/recruiter/TemplateEditorPage.tsx`. Catalog: `GET /api/voices`.
+- **Files:** `server/services/voice.ts`, `server/routes/voices.ts`,
+  `src/lib/voiceClient.ts`, `src/features/interview/useVoiceSession.ts`,
+  `src/features/interview/screens/VoiceStage.tsx`.
+
 ## Environment variables
 | Var | Scope | Purpose |
 |-----|-------|---------|
-| `GEMINI_API_KEY` | server only | Gemini question gen + scoring (blank ⇒ heuristic fallback) |
-| `GEMINI_MODEL` | server only | Defaults to `gemini-2.5-flash` |
+| `GEMINI_API_KEY` | server only | Gemini question gen + scoring + Voice Live (blank ⇒ heuristic fallback; voice disabled) |
+| `GEMINI_MODEL` | server only | Text/scoring model. Defaults to `gemini-2.5-flash` |
+| `GEMINI_LIVE_MODEL` | server only | Voice Track native-audio model. Defaults to `gemini-2.5-flash-native-audio-preview-09-2025` |
 | `PORT` | server only | API port (default 8787) |
+
+## Deploying the Voice Track (Google Cloud)
+The local build runs on the Express server with an API key. For production:
+- **Cloud Run** with **WebSockets enabled** (HTTP/2 / session affinity), a region near
+  users, and **min-instances ≥ 1** to avoid cold starts on a live call; raise the
+  request/stream timeout (Live audio sessions cap at ~15 min).
+- **Gemini via Vertex AI** (IAM/service account — no key string on any device); set
+  `USE_VERTEX=true` + `GOOGLE_CLOUD_PROJECT`. Use **Cloud STT + Cloud TTS** only if you
+  implement the `pipeline` engine.
+- **Firestore** for session/transcript state (swap the JSON store), **Firebase Auth**,
+  **Firebase Storage** for résumés/audio.
+- **Capacitor (Android):** add the `RECORD_AUDIO` permission, request it at runtime
+  before opening the call, handle audio focus/interruptions, and test the round-trip
+  on a device (WebSocket + mic).
 
 ## Notes
 - The store is in-memory with JSON-file persistence (`server/data/`), not a

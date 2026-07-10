@@ -7,6 +7,8 @@ import {
   DEFAULT_INTEGRITY,
   DEFAULT_BRANDING,
   DEFAULT_CONVERSATION_TIMING,
+  DEFAULT_CHATBOT_TIMER,
+  DEFAULT_VOICE_CONFIG,
   defaultRubric,
   defaultAdaptive,
 } from '../store/defaults'
@@ -41,14 +43,17 @@ templatesRouter.post('/', ah((req, res) => {
     rubric: b.rubric ?? defaultRubric(),
     integrity: { ...DEFAULT_INTEGRITY, ...(b.integrity ?? {}) },
     branding: { ...DEFAULT_BRANDING, ...(b.branding ?? {}) },
-    // Chatbot (conversational) track config
-    mode: b.mode ?? (track === 'chatbot' ? 'conversational' : undefined),
+    // Chatbot (conversational) / voice track config
+    mode: b.mode ?? (track === 'chatbot' || track === 'voice' ? 'conversational' : undefined),
     adaptive:
       b.adaptive ??
-      (track === 'chatbot' && questionSource === 'adaptive' ? defaultAdaptive(b.role || 'Software Engineer') : undefined),
+      ((track === 'chatbot' || track === 'voice') && questionSource === 'adaptive' ? defaultAdaptive(b.role || 'Software Engineer') : undefined),
     fixedAllowFollowUps: b.fixedAllowFollowUps,
     conversationTiming:
       b.conversationTiming ?? (track === 'chatbot' ? { ...DEFAULT_CONVERSATION_TIMING } : undefined),
+    chatbotTimer:
+      b.chatbotTimer ?? (track === 'chatbot' || track === 'video_avatar' ? { ...DEFAULT_CHATBOT_TIMER } : undefined),
+    voice: b.voice ?? (track === 'voice' ? { ...DEFAULT_VOICE_CONFIG } : undefined),
     createdAt: now,
     updatedAt: now,
   }

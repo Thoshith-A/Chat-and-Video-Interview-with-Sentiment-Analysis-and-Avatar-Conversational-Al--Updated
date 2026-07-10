@@ -114,6 +114,11 @@ class TavusAPI {
   endConversation = (id: string) =>
     this.req<void>('DELETE', `/conversations/${id}`)
 
+  getConversationTranscript = (id: string) =>
+    this.req<{ transcript?: Array<{ role: string; content: string; timestamp?: string }> }>(
+      'GET', `/conversations/${id}/transcript`
+    )
+
   // ── Videos ────────────────────────────────────────────────────────────────
   listVideos = () =>
     this.req<TavusListResponse<TavusVideo>>('GET', '/videos')

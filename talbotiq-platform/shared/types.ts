@@ -6,7 +6,7 @@
 
 /* ─── Core config ───────────────────────────────────────────────────────── */
 
-export type TrackType = 'chat' | 'chatbot' | 'video_avatar'
+export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice'
 export type QuestionSource = 'adaptive' | 'fixed'
 
 export interface TimingConfig {
@@ -91,6 +91,64 @@ export interface ConversationTimingConfig {
   warningThresholdSeconds: number  // default 15
 }
 
+/**
+ * Optional per-question timer overlay for the CONVERSATIONAL chatbot track.
+ * Reuses the timed-track countdown; only 'question' and (optionally) 'follow_up'
+ * turns are timed — never greetings, the readiness step, or wrap-up. When
+ * `enabled` is false the track behaves as the pure conversational flow.
+ */
+export interface ChatbotTimerConfig {
+  enabled: boolean                 // master on/off (per interview type/template)
+  perQuestionSeconds: number       // countdown per question (e.g. 120)
+  timeFollowUps: boolean           // do follow-up questions also get a timer? (default true)
+  followUpSeconds?: number         // optional distinct amount for follow-ups (else perQuestionSeconds)
+  includeThinkingPhase: boolean    // optional short prep sub-timer before answering (default false)
+  thinkingSeconds?: number         // used when includeThinkingPhase (e.g. 20)
+  warningThresholdSeconds: number  // ring turns amber→red / show warning (e.g. 15)
+  allowEarlySubmit: boolean        // candidate can submit before time is up (default true)
+  autoSubmitOnExpiry: boolean      // auto-advance at 0 (default true)
+  perQuestionOverrides?: Record<string, number> // custom seconds for specific fixed-set question ids
+}
+
+/* ─── Voice track config ────────────────────────────────────────────────── */
+
+/** Real-time engine. `gemini_live` = native-audio bidi stream (built). `pipeline`
+ *  = Cloud STT→Gemini→TTS (typed flag; not yet implemented — needs GCP creds). */
+export type VoiceEngine = 'gemini_live' | 'pipeline'
+
+/** A selectable voice for the catalog/preview UI. */
+export interface VoiceOption {
+  id: string                       // prebuiltVoiceConfig.voiceName for gemini_live
+  label: string
+  gender?: 'male' | 'female' | 'neutral'
+  language: string
+  accent?: string
+  engine: VoiceEngine
+  description?: string
+  sampleUrl?: string               // optional pre-rendered sample; else previewed live
+}
+
+/** A selectable interviewer character = style prompt + default voice + delivery. */
+export interface InterviewPersona {
+  id: string
+  name: string
+  description: string
+  stylePrompt: string              // interviewer character injected into the system instruction
+  defaultVoiceId: string
+  speakingRate?: number            // pipeline TTS only
+  pitch?: number                   // pipeline TTS only
+}
+
+/** Per-template voice configuration. */
+export interface VoiceConfig {
+  engine: VoiceEngine
+  personaId: string
+  voiceId: string                  // overrides the persona default when set
+  allowBargeIn: boolean            // candidate can interrupt the agent
+  language: string
+  model?: string                   // Live model override (default: native-audio preview)
+}
+
 export interface InterviewTemplate {
   id: string
   name: string
@@ -108,6 +166,8 @@ export interface InterviewTemplate {
   adaptive?: AdaptiveConfig
   fixedAllowFollowUps?: boolean
   conversationTiming?: ConversationTimingConfig
+  chatbotTimer?: ChatbotTimerConfig   // optional per-question timer overlay (conversational track)
+  voice?: VoiceConfig                 // voice track only
   createdAt: string
   updatedAt: string
 }
@@ -147,11 +207,19 @@ export interface IntegrityEvent {
   at: string
 }
 
+/**
+ * Classifies each interviewer turn so the client can gate the per-question
+ * timer. Only 'question' and 'follow_up' turns are ever timed; everything else
+ * (greeting, readiness, acknowledgment, wrap-up) is free time.
+ */
+export type TurnType = 'greeting' | 'readiness' | 'question' | 'follow_up' | 'acknowledgment' | 'wrap_up'
+
 /** A single conversational turn (chatbot track). Server-held source of truth. */
 export interface Turn {
   id: string
   role: 'interviewer' | 'candidate'
   content: string
+  turnType?: TurnType          // interviewer turns only; gates the per-question timer
   questionIndex?: number       // 0-based primary-question this belongs to
   isFollowUp?: boolean
   createdAt: string
@@ -182,7 +250,11 @@ export interface InterviewSession {
   transcript?: Turn[]
   plannedQuestionCount?: number
   followUpsThisQuestion?: number
+  greetingTimeOfDay?: TimeOfDay   // candidate's local part-of-day, for the opening greeting
 }
+
+/** Candidate's local part-of-day, derived client-side and sent at session start. */
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening'
 
 /* ─── Scoring / results ─────────────────────────────────────────────────── */
 
@@ -303,6 +375,39 @@ export interface ApiError {
   error: string
 }
 
+/* ─── Analytics (aggregate dashboard) ───────────────────────────────────── */
+
+/** Query filters for GET /api/analytics (all optional; omitted = no filter). */
+export interface AnalyticsFilters {
+  track?: TrackType
+  templateId?: string
+  role?: string
+  dateFrom?: string   // ISO date/time; sessions completed on/after are included
+  dateTo?: string     // ISO date/time; sessions completed on/before are included
+}
+
+/**
+ * Real aggregate metrics computed server-side from stored ResultReports joined
+ * with their sessions. Only `scored` sessions contribute to score stats; the
+ * funnel counts every session. Empty/no-match filters return zeros + [].
+ */
+export interface AnalyticsSummary {
+  totals: { created: number; started: number; completed: number; scored: number }
+  completionRate: number                 // completed / created, 0–1
+  averageOverall: number                 // mean overallScore across scored sessions
+  scoreDistribution: { bucket: string; count: number }[]  // 0-20 … 81-100
+  kpiAverages: { kpiId: string; label: string; average: number; coverage: number }[]
+  byTrack: { track: TrackType; count: number; averageOverall: number; completionRate: number }[]
+  byRole: { role: string; count: number; averageOverall: number }[]
+  byTemplate: { templateId: string; name: string; count: number; averageOverall: number }[]
+  trend: { date: string; count: number; averageOverall: number }[]   // by completion day (UTC)
+  timeStats: { avgDurationSeconds: number; avgTimePerQuestionSeconds: number }
+  recommendationDistribution: { recommendation: string; count: number }[]
+  integrityFlagRate: number              // fraction of scored sessions with ≥1 integrity event
+  topCandidates: { sessionId: string; name: string; role?: string; overallScore: number }[]
+  generatedAt: string
+}
+
 /* ─── Resume → Question Set generation (Gemini) ─────────────────────────── */
 
 export type QuestionStyle = 'technical' | 'non_technical' | 'mix'
@@ -336,7 +441,8 @@ export interface AppSettingsStatus {
 
 export interface ChatbotPublicTiming {
   mode: InterviewMode
-  thinkingSeconds: number
+  enabled: boolean          // this interview times question turns (legacy timed mode OR chatbotTimer)
+  thinkingSeconds: number   // reflects the CURRENT turn's effective timing
   perQuestionSeconds: number
   allowSkipThinking: boolean
   allowEarlySubmit: boolean
@@ -348,6 +454,7 @@ export interface ChatbotTurnView {
   id: string
   role: 'interviewer' | 'candidate'
   content: string
+  turnType?: TurnType
   questionIndex?: number
   isFollowUp?: boolean
 }
@@ -363,9 +470,10 @@ export interface ChatbotSessionState {
   transcript: ChatbotTurnView[]
   awaitingInterviewer: boolean       // server is generating the next turn
   finished: boolean
-  phase: 'thinking' | 'answer' | null // timed mode only; null in conversational
+  phase: 'thinking' | 'answer' | null // set only while a timed question turn is armed
   remainingSeconds: number
   totalPhaseSeconds: number
+  currentTurnTimed: boolean           // the awaiting turn is a timed question/follow-up turn
   currentTurnId: string | null        // interviewer turn being answered (anti-tamper)
   progress: { current: number; total: number }
   draft: string
@@ -376,6 +484,9 @@ export interface ChatbotSessionState {
   awaitingResume: boolean
 }
 
+export interface BeginChatRequest {
+  timeOfDay?: TimeOfDay   // candidate's local part-of-day for a time-aware greeting
+}
 export interface SubmitChatAnswerRequest {
   turnId: string        // must equal currentTurnId (anti-tamper / stale guard)
   answerText: string
@@ -384,3 +495,44 @@ export interface SaveChatDraftRequest {
   turnId: string
   draft: string
 }
+
+/* ─── Voice track — catalog + realtime WS protocol ──────────────────────── */
+
+/** GET /api/voices — browsable catalog for the recruiter picker. */
+export interface VoiceCatalog {
+  voices: VoiceOption[]
+  personas: InterviewPersona[]
+}
+
+/** High-level state of the live call, surfaced to the candidate UI. */
+export type VoicePhase =
+  | 'connecting'   // opening mic + WS
+  | 'greeting'     // agent greeting / asking readiness
+  | 'listening'    // candidate is speaking / mic open
+  | 'thinking'     // agent processing (natural pause, NOT a forced 3s delay)
+  | 'speaking'     // agent audio is playing
+  | 'ended'        // interview complete
+  | 'error'
+
+/** A caption line for the optional on-screen transcript. */
+export interface VoiceCaption {
+  role: 'interviewer' | 'candidate'
+  text: string
+  final: boolean
+}
+
+/** Messages the SERVER pushes to the client over the WS (JSON, except audio). */
+export type VoiceServerMessage =
+  | { type: 'state'; phase: VoicePhase }
+  | { type: 'audio'; data: string; mimeType: string }   // base64 PCM 24k from the agent
+  | { type: 'caption'; role: 'interviewer' | 'candidate'; text: string; final: boolean }
+  | { type: 'interrupted' }                              // barge-in: flush playback
+  | { type: 'ended'; reason?: string; graceful?: boolean } // graceful=false ⇒ interrupted, not a real finish
+  | { type: 'error'; message: string }
+
+/** Messages the CLIENT sends to the server over the WS. */
+export type VoiceClientMessage =
+  | { type: 'ready'; timeOfDay?: TimeOfDay }             // mic granted; begin the interview
+  | { type: 'audio'; data: string }                     // base64 PCM 16k mic chunk
+  | { type: 'mute'; muted: boolean }
+  | { type: 'end' }

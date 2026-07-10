@@ -1,50 +1,64 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Button, Card, Toggle, PageHeader, Input } from '@/components/ui'
 import { useAppStore } from '@/store/useAppStore'
 import { tavus } from '@/services/tavus'
 import { GeminiKeyCard } from '@/features/recruiter/GeminiKeyCard'
 
-const API_FIELDS = [
-  { key: 'tavus',     label: 'Tavus API Key',         placeholder: 'ta_xxxxxxxxxxxxxxxxxxxxxxxx', hint: 'Required — from tavus.io → Settings → API Keys' },
-  { key: 'deepgram',  label: 'Deepgram API Key',       placeholder: 'Token xxxxxxxxxxxxxxxx',      hint: 'Optional — transcription & pace analysis (Nova-2)' },
-  { key: 'hume',      label: 'Hume AI API Key',        placeholder: 'hume_xxxxxxxx',              hint: 'Optional — voice prosody & sentiment scoring' },
-  { key: 'aws',       label: 'AWS Access Key',         placeholder: 'AKIA…',                      hint: 'Optional — Rekognition facial analysis' },
-  { key: 'anthropic', label: 'Anthropic / Claude Key', placeholder: 'sk-ant-api03-…',             hint: 'Optional — AI scorecard synthesis' },
+/**
+ * Settings — AI Avatar Screening credentials, hybrid model.
+ *
+ * • Tavus key: a real runtime key entered here (never compiled into the bundle).
+ * • Gemini: configured via the shared GeminiKeyCard (server-side) — the same key
+ *   powers both recruiter scoring and the avatar ATS analysis. (Frozen module,
+ *   reused read-only.)
+ * • Deepgram / Hume / AWS Rekognition: SERVER-side secrets set via the server
+ *   environment (see .env.example). Shown here as read-only status — no key ever
+ *   entered or tested from the browser.
+ */
+const SERVER_KEYS = [
+  { key: 'deepgram',    label: 'Deepgram Nova-3',  env: 'DEEPGRAM_API_KEY',                      hint: 'Live transcription, speaking pace & filler analysis' },
+  { key: 'hume',        label: 'Hume AI',          env: 'HUME_API_KEY',                          hint: 'Voice prosody & emotional-intelligence (batch)' },
+  { key: 'rekognition', label: 'AWS Rekognition',  env: 'AWS_ACCESS_KEY_ID / SECRET / REGION',   hint: 'Facial expression & engagement analysis' },
 ] as const
+
+type StatusMap = { deepgram: boolean; hume: boolean; gemini: boolean; rekognition: boolean }
 
 export default function SettingsPage() {
   const store = useAppStore()
-  const [keys, setKeys] = useState({ tavus: '', deepgram: '', hume: '', aws: '', anthropic: '', webhook: '' })
-  const [show, setShow] = useState<Record<string, boolean>>({})
+  const [tavusKey, setTavusKeyLocal] = useState('')
+  const [showTavus, setShowTavus] = useState(false)
+  const [webhook, setWebhook] = useState('')
   const [connState, setConnState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [status, setStatus] = useState<StatusMap | null>(null)
   const [whiteLabelMode, setWhiteLabelMode] = useState(false)
   const [gdprAuto, setGdprAuto] = useState(true)
   const [multiLang, setMultiLang] = useState(false)
 
   useEffect(() => {
-    setKeys({ tavus: store.tavusKey, deepgram: store.deepgramKey, hume: store.humeKey, aws: store.awsKey, anthropic: store.anthropicKey, webhook: store.webhookUrl })
-  }, [])
+    setTavusKeyLocal(store.tavusKey)
+    setWebhook(store.webhookUrl)
+    fetch('/api/avatar/status').then(r => (r.ok ? r.json() : null)).then(setStatus).catch(() => setStatus(null))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function testConnection() {
-    if (!keys.tavus) { toast.error('Enter your Tavus API key first'); return }
+    if (!tavusKey) { toast.error('Enter your Tavus API key first'); return }
     setConnState('testing')
     try {
-      tavus.setKey(keys.tavus)
+      tavus.setKey(tavusKey)
       const reps = await tavus.listReplicas()
       setConnState('ok')
       toast.success(`Connected — ${Array.isArray(reps) ? reps.length : 0} replica(s) found`)
-    } catch (e: any) {
+    } catch (e) {
       setConnState('fail')
-      toast.error(e.message ?? 'Connection failed')
+      toast.error((e as Error).message ?? 'Connection failed')
     }
   }
 
   function save() {
-    store.setTavusKey(keys.tavus); store.setDeepgramKey(keys.deepgram)
-    store.setHumeKey(keys.hume); store.setAwsKey(keys.aws)
-    store.setAnthropicKey(keys.anthropic); store.setWebhookUrl(keys.webhook)
-    tavus.setKey(keys.tavus)
+    store.setTavusKey(tavusKey)
+    store.setWebhookUrl(webhook)
+    tavus.setKey(tavusKey)
     toast.success('Settings saved')
   }
 
@@ -57,45 +71,71 @@ export default function SettingsPage() {
         action={<Button onClick={save}>Save Settings</Button>}
       />
 
-      {/* API Keys */}
+      {/* Tavus (runtime key) */}
       <Card className="mb-5 divide-y divide-border">
         <div className="px-6 py-4">
-          <h3 className="text-sm font-semibold text-neutral-800">API Credentials</h3>
-          <p className="text-xs text-neutral-400 mt-0.5">Keys are stored locally in your browser and never sent to TalbotIQ servers.</p>
+          <h3 className="text-sm font-semibold text-neutral-800">Tavus — Avatar</h3>
+          <p className="text-xs text-neutral-400 mt-0.5">Entered here at runtime and stored only in your browser — never compiled into the app bundle.</p>
         </div>
-        <div className="px-6 py-5 space-y-5">
-          {API_FIELDS.map(f => (
-            <div key={f.key}>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="field-label">{f.label}</label>
-                {f.key === 'tavus' && connState === 'ok' && <span className="text-xs font-medium text-success flex items-center gap-1.5"><span className="live-dot" />Connected</span>}
-                {f.key === 'tavus' && connState === 'fail' && <span className="text-xs font-medium text-danger">✕ Failed</span>}
-                {f.key === 'tavus' && connState === 'testing' && <span className="text-xs font-medium text-neutral-400 animate-pulse">Testing…</span>}
-              </div>
-              <div className="relative">
-                <input
-                  type={show[f.key] ? 'text' : 'password'}
-                  value={keys[f.key as keyof typeof keys]}
-                  onChange={e => setKeys(p => ({ ...p, [f.key]: e.target.value }))}
-                  placeholder={f.placeholder}
-                  className="input-base font-mono text-xs pr-14"
-                />
-                <button type="button" onClick={() => setShow(p => ({ ...p, [f.key]: !p[f.key] }))}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-neutral-400 hover:text-neutral-700 transition-colors">
-                  {show[f.key] ? 'Hide' : 'Show'}
-                </button>
-              </div>
-              <p className="text-xs text-neutral-400 mt-1">{f.hint}</p>
+        <div className="px-6 py-5 space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="field-label">Tavus API Key</label>
+              {connState === 'ok' && <span className="text-xs font-medium text-success flex items-center gap-1.5"><span className="live-dot" />Connected</span>}
+              {connState === 'fail' && <span className="text-xs font-medium text-danger">✕ Failed</span>}
+              {connState === 'testing' && <span className="text-xs font-medium text-neutral-400 animate-pulse">Testing…</span>}
             </div>
-          ))}
+            <div className="relative">
+              <input
+                type={showTavus ? 'text' : 'password'}
+                value={tavusKey}
+                onChange={e => setTavusKeyLocal(e.target.value)}
+                placeholder="ta_xxxxxxxxxxxxxxxxxxxxxxxx"
+                className="input-base font-mono text-xs pr-14"
+              />
+              <button type="button" onClick={() => setShowTavus(s => !s)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-neutral-400 hover:text-neutral-700 transition-colors">
+                {showTavus ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            <p className="text-xs text-neutral-400 mt-1">Required — from tavus.io → Settings → API Keys</p>
+          </div>
           <Button variant="outline" size="sm" onClick={testConnection} loading={connState === 'testing'}>
             Test Tavus Connection
           </Button>
         </div>
       </Card>
 
-      {/* Gemini key — server-side (AI Interview module) */}
-      <GeminiKeyCard />
+      {/* Gemini — shared server key (frozen recruiter module, reused) */}
+      <div className="mb-5">
+        <GeminiKeyCard />
+      </div>
+
+      {/* Server-managed analysis providers (hybrid — keys live in server env) */}
+      <Card className="mb-5 divide-y divide-border">
+        <div className="px-6 py-4">
+          <h3 className="text-sm font-semibold text-neutral-800">Analysis Providers — Server-Side</h3>
+          <p className="text-xs text-neutral-400 mt-0.5">These keys stay on the server (set in its environment) and are proxied via <span className="font-mono">/api/avatar/*</span> — never exposed to the browser.</p>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          {SERVER_KEYS.map(f => {
+            const configured = !!status?.[f.key as keyof StatusMap]
+            return (
+              <div key={f.key} className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-neutral-800">{f.label}</p>
+                  <p className="text-xs text-neutral-400 mt-0.5">{f.hint}</p>
+                  {!configured && <p className="text-[11px] text-neutral-400 mt-1">Set <span className="font-mono">{f.env}</span> in the server environment.</p>}
+                </div>
+                <span className={`flex-shrink-0 flex items-center gap-1.5 text-xs font-medium ${configured ? 'text-success' : 'text-neutral-400'}`}>
+                  <span className={`w-2 h-2 rounded-full ${configured ? 'bg-success' : 'bg-neutral-300'}`} />
+                  {status === null ? 'Checking…' : configured ? 'Configured' : 'Not configured'}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
 
       {/* Webhook */}
       <Card className="mb-5 divide-y divide-border">
@@ -107,8 +147,8 @@ export default function SettingsPage() {
           <Input
             label="Webhook URL"
             type="url"
-            value={keys.webhook}
-            onChange={e => setKeys(p => ({ ...p, webhook: e.target.value }))}
+            value={webhook}
+            onChange={e => setWebhook(e.target.value)}
             placeholder="https://api.yourcompany.com/webhook/tavus"
             hint="Receives: conversation.started, conversation.ended, transcription, participant events, errors"
           />
@@ -130,7 +170,7 @@ export default function SettingsPage() {
 
       <div className="flex gap-3">
         <Button onClick={save}>Save Settings</Button>
-        <Button variant="secondary" onClick={() => { if (confirm('Reset all settings and clear stored API keys?')) { localStorage.removeItem('talbotiq-store'); location.reload() } }}>
+        <Button variant="secondary" onClick={() => { if (confirm('Reset Tavus key and local preferences?')) { localStorage.removeItem('talbotiq-store'); location.reload() } }}>
           Reset to Defaults
         </Button>
       </div>

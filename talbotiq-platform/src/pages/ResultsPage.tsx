@@ -1,22 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAppStore } from '@/store/useAppStore'
-import { Card, Button, Badge, StatCard, PageHeader, SectionTitle } from '@/components/ui'
+import { Card, Button, StatCard, PageHeader, SectionTitle } from '@/components/ui'
 import { cn } from '@/components/ui'
-
-const DIMS = [
-  { name: 'Communication',   score: 84 }, { name: 'Confidence',      score: 71 },
-  { name: 'Engagement',      score: 80 }, { name: 'Vocabulary',      score: 88 },
-  { name: 'Problem Solving', score: 82 }, { name: 'Leadership',      score: 76 },
-]
-const TIMELINE = [
-  { label: 'Strong Response',   desc: 'Articulated background clearly',      type: 'good' },
-  { label: 'Strong Response',   desc: 'Excellent problem decomposition',     type: 'good' },
-  { label: 'Confidence Drop',   desc: 'Hesitation detected — AI flagged',   type: 'warn' },
-  { label: 'Recovered Well',    desc: 'Strong recovery on scalability',      type: 'neutral' },
-  { label: 'Excellent Closing', desc: 'Confident, impactful closing',        type: 'good' },
-]
+import { useHumePoll } from '@/hooks/useHumeBatch'
+import { useGeminiAnalysis } from '@/hooks/useGeminiAnalysis'
+import { buildGeminiInput } from '@/services/analysisDataBuilder'
+import { ATSScorecardPanel } from '@/components/ats/ATSScorecardPanel'
+import { FacialAnalysisPanel } from '@/components/ats/FacialAnalysisPanel'
+import { facialDataStore } from '@/services/facialDataStore'
+import { aggregateFacialData } from '@/services/rekognitionService'
+import type { FacialSessionSummary } from '@/types/rekognition.types'
+import { countWords, calcWpm, countFillers } from '@/services/deepgram'
+import { SentimentArc } from '@/components/hume/SentimentArc'
+import { EmotionRadar } from '@/components/hume/EmotionRadar'
+import { EmotionTimeline } from '@/components/hume/EmotionTimeline'
+import { EmotionCategoryPanel } from '@/components/hume/EmotionCategoryPanel'
+import { EmotionHeatmap } from '@/components/hume/EmotionHeatmap'
+import { PerQuestionCard } from '@/components/hume/PerQuestionCard'
 
 function scoreColor(s: number) {
   if (s >= 85) return { text: '#0d5c3a', bg: '#f0faf5', bar: '#0d5c3a' }
@@ -28,15 +30,207 @@ export default function ResultsPage() {
   const store = useAppStore()
   const navigate = useNavigate()
   const conv = store.currentConversation
-  const overall = Math.round(DIMS.reduce((a, b) => a + b.score, 0) / DIMS.length)
+  const humeResult = store.humeResult
+  const m = store.metrics
+
+  // Continue polling if a Hume job is pending
+  useHumePoll()
+
+  // Gemini ATS analysis (reasoning layer over Deepgram + Hume + facial)
+  const gemini = useGeminiAnalysis()
+
+  // Aggregate AWS Rekognition facial frames captured during the interview. Runs once,
+  // synchronously (facialDataStore is a module singleton), so it is ready before the
+  // Gemini trigger fires and can be folded into that analysis. Always built (even from
+  // zero frames) so the Results page can surface a "not captured" diagnostic.
+  const [facialSummary] = useState<FacialSessionSummary>(() => {
+    const frames = facialDataStore.getFrames()
+    const summary = aggregateFacialData(frames, useAppStore.getState().questions.filter(Boolean).length)
+    facialDataStore.setSummary(summary)
+    return summary
+  })
+
+  // ── Real Deepgram transcript analytics ───────────────────────────────────
+  const transcript = store.sessionTranscript
+  const hasTranscript = transcript.length > 0
+  const realWordCount = countWords(transcript)
+  // calcWpm needs >= 2 entries with timestamps; fallback to stored m.wpm when available
+  const calcedWpm    = hasTranscript ? calcWpm(transcript) : 0
+  const realWpm      = hasTranscript ? (calcedWpm > 0 ? calcedWpm : m.wpm > 0 ? m.wpm : null) : null
+  const realFillers  = hasTranscript ? transcript.reduce((a, e) => a + countFillers(e.text), 0) : null
+  const totalText    = transcript.map(e => e.text).join(' ')
+  const sentenceCount = hasTranscript ? totalText.split(/[.!?]+/).filter(s => s.trim().length > 3).length : 0
+
+  // Display helpers — show '—' when data is absent
+  const fmtWpm     = realWpm     !== null ? `${realWpm}`     : '—'
+  const fmtFillers = realFillers !== null ? `${realFillers}` : '—'
+
+  // ── Dynamic scores derived from Hume AI + Deepgram ───────────────────────
+  const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v))
+
+  // Deepgram-derived values
+  const wpmForScore     = realWpm     !== null ? realWpm     : 130
+  const fillersForScore = realFillers !== null ? realFillers : 0
+
+  // Hume emotion category scores (0..1 range per category)
+  const hc = humeResult?.overallCategoryScores
+
+  // Normalise a weighted emotion sum → 0-100 (same formula as computeCompositeScore)
+  // Neutral baseline → ~50; strong positive → 70-90; strong negative → 20-40
+  const humeScore = (w: Partial<Record<string, number>>): number | null => {
+    if (!hc) return null
+    let raw = 0
+    for (const [k, weight] of Object.entries(w)) raw += (hc[k as keyof typeof hc] ?? 0) * (weight ?? 0)
+    return clamp(Math.round((raw + 0.35) * (100 / 0.7)))
+  }
+
+  // Deepgram-only proxy when Hume is absent — uses WPM pace + filler penalty
+  const wpmProxy = realWpm !== null ? clamp(Math.round(50 + (realWpm - 130) * 0.5)) : null
+  const dgScore  = (base: number | null) => base !== null ? clamp(base - fillersForScore * 5) : 0
+
+  // ── Per-dimension calculation ─────────────────────────────────────────────
+  // Confidence: positive_high (excitement/joy/pride) vs negative (anxiety/fear)
+  const confScore = humeScore({ positive_high: 0.50, positive_calm: 0.15, negative: -0.40, disengagement: -0.25 })
+                 ?? dgScore(wpmProxy !== null ? wpmProxy + 10 : null)
+
+  // Engagement: interest + focus, penalised by boredom
+  const engageScore = humeScore({ positive_high: 0.40, cognitive: 0.40, disengagement: -0.50, negative: -0.20 })
+                   ?? dgScore(wpmProxy !== null ? wpmProxy + 5 : null)
+
+  // Communication: calm positivity + social expressiveness
+  const commScore = humeScore({ positive_calm: 0.30, social: 0.25, positive_high: 0.25, negative: -0.15, disengagement: -0.15 })
+                 ?? dgScore(wpmProxy !== null ? wpmProxy + 5 : null)
+
+  // No transcript AND no voice-emotion data → there is no signal to score from.
+  // Never fabricate numbers (the old defaults minted Stress 100 / Articulation
+  // 100 / Vocabulary 81 for empty sessions, yielding bogus 47-56/100 overalls).
+  const noSignal = !hasTranscript && !humeResult
+
+  // Stress Mgmt: calmness vs negative/disengagement
+  const stressScore = humeScore({ positive_calm: 0.35, negative: -0.45, disengagement: -0.20 })
+                   ?? (hasTranscript ? clamp(100 - fillersForScore * 4) : 0)
+
+  // Vocabulary: pure Deepgram WPM — 82+ WPM scores linearly, capped at 100
+  const vocabScore = hasTranscript ? clamp(wpmForScore > 100 ? 75 + Math.round((wpmForScore - 100) / 5) : Math.round(wpmForScore / 2)) : 0
+
+  // Articulation: pure Deepgram fillers — 0 fillers = 100, each filler costs 10 pts
+  const articScore = hasTranscript ? clamp(100 - fillersForScore * 10) : 0
+
+  const dims = [
+    { name: 'Communication',   score: commScore },
+    { name: 'Confidence',      score: confScore },
+    { name: 'Engagement',      score: engageScore },
+    { name: 'Vocabulary',      score: vocabScore },
+    { name: 'Stress Mgmt',     score: stressScore },
+    { name: 'Articulation',    score: articScore },
+  ]
+
+  const overall = humeResult
+    ? humeResult.compositeScore
+    : Math.round(dims.reduce((a, b) => a + b.score, 0) / dims.length)
+
   const offset = 301.6 - (overall / 100) * 301.6
-  const verdict = overall >= 85 ? 'Excellent Candidate' : overall >= 75 ? 'Good Candidate' : overall >= 65 ? 'Potential Candidate' : 'Needs Further Review'
+  const verdict =
+    noSignal ? 'Insufficient data — no speech captured' :
+    overall >= 85 ? 'Excellent Candidate' :
+    overall >= 75 ? 'Good Candidate' :
+    overall >= 65 ? 'Potential Candidate' :
+    'Needs Further Review'
+
+  const hiringConf = clamp(Math.round(overall * 0.9 + engageScore * 0.1))
+
+  const strengths: string[] = []
+  const watchPoints: string[] = []
+
+  // Use derived scores (not m.* which are always 0 with no live EVI)
+  if (confScore >= 70)   strengths.push('Strong confidence signals')
+  if (engageScore >= 70) strengths.push('High engagement level')
+  if (stressScore >= 70) strengths.push('Composed under pressure')
+  if (hasTranscript && realWpm !== null && realWpm >= 110 && realWpm <= 160) strengths.push('Clear speaking pace')
+  if (articScore >= 90 && hasTranscript) strengths.push('No filler words detected')
+  else if (articScore >= 70 && hasTranscript) strengths.push('Minimal filler words')
+  if (humeResult?.overallTopEmotions[0]) strengths.push(`Dominant: ${humeResult.overallTopEmotions[0].name}`)
+
+  if (confScore > 0 && confScore < 55)    watchPoints.push('Low confidence signals')
+  if (stressScore > 0 && stressScore < 45) watchPoints.push('Elevated stress detected')
+  if (hasTranscript && (realFillers ?? 0) >= 5) watchPoints.push(`High filler words: ${realFillers}`)
+  if (hasTranscript && realWpm !== null && realWpm < 100) watchPoints.push('Speaking pace below normal')
+  if (hasTranscript && realWpm !== null && realWpm > 170) watchPoints.push('Speaking pace too fast')
+  if (engageScore > 0 && engageScore < 50) watchPoints.push('Low engagement level')
+
+  if (strengths.length === 0) strengths.push('Completed all questions', 'Responsive to prompts')
+  if (watchPoints.length === 0) watchPoints.push('No significant issues detected')
+
+  // Questions ACTUALLY answered (distinct questions with candidate speech) —
+  // not the configured question count, which mislabeled every report.
+  const questionsAnswered = new Set(transcript.filter(e => e.role === 'candidate').map(e => e.questionIdx)).size
+
+  // ── Filter per-question Hume data to only questions the candidate answered ──
+  // Primary: use Deepgram transcript to know which questions got a response.
+  // Fallback: if no transcript, require at least 2 prosody predictions (avoids noise).
+  const answeredQuestionIndices = new Set(transcript.map(e => e.questionIdx))
+  const perQuestionFiltered = (humeResult?.perQuestion ?? []).filter(q =>
+    answeredQuestionIndices.size > 0
+      ? answeredQuestionIndices.has(q.questionIdx)
+      : q.timeline.length >= 2
+  )
+
+  // ── Hume section state ────────────────────────────────────────────────────
+  // Show spinner when a real jobId exists AND status is not yet terminal.
+  // null status means job was just submitted (submitBatchJob resolved but first poll hasn't run).
+  const humeIsProcessing =
+    !!store.humeJobId &&
+    !humeResult &&
+    store.humeJobStatus !== 'COMPLETED' &&
+    store.humeJobStatus !== 'FAILED'
+
+  const humeNoData = !humeResult && !humeIsProcessing
+
+  // ── Gemini ATS analysis trigger ───────────────────────────────────────────
+  // Candidate name is embedded in the Tavus conversation_name ("TalbotIQ — Name").
+  const candidateName = (conv?.conversation_name ?? '').split('—').pop()?.trim() || 'Candidate'
+  const jobRole = 'the interviewed role'
+
+  function runAtsAnalysis() {
+    const geminiInput = buildGeminiInput({
+      candidateName,
+      jobRole,
+      questions: store.questions.filter(Boolean),
+      transcript,
+      humeResult,
+      // Feed the ATS the same derived numbers the page displays — never the raw
+      // live-metric fields, which are 0 for short sessions and stale otherwise.
+      wpm: realWpm ?? m.wpm,
+      totalFillers: realFillers ?? m.fillers,
+      facialSummary,
+    })
+    gemini.analyze(geminiInput)
+  }
+
+  // Auto-run once a transcript exists and a Gemini key is present. Waits for the Hume
+  // batch to finish first (so emotion data enriches the analysis) but proceeds without
+  // it if Hume produced nothing, so the transcript is still analysed.
+  useEffect(() => {
+    if (
+      gemini.status === 'idle' &&
+      hasTranscript &&
+      store.geminiKey &&
+      !humeIsProcessing
+    ) {
+      runAtsAnalysis()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasTranscript, humeIsProcessing, gemini.status, store.geminiKey])
+
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [offerOpen, setOfferOpen] = useState(false)
 
   function downloadReport() {
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>TalbotIQ Interview Report</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Inter,sans-serif;color:#0f172a;background:#f8fafc;padding:48px}h1{font-size:28px;font-weight:700;color:#0d5c3a;margin-bottom:4px}.meta{font-size:13px;color:#64748b;margin-bottom:32px}table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:10px 14px;border:1px solid #e2e8f0;text-align:left}th{background:#f8fafc;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b}.score{font-size:48px;font-weight:800;color:#0d5c3a}.verdict{display:inline-block;background:#f0faf5;color:#0d5c3a;padding:4px 12px;border-radius:9999px;font-size:12px;font-weight:600;border:1px solid #b3e9cd}</style></head><body><h1>TalbotIQ AI Interview Report</h1><p class="meta">Session ID: ${conv?.conversation_id ?? 'demo'} &bull; Generated: ${new Date().toLocaleString()}</p><p class="score">${overall}<span style="font-size:20px;color:#64748b">/100</span></p><p class="verdict" style="margin:12px 0 32px">${verdict}</p><table><tr><th>Dimension</th><th>Score</th><th>Grade</th></tr>${DIMS.map(d => `<tr><td>${d.name}</td><td style="font-weight:600">${d.score}/100</td><td>${d.score >= 85 ? 'Excellent' : d.score >= 75 ? 'Good' : 'Moderate'}</td></tr>`).join('')}</table><div style="margin-top:32px;background:#0d5c3a;color:white;padding:20px;border-radius:12px"><div style="font-size:11px;opacity:.6;text-transform:uppercase;letter-spacing:.08em">AI Recommendation</div><div style="font-size:20px;font-weight:700;margin:6px 0">Proceed to Technical Round</div><div style="font-size:13px;opacity:.8">Candidate demonstrates strong communication skills, excellent engagement, and advanced vocabulary. Hiring confidence: 87%.</div></div></body></html>`
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' })); a.download = `TalbotIQ-Report-${conv?.conversation_id ?? 'demo'}.html`
+    const rows = dims.map(d => `<tr><td>${d.name}</td><td style="font-weight:600">${d.score}/100</td><td>${d.score >= 85 ? 'Excellent' : d.score >= 75 ? 'Good' : 'Moderate'}</td></tr>`).join('')
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>TalbotIQ Report</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;color:#0f172a;background:#f8fafc;padding:48px}h1{font-size:28px;font-weight:700;color:#0d5c3a;margin-bottom:4px}.meta{font-size:13px;color:#64748b;margin-bottom:32px}table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:10px 14px;border:1px solid #e2e8f0}.score{font-size:48px;font-weight:800;color:#0d5c3a}</style></head><body><h1>TalbotIQ AI Interview Report</h1><p class="meta">Session: ${conv?.conversation_id ?? 'demo'} · Generated: ${new Date().toLocaleString()}</p><p class="score">${overall}<span style="font-size:20px;color:#64748b">/100</span></p><p style="margin:12px 0 32px;display:inline-block;background:#f0faf5;color:#0d5c3a;padding:4px 12px;border-radius:9999px;font-size:12px;border:1px solid #b3e9cd">${verdict}</p><table><tr><th>Dimension</th><th>Score</th><th>Grade</th></tr>${rows}</table></body></html>`
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+    a.download = `TalbotIQ-Report-${conv?.conversation_id ?? 'demo'}.html`
     document.body.appendChild(a); a.click(); document.body.removeChild(a)
     toast.success('Report downloaded')
   }
@@ -50,17 +244,25 @@ export default function ResultsPage() {
         action={
           <div className="text-right">
             <p className="text-xs text-neutral-400">Session ID</p>
-            <p className="font-mono text-xs font-semibold text-neutral-700 mt-0.5">{conv?.conversation_id ?? 'TIQ-demo-2024'}</p>
+            <p className="font-mono text-xs font-semibold text-neutral-700 mt-0.5">{conv?.conversation_id ?? 'TIQ-demo'}</p>
           </div>
         }
       />
 
+      {/* Hume batch processing status banner */}
+      {humeIsProcessing && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-hume-border bg-hume-surface text-sm text-hume-teal">
+          <span className="w-2 h-2 rounded-full bg-hume-teal animate-pulse flex-shrink-0" />
+          <span className="font-mono text-xs">HUME AI · Analysing prosody — emotion results will appear below shortly</span>
+        </div>
+      )}
+
       {/* KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Overall Score" value={`${overall}/100`} sub={verdict} trend="up" color="#0d5c3a" />
-        <StatCard label="Hiring Confidence" value="87%" sub="Proceed to technical" trend="up" color="#0d5c3a" />
-        <StatCard label="Words / Min" value="134" sub="Normal range (120–160)" color="#d97706" />
-        <StatCard label="Face Engagement" value="81%" sub="Above benchmark" trend="up" color="#0d5c3a" />
+        <StatCard label="Overall Score"     value={noSignal ? '—' : `${overall}/100`}    sub={verdict}                      trend={noSignal ? undefined : 'up'}  color="#0d5c3a" />
+        <StatCard label="Hiring Confidence" value={noSignal ? '—' : `${hiringConf}%`}    sub={noSignal ? 'Awaiting interview data' : 'Based on all signals'}         trend={noSignal ? undefined : 'up'}  color="#0d5c3a" />
+        <StatCard label="Words / Min"  value={fmtWpm}   sub={hasTranscript ? 'From Deepgram' : 'No transcript yet'} color={realWpm !== null && realWpm >= 110 && realWpm <= 170 ? '#0d5c3a' : '#d97706'} />
+        <StatCard label="Total Words"  value={hasTranscript ? `${realWordCount}` : '—'} sub={hasTranscript ? `${sentenceCount} sentences` : 'Deepgram required'} trend={hasTranscript ? 'up' : undefined} color="#0d5c3a" />
       </div>
 
       {/* Score ring + dimensions */}
@@ -73,7 +275,7 @@ export default function ResultsPage() {
                 strokeDasharray="301.6" strokeDashoffset={offset} style={{ transition: 'stroke-dashoffset 1.5s ease' }} />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-black text-neutral-900">{overall}</span>
+              <span className="text-3xl font-black text-neutral-900">{noSignal ? '—' : overall}</span>
               <span className="text-xs text-neutral-400 font-medium">/100</span>
             </div>
           </div>
@@ -81,14 +283,18 @@ export default function ResultsPage() {
           <span className="badge badge-success px-3 py-1 text-xs font-semibold">{verdict}</span>
           <div className="mt-5 w-full p-4 bg-neutral-50 rounded-xl border border-border">
             <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">AI Summary</p>
-            <p className="text-xs text-neutral-600 leading-relaxed">Strong communicator with good technical articulation. Minor confidence fluctuation under pressure. Vocabulary and engagement exceed benchmark expectations.</p>
+            <p className="text-xs text-neutral-600 leading-relaxed">
+              {humeResult
+                ? `Dominant emotion: ${humeResult.overallTopEmotions[0]?.name ?? 'Engagement'}. Composite score from ${humeResult.timeline.length} prosody predictions across ${questionsAnswered} questions.`
+                : `Candidate completed ${questionsAnswered} question${questionsAnswered !== 1 ? 's' : ''}. ${confScore >= 70 ? 'Strong confidence signals throughout.' : 'Some confidence fluctuation observed.'} Engagement: ${engageScore}%.`}
+            </p>
           </div>
         </Card>
 
         <Card className="p-6">
           <SectionTitle>Dimension Scores</SectionTitle>
           <div className="space-y-3.5">
-            {DIMS.map(d => {
+            {dims.map(d => {
               const c = scoreColor(d.score)
               return (
                 <div key={d.name} className="flex items-center gap-3">
@@ -102,7 +308,7 @@ export default function ResultsPage() {
             })}
           </div>
           <div className="flex gap-4 mt-5 pt-4 border-t border-border">
-            {[['#0d5c3a', '85+ Excellent'], ['#64748b', '75–84 Good'], ['#d97706', '65–74 Moderate']].map(([c, l]) => (
+            {[['#0d5c3a', '85+ Excellent'], ['#64748b', '75–84 Good'], ['#d97706', 'Below 75 Moderate']].map(([c, l]) => (
               <span key={l} className="flex items-center gap-1.5 text-xs text-neutral-400">
                 <span className="w-2 h-2 rounded-full" style={{ background: c }} />{l}
               </span>
@@ -111,20 +317,103 @@ export default function ResultsPage() {
         </Card>
       </div>
 
-      {/* Raw signals */}
+      {/* ── Hume AI Emotion Dashboard ─────────────────────────────────────────── */}
+      <div className="rounded-2xl bg-hume-base border border-hume-border p-6 space-y-6 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <p className="text-xs font-mono text-hume-muted uppercase tracking-widest mb-1">Hume AI · Prosody Analysis</p>
+            <h2 className="text-lg font-bold text-hume-text">Emotional Intelligence Report</h2>
+          </div>
+          {humeResult && <SentimentArc score={humeResult.compositeScore} label="Emotion Score" size={120} />}
+        </div>
+
+        {humeResult ? (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Overall Emotion Profile</p>
+                <EmotionRadar categoryScores={humeResult.overallCategoryScores} />
+              </div>
+              <div>
+                <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Category Breakdown</p>
+                <EmotionCategoryPanel categoryScores={humeResult.overallCategoryScores} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Emotion Timeline</p>
+              <EmotionTimeline timeline={humeResult.timeline} questionTimestamps={store.questionTimestamps} />
+            </div>
+            {perQuestionFiltered.length > 0 && (
+              <>
+                <div>
+                  <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Per-Question Heatmap</p>
+                  <EmotionHeatmap perQuestion={perQuestionFiltered} />
+                </div>
+                <div>
+                  <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Question-by-Question Analysis</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {perQuestionFiltered.map((q, i) => (
+                      <PerQuestionCard key={i} summary={q} index={i} />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        ) : humeIsProcessing ? (
+          <div className="rounded-xl bg-hume-surface border border-hume-border p-10 flex flex-col items-center gap-4">
+            <span className="w-8 h-8 rounded-full border-2 border-hume-teal border-t-transparent animate-spin" />
+            <p className="text-hume-text text-sm">Processing prosody analysis — results will appear automatically.</p>
+            <p className="text-hume-muted text-xs font-mono">Job ID: {store.humeJobId}</p>
+            <button
+              className="text-xs text-hume-muted underline hover:text-hume-text transition-colors"
+              onClick={() => {
+                store.setHumeJobId(null)
+                store.setHumeJobStatus(null)
+              }}
+            >
+              Dismiss and show results without emotion data
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-xl bg-hume-surface border border-hume-border p-8 text-center space-y-2">
+            <p className="text-hume-text text-sm font-medium">No voice-emotion data for this session.</p>
+            <p className="text-hume-muted text-xs leading-relaxed max-w-md mx-auto">
+              Emotion analysis runs on the interview audio after the interview ends — grant
+              microphone access during the session and finish with the <b>End Interview</b> button
+              so the recording is submitted. Speaking pace, filler words, the transcript, facial
+              analysis and the Gemini assessment are computed independently.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Raw signals — real Deepgram data when available */}
       <Card className="p-5">
-        <SectionTitle>Raw Signal Analytics</SectionTitle>
+        <div className="flex items-center justify-between mb-4">
+          <SectionTitle>Voice & Signal Analytics</SectionTitle>
+          {hasTranscript && (
+            <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#0d5c3a] bg-success-bg border border-success-border px-2 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#0d5c3a]" />
+              Deepgram Nova-3
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: 'Words/min', value: '134', color: '#0d5c3a', badge: undefined },
-            { label: 'Filler words', value: '12', color: '#d97706', badge: 'WARN' },
-            { label: 'Longest pause', value: '2.1s', color: '#dc2626', badge: 'ALERT' },
-            { label: 'Confident tone', value: '72%', color: '#d97706', badge: undefined },
-            { label: 'Anxiety level', value: '8%', color: '#0d5c3a', badge: undefined },
-            { label: 'Engagement', value: '81%', color: '#0d5c3a', badge: undefined },
+            { label: 'Words / Min',  value: fmtWpm,    color: realWpm !== null && realWpm >= 110 && realWpm <= 170 ? '#0d5c3a' : '#d97706', badge: realWpm !== null && realWpm > 170 ? 'FAST' : realWpm !== null && realWpm < 80 ? 'SLOW' : undefined },
+            { label: 'Filler Words', value: fmtFillers, color: realFillers !== null && realFillers <= 3 ? '#0d5c3a' : '#d97706', badge: realFillers !== null && realFillers >= 7 ? 'HIGH' : undefined },
+            { label: 'Total Words',  value: hasTranscript ? `${realWordCount}` : '—', color: '#0d5c3a', badge: undefined },
+            { label: 'Sentences',    value: hasTranscript ? `${sentenceCount}` : '—', color: '#0d5c3a', badge: undefined },
+            { label: 'Confidence',     value: confScore > 0 ? `${confScore}%` : hc ? `${confScore}%` : '—',    color: confScore >= 70 ? '#0d5c3a' : '#d97706', badge: confScore > 0 && confScore < 50 ? 'LOW' : undefined },
+            { label: 'Questions Done', value: `${questionsAnswered}`, color: '#0d5c3a',                                                 badge: undefined },
           ].map(s => (
             <div key={s.label} className="relative bg-neutral-50 rounded-xl border border-border p-3.5">
-              {s.badge && <span className={cn('absolute top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded', s.badge === 'WARN' ? 'badge badge-warning' : 'badge badge-danger')}>{s.badge}</span>}
+              {s.badge && (
+                <span className={cn('absolute top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded', 'badge badge-warning')}>
+                  {s.badge}
+                </span>
+              )}
               <p className="text-2xl font-bold tabular-nums" style={{ color: s.color }}>{s.value}</p>
               <p className="text-xs text-neutral-400 mt-1">{s.label}</p>
             </div>
@@ -132,7 +421,7 @@ export default function ResultsPage() {
         </div>
       </Card>
 
-      {/* Strengths / Watch */}
+      {/* Strengths / Watch — dynamic */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         <Card className="p-5">
           <p className="text-xs font-semibold text-success uppercase tracking-wide mb-3 flex items-center gap-2">
@@ -140,9 +429,7 @@ export default function ResultsPage() {
             Strengths
           </p>
           <div className="flex flex-wrap gap-2">
-            {['Clear sentence structure', 'Strong vocabulary range', 'Good eye contact', 'Technical clarity', 'Positive communication'].map(s => (
-              <span key={s} className="badge badge-success px-2.5 py-1">{s}</span>
-            ))}
+            {strengths.map(s => <span key={s} className="badge badge-success px-2.5 py-1">{s}</span>)}
           </div>
         </Card>
         <Card className="p-5">
@@ -151,54 +438,37 @@ export default function ResultsPage() {
             Watch Points
           </p>
           <div className="flex flex-wrap gap-2">
-            {['Confidence dip at Q3', 'Filler words detected', 'Minor hesitation', 'Stress indicators'].map(s => (
-              <span key={s} className="badge badge-warning px-2.5 py-1">{s}</span>
-            ))}
+            {watchPoints.map(s => <span key={s} className="badge badge-warning px-2.5 py-1">{s}</span>)}
           </div>
         </Card>
       </div>
 
-      {/* AI Observation */}
-      <Card className="p-5 border-warning-border bg-warning-bg">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          </div>
-          <p className="text-sm font-semibold text-neutral-800">AI Observation — Flagged Question</p>
-        </div>
-        <div className="bg-white rounded-lg border border-amber-100 px-4 py-2.5 mb-3 text-sm text-neutral-700 italic">
-          "{store.questions[2] ?? 'How do you handle database query optimisation under load?'}"
-        </div>
-        <ul className="space-y-1.5">
-          {['Confidence dropped significantly during this response.', 'Voice hesitation detected at multiple points.', 'Pause duration increased by 1.4 seconds above baseline.'].map(p => (
-            <li key={p} className="flex items-start gap-2 text-xs text-amber-800">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0 mt-1" />{p}
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      {/* Interview timeline */}
-      <Card className="p-5">
-        <SectionTitle>Interview Timeline</SectionTitle>
-        <div className="relative flex items-start px-4">
-          <div className="absolute top-[21px] left-8 right-8 h-px bg-border" />
-          {TIMELINE.slice(0, Math.max(store.questions.filter(Boolean).length, 1)).map((r, i) => {
-            const isWarn = r.type === 'warn'; const isGood = r.type === 'good' || r.type === 'excellent'
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center text-center relative z-10 px-1">
-                <div className={cn('w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-bold bg-white mb-3 shadow-xs', isWarn ? 'border-warning text-warning' : isGood ? 'border-primary-700 text-primary-700' : 'border-neutral-300 text-neutral-400')}>
-                  Q{i + 1}
+      {/* Interview timeline — per question */}
+      {questionsAnswered > 0 && (
+        <Card className="p-5">
+          <SectionTitle>Interview Timeline</SectionTitle>
+          <div className="relative flex items-start px-4">
+            <div className="absolute top-[21px] left-8 right-8 h-px bg-border" />
+            {store.questions.filter(Boolean).map((q, i) => {
+              const done = i < store.currentQuestionIdx
+              const active = i === store.currentQuestionIdx
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center text-center relative z-10 px-1">
+                  <div className={cn('w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-bold bg-white mb-3 shadow-xs',
+                    done ? 'border-primary-700 text-primary-700' : active ? 'border-warning text-warning' : 'border-neutral-300 text-neutral-400')}>
+                    {done ? '✓' : i + 1}
+                  </div>
+                  <span className={cn('text-[9px] font-bold px-2 py-0.5 rounded-full mb-1.5 whitespace-nowrap border',
+                    done ? 'badge badge-success' : active ? 'badge badge-warning' : 'badge badge-neutral')}>
+                    {done ? 'Answered' : active ? 'In Progress' : 'Pending'}
+                  </span>
+                  <p className="text-[10px] text-neutral-400 leading-tight line-clamp-2">{q.slice(0, 40)}{q.length > 40 ? '…' : ''}</p>
                 </div>
-                <span className={cn('text-[9px] font-bold px-2 py-0.5 rounded-full mb-1.5 whitespace-nowrap border', isWarn ? 'badge badge-warning' : isGood ? 'badge badge-success' : 'badge badge-neutral')}>
-                  {r.label}
-                </span>
-                <p className="text-[10px] text-neutral-400 leading-tight">{r.desc}</p>
-              </div>
-            )
-          })}
-        </div>
-      </Card>
+              )
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* AI Recommendation */}
       <div className="bg-primary-700 rounded-2xl p-6">
@@ -208,28 +478,148 @@ export default function ResultsPage() {
           </div>
           <div className="flex-1">
             <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-1">AI Recommendation</p>
-            <p className="text-xl font-bold text-white">Proceed to Technical Round</p>
-            <p className="text-sm text-white/65 mt-2 leading-relaxed">Candidate demonstrates strong communication skills, excellent engagement, and advanced vocabulary. Confidence fluctuates slightly during high-pressure questions but remains within acceptable range.</p>
+            <p className="text-xl font-bold text-white">
+              {overall >= 80 ? 'Proceed to Technical Round' : overall >= 65 ? 'Consider for Second Interview' : 'Further Evaluation Recommended'}
+            </p>
+            <p className="text-sm text-white/65 mt-2 leading-relaxed">
+              {overall >= 80
+                ? `Strong across ${dims.filter(d => d.score >= 75).length} of ${dims.length} dimensions. Engagement at ${engageScore}% exceeds benchmark. Recommended for next stage.`
+                : overall >= 65
+                  ? `Moderate performance with room to grow. ${strengths[0] ?? 'Completed all questions'}. Consider a follow-up interview to assess potential.`
+                  : `Score below threshold. Key concerns: ${watchPoints.slice(0, 2).join(', ')}. Additional screening recommended.`}
+            </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-3xl font-black text-white">87%</p>
+            <p className="text-3xl font-black text-white">{hiringConf}%</p>
             <p className="text-xs text-white/50">Hiring Confidence</p>
           </div>
         </div>
         <div className="border-t border-white/10 pt-4">
-          <div className="flex justify-between text-xs mb-2"><span className="text-white/50">Hiring Recommendation Confidence</span><span className="text-white font-semibold">87%</span></div>
-          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-white/70 rounded-full" style={{ width: '87%' }} /></div>
-          <div className="flex justify-between text-[10px] text-white/25 mt-1.5"><span>0%</span><span>50%</span><span>100%</span></div>
+          <div className="flex justify-between text-xs mb-2">
+            <span className="text-white/50">Hiring Recommendation Confidence</span>
+            <span className="text-white font-semibold">{hiringConf}%</span>
+          </div>
+          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-white/70 rounded-full transition-all duration-700" style={{ width: `${hiringConf}%` }} />
+          </div>
         </div>
       </div>
 
       {/* Recruiter actions */}
+      {/* ── Full Transcript ───────────────────────────────────────────────────── */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <SectionTitle>Interview Transcript</SectionTitle>
+          {hasTranscript ? (
+            <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#0d5c3a] bg-success-bg border border-success-border px-2 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#0d5c3a]" />
+              {realWordCount} words · {sentenceCount} sentences
+            </span>
+          ) : (
+            <span className="text-xs text-neutral-400">Deepgram Nova-3 · transcription not captured</span>
+          )}
+        </div>
+
+        {hasTranscript ? (
+          <>
+            {/* Group by question */}
+            {store.questions.filter(Boolean).map((q, qi) => {
+              const entries = transcript.filter(e => e.questionIdx === qi)
+              if (entries.length === 0) return null
+              const qWords = countWords(entries)
+              const qFillers = entries.reduce((a, e) => a + countFillers(e.text), 0)
+              return (
+                <div key={qi} className="mb-5 last:mb-0">
+                  <div className="flex items-start gap-3 mb-2">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary-700 text-white text-[10px] font-bold flex items-center justify-center">
+                      {qi + 1}
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-neutral-500 italic mb-2">"{q}"</p>
+                      <div className="space-y-1.5 pl-1">
+                        {entries.map((e, i) => (
+                          <div key={i} className="bg-neutral-50 rounded-lg border border-border px-3 py-2">
+                            <p className="text-xs text-neutral-700 leading-relaxed">{e.text}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-4 mt-2 text-[10px] text-neutral-400">
+                        <span>{qWords} words</span>
+                        {qFillers > 0 && <span className="text-warning">{qFillers} filler{qFillers !== 1 ? 's' : ''}</span>}
+                        <span>{new Date(entries[0].timestamp).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {qi < store.questions.filter(Boolean).length - 1 && <div className="border-t border-border mt-4" />}
+                </div>
+              )
+            })}
+          </>
+        ) : (
+          <div className="py-8 text-center">
+            <p className="text-sm text-neutral-400">No transcript recorded for this session.</p>
+            <p className="mt-1 text-xs text-neutral-400">
+              {store.deepgramKey
+                ? 'Make sure microphone access is granted during the interview.'
+                : 'Live transcription is not configured — set DEEPGRAM_API_KEY in the server environment.'}
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {/* ── AI-Powered ATS Assessment (Gemini) ──────────────────────────────── */}
+      {/* Visible diagnostic when the analysis can't run (no transcript) — a hidden
+          section with no explanation looked like a silent failure. */}
+      {gemini.status === 'idle' && !gemini.scorecard && !hasTranscript && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-bold text-neutral-900">AI-Powered ATS Assessment</h2>
+          <Card className="p-6 text-center">
+            <p className="text-sm font-medium text-neutral-700">Waiting on a transcript</p>
+            <p className="mt-1 text-xs text-neutral-400 max-w-md mx-auto">
+              The Gemini assessment reasons over the Deepgram transcript, so it can't run for a
+              session with no captured speech. Voice-emotion and facial analysis above are independent.
+            </p>
+          </Card>
+        </section>
+      )}
+      {(gemini.status !== 'idle' || gemini.scorecard) && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-neutral-900">AI-Powered ATS Assessment</h2>
+            {gemini.status === 'complete' && (
+              <button onClick={runAtsAnalysis} className="text-xs font-semibold text-primary-700 underline">
+                Re-run analysis
+              </button>
+            )}
+          </div>
+          <ATSScorecardPanel
+            scorecard={gemini.scorecard}
+            status={gemini.status}
+            error={gemini.error}
+            onRetry={runAtsAnalysis}
+          />
+        </section>
+      )}
+
+      {/* ── Facial Analysis (AWS Rekognition) — always shown, with capture diagnostics ── */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold text-neutral-900">Facial Analysis</h2>
+        <FacialAnalysisPanel
+          summary={facialSummary}
+          questionCount={store.questions.filter(Boolean).length}
+          proxyUrl={store.awsProxyUrl}
+        />
+      </section>
+
       <Card className="p-5">
         <SectionTitle>Recruiter Actions</SectionTitle>
         <div className="flex flex-wrap gap-3">
           <Button onClick={() => setScheduleOpen(true)}>Schedule Technical Interview</Button>
           <Button variant="secondary" onClick={downloadReport}>Download AI Report</Button>
-          <Button variant="secondary" onClick={() => { navigator.clipboard.writeText(`TalbotIQ Report — ${overall}/100 — ${verdict} — Session: ${conv?.conversation_id ?? 'demo'}`).then(() => toast.success('Copied to clipboard')) }}>Share Profile</Button>
+          <Button variant="secondary" onClick={() => {
+            navigator.clipboard.writeText(`TalbotIQ Report — ${overall}/100 — ${verdict} — Session: ${conv?.conversation_id ?? 'demo'}`)
+              .then(() => toast.success('Copied to clipboard'))
+          }}>Share Profile</Button>
           <Button variant="secondary" onClick={() => setOfferOpen(true)}>Generate Offer Rec.</Button>
           <Button variant="ghost" onClick={() => navigate('/setup')}>New Interview</Button>
         </div>
@@ -265,16 +655,12 @@ export default function ResultsPage() {
             <pre className="bg-neutral-50 border border-border rounded-xl p-4 text-xs text-neutral-700 font-mono leading-relaxed whitespace-pre-wrap">
 {`OFFER RECOMMENDATION — TalbotIQ AI
 Session: ${conv?.conversation_id ?? 'demo'}
-Score: ${overall}/100  |  Confidence: 87%
+Score: ${overall}/100  |  Confidence: ${hiringConf}%
 
-RECOMMENDATION: Proceed with Offer
+RECOMMENDATION: ${overall >= 80 ? 'Proceed with Offer' : overall >= 65 ? 'Consider — Second Interview' : 'Do Not Proceed at This Time'}
 
-Candidate demonstrates strong communication
-skills, technical clarity, and engagement
-above benchmark expectations.
-
-Suggested Band: Mid-Senior Level
-Next Steps: Technical Round → HR Screening
+Top Strengths: ${strengths.slice(0, 3).join(', ')}
+Watch Points: ${watchPoints.slice(0, 2).join(', ')}
 
 Generated: ${new Date().toLocaleDateString()}`}
             </pre>

@@ -6,6 +6,11 @@ import { templatesRouter } from './routes/templates'
 import { questionSetsRouter } from './routes/questionSets'
 import { sessionsRouter } from './routes/sessions'
 import { settingsRouter } from './routes/settings'
+import { voicesRouter } from './routes/voices'
+import { analyticsRouter } from './routes/analytics'
+import { avatarRouter } from './routes/avatar'
+import { attachVoiceWebSocket } from './services/voice'
+import { attachDeepgramRelay } from './services/deepgramRelay'
 import { HttpError } from './util/ah'
 
 db.init()
@@ -26,6 +31,9 @@ app.use('/api/templates', templatesRouter)
 app.use('/api/question-sets', questionSetsRouter)
 app.use('/api/sessions', sessionsRouter)
 app.use('/api/settings', settingsRouter)
+app.use('/api/voices', voicesRouter)
+app.use('/api/analytics', analyticsRouter)
+app.use('/api/avatar', avatarRouter)
 
 const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof HttpError) {
@@ -38,8 +46,14 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 app.use(errorHandler)
 
 const PORT = Number(process.env.PORT ?? 8787)
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[server] TalbotIQ API listening on http://localhost:${PORT}`)
   if (!process.env.GEMINI_API_KEY)
     console.warn('[server] GEMINI_API_KEY not set — adaptive questions & scoring use heuristic fallback.')
 })
+
+// Real-time Voice Track: WebSocket relay to Gemini Live at /api/voice/:sessionId.
+attachVoiceWebSocket(server)
+
+// AI Avatar Screening: Deepgram Nova-3 live-transcription relay at /api/avatar/deepgram.
+attachDeepgramRelay(server)

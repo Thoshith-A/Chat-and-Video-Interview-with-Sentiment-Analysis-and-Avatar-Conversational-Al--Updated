@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { MessageSquareText, Video } from 'lucide-react'
+import { MessageSquareText, Video, AudioLines } from 'lucide-react'
 import { cn } from '@/components/ui'
 import type { BrandingConfig, TrackType } from '@shared/types'
 
@@ -13,6 +13,7 @@ interface Props {
 
 const TRACKS: { id: TrackType; title: string; blurb: string; icon: typeof Video; tag?: string }[] = [
   { id: 'chat', title: 'Chat Interview', blurb: 'Answer each question by typing. Calm, focused, and fully keyboard-friendly.', icon: MessageSquareText },
+  { id: 'voice', title: 'Voice Interview', blurb: 'A spoken conversation with an AI interviewer — just talk, like a phone call.', icon: AudioLines, tag: 'New' },
   { id: 'video_avatar', title: 'Video Avatar', blurb: 'An AI avatar asks each question and you respond on camera.', icon: Video, tag: 'Preview' },
 ]
 

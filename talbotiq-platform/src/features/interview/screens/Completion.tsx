@@ -16,10 +16,10 @@ export function Completion({ branding }: { branding: BrandingConfig }) {
       >
         <CheckCircle2 size={32} />
       </span>
-      <h1 className="mt-5 text-3xl font-bold tracking-tight text-neutral-900">All done — thank you!</h1>
+      <h1 className="mt-5 text-3xl font-bold tracking-tight text-neutral-900">All done, thank you!</h1>
       <p className="mx-auto mt-3 max-w-md text-neutral-500">
         Your responses have been submitted to the {branding.companyName} team. There’s nothing more you
-        need to do — you can safely close this window.
+        need to do. You can safely close this window.
       </p>
       <p className="mt-6 text-xs text-neutral-400">
         Results are reviewed by the hiring team; scores aren’t shown to candidates.

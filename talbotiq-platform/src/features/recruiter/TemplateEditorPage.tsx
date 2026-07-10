@@ -6,9 +6,12 @@ import { ArrowLeft, Plus, Trash2, Save, Sparkles } from 'lucide-react'
 import {
   PageHeader, Card, Button, Input, Select, Toggle, Textarea, SectionTitle, Badge, Divider, Skeleton,
 } from '@/components/ui'
-import { templatesApi, questionSetsApi } from '@/lib/api'
+import { Play } from 'lucide-react'
+import { templatesApi, questionSetsApi, voicesApi } from '@/lib/api'
 import { GenerateFromResumeModal } from './GenerateFromResumeModal'
-import type { InterviewTemplate, KpiDefinition, AdaptiveConfig, ConversationTimingConfig, InterviewMode, DifficultyChoice, QuestionStyle } from '@shared/types'
+import { CircularCountdown } from '@/features/interview/components/CircularCountdown'
+import { playPcmSample } from '@/lib/voiceClient'
+import type { InterviewTemplate, KpiDefinition, AdaptiveConfig, ConversationTimingConfig, ChatbotTimerConfig, VoiceConfig, InterviewMode, DifficultyChoice, QuestionStyle } from '@shared/types'
 
 const num = (v: string, fallback: number) => {
   const n = Number(v)
@@ -21,6 +24,11 @@ const DEF_ADAPTIVE: AdaptiveConfig = {
 }
 const DEF_CONV: ConversationTimingConfig = {
   thinkingSeconds: 30, perQuestionSeconds: 120, allowSkipThinking: true, allowEarlySubmit: true, warningThresholdSeconds: 15,
+}
+const DEF_TIMER: ChatbotTimerConfig = {
+  enabled: true, perQuestionSeconds: 120, timeFollowUps: true, followUpSeconds: 90,
+  includeThinkingPhase: false, thinkingSeconds: 20, warningThresholdSeconds: 15,
+  allowEarlySubmit: true, autoSubmitOnExpiry: true,
 }
 
 function normalizedWeights(kpis: KpiDefinition[]) {
@@ -37,8 +45,10 @@ export default function TemplateEditorPage() {
 
   const query = useQuery({ queryKey: ['template', id], queryFn: () => templatesApi.get(id) })
   const sets = useQuery({ queryKey: ['question-sets'], queryFn: questionSetsApi.list })
+  const voiceCat = useQuery({ queryKey: ['voices'], queryFn: voicesApi.catalog })
   const [t, setT] = useState<InterviewTemplate | null>(null)
   const [genOpen, setGenOpen] = useState(false)
+  const [previewing, setPreviewing] = useState<string | null>(null)
 
   useEffect(() => { if (query.data) setT(query.data) }, [query.data])
 
@@ -64,6 +74,22 @@ export default function TemplateEditorPage() {
   const patchIntegrity = (p: Partial<InterviewTemplate['integrity']>) => setT({ ...t, integrity: { ...t.integrity, ...p } })
   const patchAdaptive = (p: Partial<AdaptiveConfig>) => setT({ ...t, adaptive: { ...DEF_ADAPTIVE, ...(t.adaptive ?? {}), role: t.role, ...p } })
   const patchConvTiming = (p: Partial<ConversationTimingConfig>) => setT({ ...t, conversationTiming: { ...DEF_CONV, ...(t.conversationTiming ?? {}), ...p } })
+  const patchChatbotTimer = (p: Partial<ChatbotTimerConfig>) => setT({ ...t, chatbotTimer: { ...DEF_TIMER, ...(t.chatbotTimer ?? {}), ...p } })
+  // Per-question override for a specific fixed-set question. Blank clears it (falls back to perQuestionSeconds).
+  const patchOverride = (qid: string, seconds?: number) => {
+    const next = { ...(t.chatbotTimer?.perQuestionOverrides ?? {}) }
+    if (seconds == null || Number.isNaN(seconds)) delete next[qid]
+    else next[qid] = seconds
+    patchChatbotTimer({ perQuestionOverrides: next })
+  }
+  const DEF_VOICE: VoiceConfig = { engine: 'gemini_live', personaId: 'friendly_hr', voiceId: 'Aoede', allowBargeIn: true, language: 'en-US' }
+  const patchVoice = (p: Partial<VoiceConfig>) => setT({ ...t, voice: { ...DEF_VOICE, ...(t.voice ?? {}), ...p } })
+  const previewVoice = async (voiceId: string) => {
+    setPreviewing(voiceId)
+    try { const r = await voicesApi.sample(voiceId); await playPcmSample(r.audio) }
+    catch { /* ignore preview errors */ }
+    finally { setPreviewing(null) }
+  }
   const patchKpi = (kid: string, p: Partial<KpiDefinition>) =>
     setT({ ...t, rubric: { ...t.rubric, kpis: t.rubric.kpis.map((k) => (k.id === kid ? { ...k, ...p } : k)) } })
   const addKpi = () =>
@@ -71,15 +97,18 @@ export default function TemplateEditorPage() {
   const removeKpi = (kid: string) =>
     setT({ ...t, rubric: { ...t.rubric, kpis: t.rubric.kpis.filter((k) => k.id !== kid) } })
 
-  const conversational = t.track === 'chatbot' || t.track === 'video_avatar'
+  const isVoice = t.track === 'voice'
+  const conversational = t.track === 'chatbot' || t.track === 'video_avatar' || isVoice
   const selectedSet = sets.data?.find((s) => s.id === t.fixedQuestionSetId)
   const adaptiveCount = conversational ? (t.adaptive?.numberOfQuestions ?? 5) : (t.timing.numberOfQuestions ?? 0)
   const questionCount = t.questionSource === 'fixed' ? selectedSet?.questions.length ?? 0 : adaptiveCount
   const perQ =
     conversational
-      ? t.mode === 'timed'
-        ? (t.conversationTiming?.thinkingSeconds ?? 30) + (t.conversationTiming?.perQuestionSeconds ?? 120)
-        : 90
+      ? t.chatbotTimer?.enabled
+        ? (t.chatbotTimer.perQuestionSeconds) + (t.chatbotTimer.includeThinkingPhase ? (t.chatbotTimer.thinkingSeconds ?? 0) : 0)
+        : t.mode === 'timed'
+          ? (t.conversationTiming?.thinkingSeconds ?? 30) + (t.conversationTiming?.perQuestionSeconds ?? 120)
+          : 90
       : t.timing.prepSeconds + t.timing.answerSeconds
   const totalMin = Math.round((questionCount * perQ) / 60)
 
@@ -123,6 +152,7 @@ export default function TemplateEditorPage() {
                 options={[
                   { value: 'chat', label: 'Chat — one question at a time (timed slots)' },
                   { value: 'chatbot', label: 'Chatbot — conversational (ChatGPT-style)' },
+                  { value: 'voice', label: 'Voice — live spoken AI interviewer' },
                   { value: 'video_avatar', label: 'Video Avatar (scaffold)' },
                 ]}
               />
@@ -170,15 +200,17 @@ export default function TemplateEditorPage() {
             <section>
               <SectionTitle>Conversation</SectionTitle>
               <Card className="space-y-4 p-5">
-                <Select
-                  label="Mode"
-                  value={t.mode ?? 'conversational'}
-                  onChange={(e) => patch({ mode: e.target.value as InterviewMode })}
-                  options={[
-                    { value: 'conversational', label: 'Conversational — relaxed, no timers' },
-                    { value: 'timed', label: 'Timed — proctored thinking + answer limits' },
-                  ]}
-                />
+                {!isVoice && (
+                  <Select
+                    label="Mode"
+                    value={t.mode ?? 'conversational'}
+                    onChange={(e) => patch({ mode: e.target.value as InterviewMode })}
+                    options={[
+                      { value: 'conversational', label: 'Conversational — relaxed, no timers' },
+                      { value: 'timed', label: 'Timed — proctored thinking + answer limits' },
+                    ]}
+                  />
+                )}
                 {t.questionSource === 'adaptive' ? (
                   <>
                     <div className="grid grid-cols-2 gap-4">
@@ -258,10 +290,168 @@ export default function TemplateEditorPage() {
             </section>
           )}
 
+          {isVoice && (
+            <section>
+              <SectionTitle>Voice &amp; persona</SectionTitle>
+              <Card className="space-y-4 p-5">
+                <Select
+                  label="Engine"
+                  value={t.voice?.engine ?? 'gemini_live'}
+                  onChange={(e) => patchVoice({ engine: e.target.value as VoiceConfig['engine'] })}
+                  options={[
+                    { value: 'gemini_live', label: 'Gemini Live — native audio (recommended)' },
+                    { value: 'pipeline', label: 'STT → Gemini → TTS (coming soon)' },
+                  ]}
+                />
+                <Select
+                  label="Persona"
+                  value={t.voice?.personaId ?? 'friendly_hr'}
+                  onChange={(e) => {
+                    const p = voiceCat.data?.personas.find((x) => x.id === e.target.value)
+                    patchVoice({ personaId: e.target.value, voiceId: p?.defaultVoiceId ?? t.voice?.voiceId ?? 'Aoede' })
+                  }}
+                  options={(voiceCat.data?.personas ?? []).map((p) => ({ value: p.id, label: p.name }))}
+                />
+                <p className="-mt-1 text-xs text-neutral-500">
+                  {voiceCat.data?.personas.find((p) => p.id === (t.voice?.personaId ?? 'friendly_hr'))?.description}
+                </p>
+
+                <div>
+                  <p className="mb-2 text-sm font-medium text-neutral-700">Voice</p>
+                  {!voiceCat.data ? (
+                    <p className="text-sm text-neutral-400">Loading voices…</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {voiceCat.data.voices.map((voice) => {
+                        const active = (t.voice?.voiceId ?? 'Aoede') === voice.id
+                        return (
+                          <div
+                            key={voice.id}
+                            className={`flex items-center justify-between rounded-xl border-2 p-2.5 transition-all ${active ? 'shadow-sm' : 'border-border'}`}
+                            style={active ? { borderColor: t.branding.accentColor } : undefined}
+                          >
+                            <button className="min-w-0 flex-1 text-left" onClick={() => patchVoice({ voiceId: voice.id })} aria-pressed={active}>
+                              <span className="block truncate text-sm font-semibold text-neutral-800">{voice.label}</span>
+                              <span className="block truncate text-[11px] text-neutral-400">{voice.gender} · {voice.description}</span>
+                            </button>
+                            <button
+                              onClick={() => previewVoice(voice.id)}
+                              disabled={previewing !== null}
+                              className="ml-2 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-white disabled:opacity-40"
+                              style={{ background: t.branding.accentColor }}
+                              aria-label={`Preview ${voice.label}`}
+                            >
+                              {previewing === voice.id ? <span className="h-3 w-3 animate-pulse rounded-full bg-white" /> : <Play size={14} />}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <Divider className="my-1" />
+                <Toggle label="Allow barge-in" description="Let the candidate interrupt the interviewer by speaking." checked={t.voice?.allowBargeIn ?? true} onChange={(v) => patchVoice({ allowBargeIn: v })} />
+                <Input label="Language" value={t.voice?.language ?? 'en-US'} onChange={(e) => patchVoice({ language: e.target.value })} placeholder="en-US" />
+              </Card>
+            </section>
+          )}
+
+          {conversational && !isVoice && (
+            <section>
+              <SectionTitle>Per-question timer</SectionTitle>
+              <Card className="space-y-4 p-5">
+                <Toggle
+                  label="Enable a per-question countdown"
+                  description="Optional overlay: each question (and, optionally, each follow-up) gets its own answer countdown. Off = a relaxed conversation with no timers. The clock only runs while the candidate is answering — never during the greeting, the “are you ready?” step, the “Thinking…” pause, or wrap-up."
+                  checked={t.chatbotTimer?.enabled ?? false}
+                  onChange={(v) => patchChatbotTimer({ enabled: v })}
+                />
+                {(t.chatbotTimer?.enabled ?? false) && (
+                  <>
+                    <Divider className="my-1" />
+                    <div className="grid gap-5 md:grid-cols-[1fr_auto]">
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <Input label="Answer time per question (s)" type="number" value={t.chatbotTimer?.perQuestionSeconds ?? 120} onChange={(e) => patchChatbotTimer({ perQuestionSeconds: num(e.target.value, 120) })} />
+                          <Input label="Warning at (s)" type="number" value={t.chatbotTimer?.warningThresholdSeconds ?? 15} onChange={(e) => patchChatbotTimer({ warningThresholdSeconds: num(e.target.value, 15) })} />
+                        </div>
+                        <Toggle label="Allow early submit" description="Candidate can submit before the timer ends." checked={t.chatbotTimer?.allowEarlySubmit ?? true} onChange={(v) => patchChatbotTimer({ allowEarlySubmit: v })} />
+                        <Toggle label="Auto-submit at 0" description="When time runs out, submit whatever is typed and move on." checked={t.chatbotTimer?.autoSubmitOnExpiry ?? true} onChange={(v) => patchChatbotTimer({ autoSubmitOnExpiry: v })} />
+                        <Divider className="my-1" />
+                        <Toggle label="Time follow-up questions too" checked={t.chatbotTimer?.timeFollowUps ?? true} onChange={(v) => patchChatbotTimer({ timeFollowUps: v })} />
+                        {(t.chatbotTimer?.timeFollowUps ?? true) && (
+                          <Input label="Follow-up time (s, blank = same as questions)" type="number" value={t.chatbotTimer?.followUpSeconds ?? ''} onChange={(e) => patchChatbotTimer({ followUpSeconds: e.target.value ? num(e.target.value, 90) : undefined })} placeholder={`${t.chatbotTimer?.perQuestionSeconds ?? 120}`} />
+                        )}
+                        <Divider className="my-1" />
+                        <Toggle label="Add a short prep sub-timer before answering" description="Locks the composer for a brief “prepare” countdown before the answer clock starts." checked={t.chatbotTimer?.includeThinkingPhase ?? false} onChange={(v) => patchChatbotTimer({ includeThinkingPhase: v })} />
+                        {(t.chatbotTimer?.includeThinkingPhase ?? false) && (
+                          <Input label="Prep time (s)" type="number" value={t.chatbotTimer?.thinkingSeconds ?? 20} onChange={(e) => patchChatbotTimer({ thinkingSeconds: num(e.target.value, 20) })} />
+                        )}
+                      </div>
+                      {/* Live preview of the ring the candidate will see. */}
+                      <div className="flex flex-col items-center justify-start gap-2 rounded-xl border border-border bg-neutral-50 p-4">
+                        <span className="text-[11px] font-semibold uppercase tracking-widest text-neutral-400">Live preview</span>
+                        <CircularCountdown
+                          remaining={t.chatbotTimer?.perQuestionSeconds ?? 120}
+                          total={t.chatbotTimer?.perQuestionSeconds ?? 120}
+                          phase="answer"
+                          warningThreshold={t.chatbotTimer?.warningThresholdSeconds ?? 15}
+                          accentColor={t.branding.accentColor}
+                          size={120}
+                        />
+                        <span className="text-center text-xs text-neutral-500">Shown only while answering a question</span>
+                      </div>
+                    </div>
+                    {/* Optional per-question overrides — only meaningful for a fixed set, where
+                        each question has a stable id the override can be keyed to. */}
+                    {t.questionSource === 'fixed' && (
+                      <>
+                        <Divider className="my-1" />
+                        <div>
+                          <p className="text-sm font-medium text-neutral-700">Per-question overrides (optional)</p>
+                          <p className="mb-2 text-xs text-neutral-500">
+                            Give specific questions a different answer time. Leave blank to use the default of {t.chatbotTimer?.perQuestionSeconds ?? 120}s.
+                          </p>
+                          {selectedSet ? (
+                            <div className="space-y-2">
+                              {selectedSet.questions.map((q, i) => (
+                                <div key={q.id} className="flex items-center gap-3">
+                                  <span className="min-w-0 flex-1 truncate text-xs text-neutral-600" title={q.text}>
+                                    <span className="font-semibold text-neutral-400">Q{i + 1}.</span> {q.text}
+                                  </span>
+                                  <input
+                                    type="number"
+                                    min={5}
+                                    value={t.chatbotTimer?.perQuestionOverrides?.[q.id] ?? ''}
+                                    onChange={(e) => patchOverride(q.id, e.target.value ? num(e.target.value, t.chatbotTimer?.perQuestionSeconds ?? 120) : undefined)}
+                                    placeholder={`${t.chatbotTimer?.perQuestionSeconds ?? 120}`}
+                                    className="input-base h-8 w-20 flex-shrink-0 text-center text-sm"
+                                    aria-label={`Answer seconds for question ${i + 1}`}
+                                  />
+                                  <span className="w-3 flex-shrink-0 text-xs text-neutral-400">s</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-amber-600">Select a fixed question set (under Questions) to set per-question overrides.</p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </Card>
+            </section>
+          )}
+
           {t.track === 'chat' && (
           <section>
             <SectionTitle>Timing</SectionTitle>
             <Card className="space-y-4 p-5">
+              <p className="text-xs text-neutral-400">
+                These per-question limits also apply when a candidate takes this interview as the conversational <b>Chatbot</b> track — the answer countdown carries over.
+              </p>
               <div className="grid grid-cols-3 gap-4">
                 <Input label="Prep (s)" type="number" value={t.timing.prepSeconds} onChange={(e) => patchTiming({ prepSeconds: num(e.target.value, 30) })} />
                 <Input label="Answer (s)" type="number" value={t.timing.answerSeconds} onChange={(e) => patchTiming({ answerSeconds: num(e.target.value, 120) })} />

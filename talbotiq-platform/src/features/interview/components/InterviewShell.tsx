@@ -3,13 +3,14 @@ import type { BrandingConfig } from '@shared/types'
 
 interface Props {
   branding: BrandingConfig
+  /** Accepted for backwards-compat with callers; no longer rendered (no progress bar). */
   progress?: { current: number; total: number }
   live?: boolean
   children: ReactNode
 }
 
-/** Chrome-minimal candidate layout: brand bar + progress pill + centered stage. */
-export function InterviewShell({ branding, progress, live, children }: Props) {
+/** Chrome-minimal candidate layout: brand bar + centered stage. */
+export function InterviewShell({ branding, live, children }: Props) {
   return (
     <div className="min-h-screen bg-background font-sans flex flex-col">
       <header className="border-b border-border bg-white/70 backdrop-blur-sm">
@@ -34,11 +35,6 @@ export function InterviewShell({ branding, progress, live, children }: Props) {
               <span className="flex items-center gap-1.5 rounded-full border border-[#b3e9cd] bg-[#f0faf5] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#0d5c3a]">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#16a34a]" />
                 Live
-              </span>
-            )}
-            {progress && progress.total > 0 && (
-              <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-600 tabular-nums">
-                Question {progress.current} of {progress.total}
               </span>
             )}
           </div>

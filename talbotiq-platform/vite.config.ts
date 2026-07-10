@@ -14,8 +14,12 @@ export default defineConfig({
     port: 3001,
     strictPort: true,
     // The API key never reaches the client — all /api calls are proxied to the
-    // Express server, which holds GEMINI_API_KEY server-side only.
+    // Express server, which holds GEMINI_API_KEY server-side only. The Voice
+    // Track's realtime audio uses a WebSocket, proxied with ws:true.
     proxy: {
+      // WS paths (must precede the generic /api http proxy).
+      '/api/voice': { target: 'ws://localhost:8787', ws: true },
+      '/api/avatar/deepgram': { target: 'ws://localhost:8787', ws: true },
       '/api': 'http://localhost:8787',
     },
   },

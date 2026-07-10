@@ -49,7 +49,8 @@ export async function scoreSession(
   session: InterviewSession,
   template: InterviewTemplate,
 ): Promise<ResultReport> {
-  if (session.track === 'chatbot' || session.track === 'video_avatar') return scoreConversation(session, template)
+  if (session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice')
+    return scoreConversation(session, template)
 
   if (geminiEnabled()) {
     try {

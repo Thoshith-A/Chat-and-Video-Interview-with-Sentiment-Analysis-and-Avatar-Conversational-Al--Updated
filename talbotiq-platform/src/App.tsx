@@ -43,6 +43,9 @@ export default function App() {
             <Route path="/" element={<Navigate to="/setup" replace />} />
             <Route path="/setup" element={<SetupPage />} />
             <Route path="/interview" element={<InterviewPage />} />
+            {/* AI Avatar Screening results (Tavus + Deepgram + Hume + Rekognition +
+                Gemini). Distinct from the recruiter per-session report at
+                /sessions/:id/report, which is unchanged. */}
             <Route path="/results" element={<ResultsPage />} />
             <Route path="/replicas" element={<ReplicasPage />} />
             <Route path="/personas" element={<PersonasPage />} />

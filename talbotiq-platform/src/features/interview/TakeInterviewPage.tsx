@@ -12,6 +12,7 @@ import { ResumeUpload } from './screens/ResumeUpload'
 import { QuestionStage } from './screens/QuestionStage'
 import { ChatbotStage } from './screens/ChatbotStage'
 import { AvatarStage } from './screens/AvatarStage'
+import { VoiceStage } from './screens/VoiceStage'
 import { Completion } from './screens/Completion'
 import type { BrandingConfig } from '@shared/types'
 
@@ -69,6 +70,10 @@ export default function TakeInterviewPage() {
   if (s.track === 'video_avatar' && (chatbotStarted || s.status === 'in_progress')) {
     return <AvatarStage sessionId={sessionId} branding={branding} onIntegrity={integrity.post} />
   }
+  // Voice track runs its own realtime call screen (WebSocket → Gemini Live).
+  if (s.track === 'voice' && (chatbotStarted || s.status === 'in_progress')) {
+    return <VoiceStage sessionId={sessionId} branding={branding} />
+  }
 
   if (s.status === 'in_progress') {
     return (
@@ -91,8 +96,8 @@ export default function TakeInterviewPage() {
   }
 
   // status: created | system_check → pre-interview screens.
-  // The chatbot track's format is fixed by the template, so skip "choose format".
-  const conversational = s.track === 'chatbot' || s.track === 'video_avatar'
+  // The chatbot/voice track's format is fixed by the template, so skip "choose format".
+  const conversational = s.track === 'chatbot' || s.track === 'video_avatar' || s.track === 'voice'
   const step: PreStep = conversational && preStep === 'track' ? 'welcome' : preStep
   return (
     <InterviewShell branding={branding}>

@@ -1,15 +1,43 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { tavus } from '@/services/tavus'
-import type { TavusConversation } from '@/types/tavus.types'
+import type { TavusConversation, SupportedLanguage, PipelineMode } from '@/types/tavus.types'
+import type { HumeEmotion, BatchJobStatus, HumeSessionResult } from '@/types/hume.types'
+import type { TranscriptEntry } from '@/services/deepgram'
+
+export type { TranscriptEntry }
+
+export interface DraftForm {
+  replica_id: string; persona_id: string; conversation_name: string
+  conversational_context: string; custom_greeting: string; callback_url: string
+  max_call_duration: number; participant_left_timeout: number; participant_absent_timeout: number
+  enable_recording: boolean; enable_transcription: boolean; apply_conversation_override: boolean
+  apply_greenscreen: boolean; background_url: string; language: SupportedLanguage
+  pipeline_mode: PipelineMode; recording_s3_bucket_name: string
+  recording_s3_bucket_region: string; aws_assume_role_arn: string
+}
+
+export interface Draft {
+  id: string
+  name: string
+  savedAt: string
+  form: DraftForm
+  questions: string[]
+}
 
 interface AppState {
-  // API keys
+  // API keys.
+  // HYBRID: deepgram/hume/gemini secrets live on the SERVER — these fields hold a
+  // non-secret sentinel ('server' when the backend reports the key configured, else
+  // '') purely so the ported UI's truthiness gating still works. The Tavus key is a
+  // real runtime key entered in Settings (never compiled into the bundle).
   tavusKey: string
   deepgramKey: string
   humeKey: string
   awsKey: string
   anthropicKey: string
+  geminiKey: string
+  awsProxyUrl: string
   webhookUrl: string
 
   // Defaults
@@ -22,7 +50,10 @@ interface AppState {
   currentQuestionIdx: number
   interviewActive: boolean
 
-  // Live metrics (simulated or Hume-sourced)
+  // Saved drafts
+  drafts: Draft[]
+
+  // Live metrics
   metrics: {
     confidence: number
     anxiety: number
@@ -31,12 +62,26 @@ interface AppState {
     engagement: number
   }
 
+  // Hume AI
+  humeJobId: string | null
+  humeJobStatus: BatchJobStatus | null
+  humeResult: HumeSessionResult | null
+  questionTimestamps: number[]
+  liveEmotions: HumeEmotion[]
+  humeStreamActive: boolean
+
+  // Deepgram transcript
+  sessionTranscript: TranscriptEntry[]
+  deepgramConnected: boolean
+
   // Actions
   setTavusKey: (k: string) => void
   setDeepgramKey: (k: string) => void
   setHumeKey: (k: string) => void
   setAwsKey: (k: string) => void
   setAnthropicKey: (k: string) => void
+  setGeminiKey: (k: string) => void
+  setAwsProxyUrl: (url: string) => void
   setWebhookUrl: (k: string) => void
   setDefaultReplicaId: (id: string) => void
   setDefaultPersonaId: (id: string) => void
@@ -45,6 +90,18 @@ interface AppState {
   setCurrentQuestionIdx: (i: number) => void
   setInterviewActive: (v: boolean) => void
   updateMetrics: (m: Partial<AppState['metrics']>) => void
+  saveDraft: (name: string, form: DraftForm, questions: string[]) => void
+  deleteDraft: (id: string) => void
+  setHumeJobId: (id: string | null) => void
+  setHumeJobStatus: (s: BatchJobStatus | null) => void
+  setHumeResult: (r: HumeSessionResult | null) => void
+  pushQuestionTimestamp: (ts: number) => void
+  resetQuestionTimestamps: () => void
+  setLiveEmotions: (e: HumeEmotion[]) => void
+  setHumeStreamActive: (v: boolean) => void
+  pushTranscriptEntry: (e: TranscriptEntry) => void
+  clearSessionTranscript: () => void
+  setDeepgramConnected: (v: boolean) => void
   reset: () => void
 }
 
@@ -56,10 +113,13 @@ export const useAppStore = create<AppState>()(
       humeKey: '',
       awsKey: '',
       anthropicKey: '',
+      geminiKey: '',
+      awsProxyUrl: '/api/avatar/analyze-face',
       webhookUrl: '',
       defaultReplicaId: '',
       defaultPersonaId: '',
       currentConversation: null,
+      drafts: [],
       questions: [
         'Tell me about yourself and your background.',
         'Describe a challenging problem you solved recently.',
@@ -69,16 +129,23 @@ export const useAppStore = create<AppState>()(
       ],
       currentQuestionIdx: 0,
       interviewActive: false,
-      metrics: { confidence: 72, anxiety: 8, wpm: 134, fillers: 3, engagement: 81 },
+      metrics: { confidence: 0, anxiety: 0, wpm: 0, fillers: 0, engagement: 0 },
+      humeJobId: null,
+      humeJobStatus: null,
+      humeResult: null,
+      questionTimestamps: [],
+      liveEmotions: [],
+      humeStreamActive: false,
+      sessionTranscript: [],
+      deepgramConnected: false,
 
-      setTavusKey: (k) => {
-        set({ tavusKey: k })
-        tavus.setKey(k)
-      },
+      setTavusKey: (k) => { set({ tavusKey: k }); tavus.setKey(k) },
       setDeepgramKey: (k) => set({ deepgramKey: k }),
       setHumeKey: (k) => set({ humeKey: k }),
       setAwsKey: (k) => set({ awsKey: k }),
       setAnthropicKey: (k) => set({ anthropicKey: k }),
+      setGeminiKey: (k) => set({ geminiKey: k }),
+      setAwsProxyUrl: (url) => set({ awsProxyUrl: url }),
       setWebhookUrl: (k) => set({ webhookUrl: k }),
       setDefaultReplicaId: (id) => set({ defaultReplicaId: id }),
       setDefaultPersonaId: (id) => set({ defaultPersonaId: id }),
@@ -87,25 +154,51 @@ export const useAppStore = create<AppState>()(
       setCurrentQuestionIdx: (i) => set({ currentQuestionIdx: i }),
       setInterviewActive: (v) => set({ interviewActive: v }),
       updateMetrics: (m) => set((s) => ({ metrics: { ...s.metrics, ...m } })),
+      saveDraft: (name, form, questions) => set((s) => ({
+        drafts: [
+          { id: `draft-${Date.now()}`, name, savedAt: new Date().toISOString(), form, questions },
+          ...s.drafts.filter(d => d.name !== name),
+        ],
+      })),
+      deleteDraft: (id) => set((s) => ({ drafts: s.drafts.filter(d => d.id !== id) })),
+      setHumeJobId: (id) => set({ humeJobId: id }),
+      setHumeJobStatus: (s) => set({ humeJobStatus: s }),
+      setHumeResult: (r) => set({ humeResult: r }),
+      pushQuestionTimestamp: (ts) => set((s) => ({ questionTimestamps: [...s.questionTimestamps, ts] })),
+      resetQuestionTimestamps: () => set({ questionTimestamps: [] }),
+      setLiveEmotions: (e) => set({ liveEmotions: e }),
+      setHumeStreamActive: (v) => set({ humeStreamActive: v }),
+      pushTranscriptEntry: (e) => set((s) => ({ sessionTranscript: [...s.sessionTranscript, e] })),
+      clearSessionTranscript: () => set({ sessionTranscript: [] }),
+      setDeepgramConnected: (v) => set({ deepgramConnected: v }),
       reset: () => set({
         currentConversation: null,
         currentQuestionIdx: 0,
         interviewActive: false,
-        metrics: { confidence: 72, anxiety: 8, wpm: 134, fillers: 3, engagement: 81 },
+        metrics: { confidence: 0, anxiety: 0, wpm: 0, fillers: 0, engagement: 0 },
+        humeJobId: null,
+        humeJobStatus: null,
+        humeResult: null,
+        questionTimestamps: [],
+        liveEmotions: [],
+        humeStreamActive: false,
+        sessionTranscript: [],
+        deepgramConnected: false,
       }),
     }),
     {
       name: 'talbotiq-store',
+      // Only the Tavus key + recruiter preferences persist client-side. The
+      // deepgram/hume/gemini "configured" flags come fresh from the server each load.
       partialize: (s) => ({
         tavusKey: s.tavusKey,
-        deepgramKey: s.deepgramKey,
-        humeKey: s.humeKey,
         awsKey: s.awsKey,
         anthropicKey: s.anthropicKey,
         webhookUrl: s.webhookUrl,
         defaultReplicaId: s.defaultReplicaId,
         defaultPersonaId: s.defaultPersonaId,
         questions: s.questions,
+        drafts: s.drafts,
       }),
       onRehydrateStorage: () => (state) => {
         if (state?.tavusKey) tavus.setKey(state.tavusKey)
@@ -113,3 +206,21 @@ export const useAppStore = create<AppState>()(
     },
   ),
 )
+
+/**
+ * Hybrid: hydrate the non-secret "configured" flags from the server so the ported
+ * UI gating works without any secret ever reaching the browser. Fire-and-forget at
+ * module load; the server holds the real Deepgram/Hume/Gemini/AWS keys.
+ */
+fetch('/api/avatar/status')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((s: { deepgram?: boolean; hume?: boolean; gemini?: boolean; rekognition?: boolean } | null) => {
+    if (!s) return
+    useAppStore.setState({
+      deepgramKey: s.deepgram ? 'server' : '',
+      humeKey: s.hume ? 'server' : '',
+      geminiKey: s.gemini ? 'server' : '',
+      awsProxyUrl: s.rekognition ? '/api/avatar/analyze-face' : '',
+    })
+  })
+  .catch(() => { /* offline / server down — panels show their own "not configured" states */ })

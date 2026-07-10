@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Sparkles } from 'lucide-react'
 import {
-  PageHeader, Card, Button, Input, Select, Badge, EmptyState, Skeleton, Modal,
+  PageHeader, Card, Button, Input, Select, Badge, EmptyState, Skeleton, Modal, Toggle,
 } from '@/components/ui'
 import { templatesApi, sessionsApi } from '@/lib/api'
 import { GenerateFromResumeModal } from './GenerateFromResumeModal'
@@ -31,14 +31,42 @@ export default function SessionsPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [track, setTrack] = useState<TrackType | ''>('')
+  const [timerOn, setTimerOn] = useState(true)
+  const [timerSeconds, setTimerSeconds] = useState(120)
+
+  // Reflect the selected template's effective timer state (chat templates
+  // inherit their answer limit on the chatbot track, so they default ON).
+  useEffect(() => {
+    const tpl = templates.data?.find((t) => t.id === templateId)
+    if (!tpl) return
+    setTimerOn(tpl.chatbotTimer ? !!tpl.chatbotTimer.enabled : tpl.track === 'chat' || tpl.mode === 'timed')
+    setTimerSeconds(tpl.chatbotTimer?.perQuestionSeconds ?? tpl.timing?.answerSeconds ?? 120)
+  }, [templateId, templates.data])
 
   const create = useMutation({
-    mutationFn: () =>
-      sessionsApi.create({
+    mutationFn: async () => {
+      // Persist the timer choice on the template FIRST so the session (and any
+      // future one from this template) runs with exactly what's shown here.
+      const tpl = templates.data?.find((t) => t.id === templateId)
+      if (tpl) {
+        const chatbotTimer = {
+          timeFollowUps: true, includeThinkingPhase: false, warningThresholdSeconds: 15,
+          allowEarlySubmit: true, autoSubmitOnExpiry: true,
+          ...(tpl.chatbotTimer ?? {}),
+          enabled: timerOn,
+          perQuestionSeconds: timerSeconds,
+        }
+        await templatesApi.update(templateId, timerOn
+          ? { chatbotTimer, timing: { ...tpl.timing, answerSeconds: timerSeconds } } // keep Timed Q&A in sync
+          : { chatbotTimer })
+        qc.invalidateQueries({ queryKey: ['templates'] })
+      }
+      return sessionsApi.create({
         templateId,
         candidate: { name: name || 'Candidate', email },
         track: track || undefined,
-      }),
+      })
+    },
     onSuccess: ({ id }) => {
       const link = `${window.location.origin}/take/${id}`
       setCreatedLink(link)
@@ -99,7 +127,7 @@ export default function SessionsPage() {
                   </td>
                   <td className="px-5 py-3 text-neutral-600">{s.templateName}</td>
                   <td className="px-5 py-3 text-neutral-600">
-                    {s.track === 'video_avatar' ? 'Video Avatar' : 'Chat'}
+                    {s.track === 'video_avatar' ? 'Video Avatar' : s.track === 'voice' ? 'Voice' : s.track === 'chatbot' ? 'Chatbot' : 'Chat'}
                   </td>
                   <td className="px-5 py-3">
                     <Badge variant={statusVariant[s.status] ?? 'neutral'}>{s.status.replace('_', ' ')}</Badge>
@@ -181,10 +209,29 @@ export default function SessionsPage() {
               options={[
                 { value: '', label: 'Use template default' },
                 { value: 'chatbot', label: 'Chatbot — conversational, typed (ChatGPT-style)' },
+                { value: 'voice', label: 'Voice — live spoken AI interviewer (Gemini Live)' },
                 { value: 'chat', label: 'Timed Q&A — 30s prep + 2 min answer (HireVue-style)' },
                 { value: 'video_avatar', label: 'Conversational AI — Video Avatar (Tavus)' },
               ]}
             />
+            <div className="space-y-3 rounded-xl border border-border bg-neutral-50/60 p-3">
+              <Toggle
+                label="Per-question timer"
+                description="Each question gets its own answer countdown (greetings, “are you ready?” and wrap-up are never timed). Applies to the Chatbot and Timed Q&A tracks."
+                checked={timerOn}
+                onChange={setTimerOn}
+              />
+              {timerOn && (
+                <Input
+                  label="Answer time per question (seconds)"
+                  type="number"
+                  min={10}
+                  value={timerSeconds}
+                  onChange={(e) => setTimerSeconds(Math.max(10, Number(e.target.value) || 120))}
+                  hint={`Candidates get ${Math.floor(timerSeconds / 60)}:${String(timerSeconds % 60).padStart(2, '0')} per question; auto-submits at 0.`}
+                />
+              )}
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
               <Button loading={create.isPending} disabled={!templateId} onClick={() => create.mutate()}>

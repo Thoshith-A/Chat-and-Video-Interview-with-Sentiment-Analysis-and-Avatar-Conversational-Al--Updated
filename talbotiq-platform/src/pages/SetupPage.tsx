@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useReplicas, usePersonas, useCreateConversation } from '@/hooks/useTavus'
 import { useAppStore } from '@/store/useAppStore'
+import type { Draft } from '@/store/useAppStore'
 import { Button, Card, Input, Textarea, Select, Toggle, Slider, JsonPreview, SectionTitle, PageHeader, Divider } from '@/components/ui'
 import { cn } from '@/components/ui'
+import { formatDistanceToNow } from 'date-fns'
 import type { CreateConversationInput, SupportedLanguage, PipelineMode } from '@/types/tavus.types'
 
 // Tavus requires full language names — NOT ISO codes
@@ -26,15 +28,7 @@ const PIPELINES: { value: PipelineMode; label: string }[] = [
   { value: 'no_audio', label: 'No audio' }, { value: 'video_only', label: 'Video only' },
 ]
 
-interface F {
-  replica_id: string; persona_id: string; conversation_name: string
-  conversational_context: string; custom_greeting: string; callback_url: string
-  max_call_duration: number; participant_left_timeout: number; participant_absent_timeout: number
-  enable_recording: boolean; enable_transcription: boolean; apply_conversation_override: boolean
-  apply_greenscreen: boolean; background_url: string; language: SupportedLanguage
-  pipeline_mode: PipelineMode; recording_s3_bucket_name: string
-  recording_s3_bucket_region: string; aws_assume_role_arn: string
-}
+type F = import('@/store/useAppStore').DraftForm
 const DEF: F = {
   replica_id: '', persona_id: '', conversation_name: '', conversational_context: '', custom_greeting: '',
   callback_url: '', max_call_duration: 900, participant_left_timeout: 60, participant_absent_timeout: 300,
@@ -52,6 +46,9 @@ export default function SetupPage() {
   const [f, setF] = useState<F>({ ...DEF, replica_id: store.defaultReplicaId, persona_id: store.defaultPersonaId })
   const [modal, setModal] = useState(false)
   const [name, setName] = useState('')
+  const [draftModal, setDraftModal] = useState(false)
+  const [draftName, setDraftName] = useState('')
+  const [errorModal, setErrorModal] = useState<{ open: boolean; message: string }>({ open: false, message: '' })
 
   useEffect(() => { if (store.defaultReplicaId && !f.replica_id) setF(p => ({ ...p, replica_id: store.defaultReplicaId })) }, [store.defaultReplicaId])
   const set = <K extends keyof F>(k: K, v: F[K]) => setF(p => ({ ...p, [k]: v }))
@@ -77,8 +74,28 @@ export default function SetupPage() {
 
   // Build clean payload — only include non-empty optional fields to avoid 400s
   function buildPayload(candidateName: string): CreateConversationInput {
-    const ctx = f.conversational_context ||
-      `You are interviewing ${candidateName} for a position at TalbotIQ. Ask the following questions one by one and wait for a complete response before proceeding:\n${store.questions.filter(Boolean).map((q, i) => `${i + 1}. ${q}`).join('\n')}`
+    const qList = store.questions.filter(Boolean)
+    const numbered = qList.map((q, i) => `${i + 1}. ${q}`).join('\n')
+
+    // Persona / tone — either the recruiter's custom text or a sensible default
+    const persona = f.conversational_context.trim() ||
+      `You are Alex, a Senior Talent Specialist at TalbotIQ conducting a screening interview with ${candidateName}. Maintain a warm, professional tone.`
+
+    // ALWAYS enforce the exact configured questions — this block is appended no matter what,
+    // so the avatar never invents its own questions.
+    const ctx =
+`${persona}
+
+INTERVIEW SCRIPT — STRICT RULES:
+- Ask ONLY the questions listed below, exactly as written, in this exact order.
+- Ask one question at a time and wait for ${candidateName} to fully finish answering before moving to the next.
+- Do NOT invent, add, skip, reorder, or rephrase any questions.
+- Do NOT ask any follow-up questions that are not in this list.
+- After the final question, briefly thank ${candidateName} and end the interview.
+
+QUESTIONS:
+${numbered}`
+
     const greeting = f.custom_greeting ||
       `Hello ${candidateName}, welcome to your TalbotIQ interview. I'm excited to learn more about you today. Are you ready to begin?`
 
@@ -116,28 +133,44 @@ export default function SetupPage() {
   // For the live JSON preview panel only
   const payload = buildPayload(name || 'Candidate')
 
+  function resetHumeState() {
+    store.setHumeJobId(null)
+    store.setHumeJobStatus(null)
+    store.setHumeResult(null)
+    store.resetQuestionTimestamps()
+    store.setLiveEmotions([])
+    store.setHumeStreamActive(false)
+    store.clearSessionTranscript()
+    // Reset transcript-derived metrics so Results page never shows stale defaults
+    store.updateMetrics({ wpm: 0, fillers: 0 })
+  }
+
+  function launchDemoMode() {
+    resetHumeState()
+    store.setCurrentConversation({
+      conversation_id: `demo-${Date.now()}`,
+      conversation_name: `TalbotIQ — ${name || 'Candidate'}`,
+      status: 'active', conversation_url: '',
+      replica_id: '', created_at: new Date().toISOString(),
+    })
+    store.setInterviewActive(true)
+    store.setCurrentQuestionIdx(0)
+    setErrorModal({ open: false, message: '' })
+    setModal(false)
+    toast('Running in Demo Mode — no avatar video')
+    navigate('/interview')
+  }
+
   function confirmLaunch() {
     if (!name.trim()) { toast.error('Enter a display name'); return }
 
     // No replica — demo mode
-    if (!f.replica_id) {
-      store.setCurrentConversation({
-        conversation_id: `demo-${Date.now()}`,
-        conversation_name: `TalbotIQ — ${name}`,
-        status: 'active', conversation_url: '',
-        replica_id: '', created_at: new Date().toISOString(),
-      })
-      store.setInterviewActive(true)
-      store.setCurrentQuestionIdx(0)
-      setModal(false)
-      toast('Running in demo mode — no replica selected')
-      navigate('/interview')
-      return
-    }
+    if (!f.replica_id) { launchDemoMode(); return }
 
     const p = buildPayload(name)
     create.mutate(p, {
       onSuccess: (conv) => {
+        resetHumeState()
         store.setCurrentConversation(conv)
         store.setInterviewActive(true)
         store.setCurrentQuestionIdx(0)
@@ -146,10 +179,10 @@ export default function SetupPage() {
         navigate('/interview')
       },
       onError: (e: any) => {
-        // Show the actual Tavus error message
         const msg = e.message ?? 'Failed to create conversation'
-        toast.error(`Tavus error: ${msg}`)
-        console.error('Tavus 400 payload:', JSON.stringify(p, null, 2))
+        console.error('Tavus error payload:', JSON.stringify(p, null, 2))
+        setModal(false)
+        setErrorModal({ open: true, message: msg })
       },
     })
   }
@@ -173,9 +206,40 @@ export default function SetupPage() {
           <Button onClick={() => setModal(true)} loading={create.isPending}>
             Launch Session
           </Button>
-          <Button variant="secondary" onClick={() => toast.success('Draft saved')}>Save Draft</Button>
+          <Button variant="secondary" onClick={() => { setDraftName(''); setDraftModal(true) }}>Save Draft</Button>
         </div>
       </div>
+
+      {/* Saved Drafts */}
+      {store.drafts.length > 0 && (
+        <Card className="mb-6 divide-y divide-border">
+          <div className="px-6 py-4 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-800">Saved Drafts</h3>
+              <p className="text-xs text-neutral-400 mt-0.5">{store.drafts.length} draft{store.drafts.length !== 1 ? 's' : ''} — click to load</p>
+            </div>
+          </div>
+          <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {store.drafts.map((d: Draft) => (
+              <div key={d.id} className="flex items-start justify-between gap-2 p-3 rounded-xl border border-border hover:border-primary-300 hover:bg-primary-50 transition-all group cursor-pointer"
+                onClick={() => { setF({ ...d.form }); store.setQuestions(d.questions); toast.success(`Loaded "${d.name}"`) }}>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-neutral-800 truncate">{d.name}</p>
+                  <p className="text-xs text-neutral-400 mt-0.5">{d.questions.filter(Boolean).length} questions · saved {formatDistanceToNow(new Date(d.savedAt), { addSuffix: true })}</p>
+                  {d.form.replica_id && <p className="text-xs font-mono text-primary-600 truncate mt-0.5">{d.form.replica_id}</p>}
+                </div>
+                <button
+                  onClick={e => { e.stopPropagation(); store.deleteDraft(d.id); toast('Draft deleted') }}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-300 hover:text-danger hover:bg-danger-bg transition-all flex-shrink-0 mt-0.5"
+                  title="Delete draft"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6">
         {/* ── Left: form ── */}
@@ -328,6 +392,34 @@ export default function SetupPage() {
         </div>
       </div>
 
+      {/* Save Draft modal */}
+      {draftModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/40 backdrop-blur-[2px]" onClick={() => setDraftModal(false)}>
+          <div className="relative bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-neutral-900">Save Draft</h3>
+            <p className="text-sm text-neutral-500 mt-1 mb-6">Give this draft a name so you can find it later.</p>
+            <Input label="Draft Name *" value={draftName} onChange={e => setDraftName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && draftName.trim()) {
+                  store.saveDraft(draftName.trim(), f, store.questions)
+                  toast.success(`Draft "${draftName.trim()}" saved`)
+                  setDraftModal(false)
+                }
+              }}
+              placeholder="e.g. Senior Engineer Screen" autoFocus />
+            <div className="flex gap-3 justify-end mt-6">
+              <Button variant="secondary" onClick={() => setDraftModal(false)}>Cancel</Button>
+              <Button onClick={() => {
+                if (!draftName.trim()) { toast.error('Enter a draft name'); return }
+                store.saveDraft(draftName.trim(), f, store.questions)
+                toast.success(`Draft "${draftName.trim()}" saved`)
+                setDraftModal(false)
+              }}>Save Draft</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Launch modal */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/40 backdrop-blur-[2px]" onClick={() => setModal(false)}>
@@ -338,6 +430,52 @@ export default function SetupPage() {
             <div className="flex gap-3 justify-end mt-6">
               <Button variant="secondary" onClick={() => setModal(false)}>Cancel</Button>
               <Button onClick={confirmLaunch} loading={create.isPending}>Launch Interview</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tavus error — offer demo mode fallback */}
+      {errorModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/50 backdrop-blur-[2px]" onClick={() => setErrorModal({ open: false, message: '' })}>
+          <div className="relative bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-danger-bg flex items-center justify-center flex-shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-neutral-900 leading-tight">Tavus API Error</h3>
+                <p className="text-sm text-neutral-500 mt-0.5">The session could not be created.</p>
+              </div>
+            </div>
+
+            {/* Error message */}
+            <div className="bg-danger-bg border border-danger-border rounded-xl px-4 py-3 mb-5">
+              <p className="text-sm text-danger font-medium">{errorModal.message}</p>
+            </div>
+
+            {/* Guidance */}
+            {/credit/i.test(errorModal.message) && (
+              <div className="bg-warning-bg border border-warning-border rounded-xl px-4 py-3 mb-5 text-sm text-amber-800 space-y-1">
+                <p className="font-semibold">Your Tavus account is out of conversational credits.</p>
+                <p>To resume live avatar interviews, purchase additional credits at <span className="font-mono text-xs">tavus.io → Billing</span>.</p>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex flex-col gap-3">
+              <Button onClick={launchDemoMode} className="w-full">
+                Continue in Demo Mode (no avatar)
+              </Button>
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={() => { setErrorModal({ open: false, message: '' }); setModal(true) }}>
+                  Try Again
+                </Button>
+                <Button variant="ghost" className="flex-1" onClick={() => setErrorModal({ open: false, message: '' })}>
+                  Dismiss
+                </Button>
+              </div>
             </div>
           </div>
         </div>

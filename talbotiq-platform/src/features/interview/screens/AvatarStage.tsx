@@ -4,6 +4,7 @@ import { Send, Loader2, Video, AlertTriangle, CheckCircle2, Mic } from 'lucide-r
 import type { BrandingConfig } from '@shared/types'
 import { useChatbotSession } from '../useChatbotSession'
 import { useTavusConversation } from '../useTavusConversation'
+import { CircularCountdown } from '../components/CircularCountdown'
 
 interface Props {
   sessionId: string
@@ -51,8 +52,9 @@ export function AvatarStage({ sessionId, branding, onIntegrity }: Props) {
     if (s?.finished) avatar.end()
   }, [s?.finished, avatar])
 
+  const inThinkingPhase = s?.phase === 'thinking' // optional timed prep sub-window
   const submit = () => {
-    if (!answer.trim() || chat.sending || s?.status !== 'in_progress') return
+    if (!answer.trim() || chat.sending || inThinkingPhase || s?.status !== 'in_progress') return
     const a = answer
     setAnswer('')
     chat.send(a)
@@ -77,7 +79,7 @@ export function AvatarStage({ sessionId, branding, onIntegrity }: Props) {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: `${accent}14` }}>
             <CheckCircle2 size={28} style={{ color: accent }} />
           </div>
-          <h1 className="text-2xl font-bold text-neutral-900">All done — thank you!</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">All done, thank you!</h1>
           <p className="mt-2 text-sm leading-relaxed text-neutral-500">
             Your interview with {branding.companyName} is complete. You can close this window.
           </p>
@@ -89,11 +91,21 @@ export function AvatarStage({ sessionId, branding, onIntegrity }: Props) {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <div className="sticky top-0 z-10 border-b border-border bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <span className="truncate font-bold" style={{ color: accent }}>{branding.companyName}</span>
-          <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-600">
-            Question {s?.progress.current} of {s?.progress.total}
-          </span>
+          <div className="flex items-center gap-3">
+            {/* Countdown ring — only while a timed question turn is armed. */}
+            {s?.phase && (
+              <CircularCountdown
+                remaining={chat.remaining}
+                total={s.totalPhaseSeconds}
+                phase={s.phase === 'thinking' ? 'prep' : 'answer'}
+                warningThreshold={s.timing.warningThresholdSeconds}
+                accentColor={accent}
+                size={56}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -126,7 +138,25 @@ export function AvatarStage({ sessionId, branding, onIntegrity }: Props) {
         <div className="flex flex-col gap-3">
           <div className="rounded-2xl border border-border bg-white p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Current question</p>
-            <p className="mt-1 text-sm leading-relaxed text-neutral-800">{currentQ || '…'}</p>
+            {chat.sending || (chat.loading && !s) ? (
+              <p className="mt-1 flex items-center gap-2 text-sm text-neutral-400" role="status" aria-live="polite">
+                {!reduce && (
+                  <span className="flex items-center gap-1">
+                    {[0, 1, 2].map((i) => (
+                      <motion.span
+                        key={i}
+                        className="h-1.5 w-1.5 rounded-full bg-neutral-400"
+                        animate={{ opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1, repeat: Infinity, delay: i * 0.18 }}
+                      />
+                    ))}
+                  </span>
+                )}
+                Thinking…
+              </p>
+            ) : (
+              <p className="mt-1 text-sm leading-relaxed text-neutral-800">{currentQ || '…'}</p>
+            )}
           </div>
 
           <div className="flex flex-1 flex-col rounded-2xl border border-border bg-white p-4">
@@ -148,7 +178,7 @@ export function AvatarStage({ sessionId, branding, onIntegrity }: Props) {
               <span className="text-xs text-neutral-400">⌘/Ctrl + Enter to submit</span>
               <button
                 onClick={submit}
-                disabled={!answer.trim() || chat.sending || s?.status !== 'in_progress'}
+                disabled={!answer.trim() || chat.sending || inThinkingPhase || s?.status !== 'in_progress'}
                 className="inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ background: accent }}
               >

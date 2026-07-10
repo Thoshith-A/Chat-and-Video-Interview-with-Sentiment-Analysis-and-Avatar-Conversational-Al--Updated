@@ -9,9 +9,10 @@ import { extractResumeText } from '../services/resume'
 import { generateQuestions, geminiEnabled } from '../services/gemini'
 import {
   beginConversation, submitChatAnswer, computeChatbotState,
-  advanceChatbotTiming, skipThinking, currentInterviewerTurn, isTimed,
-  primaryQuestionGroups,
+  advanceChatbotTiming, skipThinking, currentInterviewerTurn, turnTiming,
+  primaryQuestionGroups, revealTimedTurn,
 } from '../services/conversation'
+import type { TimeOfDay } from '../../shared/types'
 import type {
   InterviewSession,
   InterviewTemplate,
@@ -149,7 +150,7 @@ sessionsRouter.post('/:id/track', ah((req, res) => {
   if (session.status !== 'created' && session.status !== 'system_check')
     throw new HttpError(409, 'Track can only be chosen before the interview begins')
   const track = req.body?.track
-  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar')
+  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice')
     throw new HttpError(400, 'Invalid track')
   session.track = track
   db.scheduleSave()
@@ -178,7 +179,7 @@ sessionsRouter.post('/:id/resume', upload.single('resume'), ah(async (req, res) 
   if (text.length < 30) throw new HttpError(400, 'Could not read meaningful text from that file')
   session.resumeText = text.slice(0, 20000)
 
-  // Conversational tracks (by the SESSION's track) generate questions live — just store the résumé.
+  // Chatbot / video-avatar generate questions turn-by-turn, so just store the résumé.
   if (session.track === 'chatbot' || session.track === 'video_avatar') {
     session.currentIndex = 0
     db.scheduleSave()
@@ -186,7 +187,9 @@ sessionsRouter.post('/:id/resume', upload.single('resume'), ah(async (req, res) 
     return
   }
 
-  // Chat track: generate the fixed-slot question list from the résumé now.
+  // Chat + voice tracks use an up-front ordered plan — generate it now, while the
+  // candidate is on the "processing résumé" step, so the interview starts instantly
+  // (no dead air waiting for generation once the voice call connects).
   await generateAdaptiveChatQuestions(session, template)
   db.scheduleSave()
   res.json(computePublicState(session, template))
@@ -346,7 +349,9 @@ sessionsRouter.post('/:id/chat/begin', ah(async (req, res) => {
   if (template.questionSource === 'adaptive' && !session.resumeText)
     throw new HttpError(400, 'A résumé is required before starting')
   if (session.status !== 'in_progress') {
-    await beginConversation(session, template)
+    const tod = req.body?.timeOfDay
+    const timeOfDay = (tod === 'morning' || tod === 'afternoon' || tod === 'evening' ? tod : undefined) as TimeOfDay | undefined
+    await beginConversation(session, template, { timeOfDay })
     db.scheduleSave()
   }
   res.json(computeChatbotState(session, template))
@@ -376,11 +381,13 @@ sessionsRouter.post('/:id/chat/answer', ah(async (req, res) => {
   if (req.body?.turnId && req.body.turnId !== turn.id)
     return res.status(409).json({ error: 'Stale turn — refresh', state: computeChatbotState(session, template) })
 
-  if (isTimed(template)) {
-    const ct = template.conversationTiming!
+  // Only timed question turns are clock-gated. Untimed turns (the opening
+  // greeting/readiness turn, or any turn when the timer is off) pass through.
+  const tt = turnTiming(template, turn)
+  if (tt) {
     if (!turn.answerStartedAt) throw new HttpError(400, 'Still in thinking time')
-    const remaining = ct.perQuestionSeconds - (Date.now() - Date.parse(turn.answerStartedAt)) / 1000
-    if (remaining > 0 && !ct.allowEarlySubmit) throw new HttpError(403, 'Early submission is disabled')
+    const remaining = tt.answerSeconds - (Date.now() - Date.parse(turn.answerStartedAt)) / 1000
+    if (remaining > 0 && !tt.allowEarlySubmit) throw new HttpError(403, 'Early submission is disabled')
   }
 
   await submitChatAnswer(session, template, String(req.body?.answerText ?? turn.draft ?? ''))
@@ -398,6 +405,16 @@ sessionsRouter.post('/:id/chat/draft', ah((req, res) => {
   turn.draft = String(req.body?.draft ?? '')
   db.scheduleSave()
   res.json({ ok: true })
+}))
+
+// The client finished the "Thinking…" indicator and presented the question —
+// start its thinking/answer clock now (idempotent). No-op for untimed turns
+// (greeting, readiness, wrap-up). Keeps the indicator + acknowledgment prefix
+// off the timer. This is the `question_presented` event.
+sessionsRouter.post('/:id/chat/question-presented', ah((req, res) => {
+  const { session, template } = load(req.params.id)
+  if (revealTimedTurn(session, template)) db.scheduleSave()
+  res.json(computeChatbotState(session, template))
 }))
 
 // Timed mode: end thinking early and start answering now.
@@ -434,7 +451,7 @@ sessionsRouter.get('/:id/report', ah((req, res) => {
   // Chatbot: synthesise the per-question view from the transcript (ids `q{index}`
   // matching the scored perQuestion), so the existing report UI renders it.
   const questions =
-    session.track === 'chatbot' || session.track === 'video_avatar'
+    session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice'
       ? primaryQuestionGroups(session).map((g) => ({
           id: `q${g.index}`,
           text: g.question,
