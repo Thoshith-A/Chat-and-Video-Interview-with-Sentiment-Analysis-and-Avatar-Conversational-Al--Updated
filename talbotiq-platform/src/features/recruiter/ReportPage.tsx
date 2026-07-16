@@ -11,7 +11,9 @@ import {
 import { PageHeader, Card, Button, Badge, Skeleton, cn } from '@/components/ui'
 import { sessionsApi } from '@/lib/api'
 import { exportElementToPdf } from '@/lib/pdf'
+import { FacialAnalysisPanel } from '@/components/ats/FacialAnalysisPanel'
 import type { Recommendation, SessionReportView, SpeechMetrics, SentimentSignals } from '@shared/types'
+import type { FacialSessionSummary } from '@/types/rekognition.types'
 
 const REC: Record<Recommendation, { label: string; cls: string }> = {
   strong_yes: { label: 'Strong Yes', cls: 'bg-success-bg text-success border-success-border' },
@@ -88,7 +90,7 @@ export default function ReportPage() {
     )
   }
 
-  const { session, rubric, report, speech } = q.data
+  const { session, rubric, report, speech, facial } = q.data
   const kpiLabel = (kid: string) => rubric.kpis.find((k) => k.id === kid)?.label ?? kid
 
   const exportPdf = async () => {
@@ -326,6 +328,11 @@ export default function ReportPage() {
                 </div>
               )}
             </Card>
+          )}
+
+          {/* facial analysis (video track, AWS Rekognition) */}
+          {session.track === 'video' && facial && (
+            <FacialAnalysisPanel summary={facial as unknown as FacialSessionSummary} questionCount={session.questions.length} />
           )}
 
           {/* signal analytics — real transcript-derived metrics + text sentiment */}

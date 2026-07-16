@@ -616,6 +616,19 @@ sessionsRouter.post('/:id/answers', ah(async (req, res) => {
   res.json(computePublicState(session, template))
 }))
 
+// Video Interview: candidate uploads the aggregated AWS Rekognition facial
+// summary (computed client-side) on completion. Additive; stored opaquely.
+sessionsRouter.post('/:id/facial', ah((req, res) => {
+  const { session } = load(req)
+  if (session.track !== 'video') throw new HttpError(400, 'This interview does not capture facial analysis')
+  const summary = req.body?.summary
+  if (summary && typeof summary === 'object') {
+    session.facialSummary = summary as Record<string, unknown>
+    db.scheduleSave()
+  }
+  res.json({ ok: true })
+}))
+
 // Log an integrity event (tab switch, blur, blocked paste/copy, fullscreen exit).
 sessionsRouter.post('/:id/integrity-event', ah((req, res) => {
   const { session, template } = load(req)
@@ -904,6 +917,8 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
     report: db.reports.get(session.id) ?? null,
     // Transcript-derived delivery metrics (voice / chatbot / avatar).
     ...(isConversation ? { speech: computeSpeechMetrics(session) ?? undefined } : {}),
+    // AWS Rekognition facial summary (video track).
+    ...(session.facialSummary ? { facial: session.facialSummary } : {}),
   }
 
   // Backfill the text sentiment read for conversation reports scored before this

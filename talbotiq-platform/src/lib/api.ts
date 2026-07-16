@@ -162,6 +162,10 @@ export const sessionsApi = {
     ),
   complete: (id: string) =>
     http<CandidateSessionState>(`/sessions/${id}/complete`, { method: 'POST' }),
+  // Video Interview: upload the aggregated AWS Rekognition facial summary
+  // (computed client-side from frames captured off the shared camera stream).
+  facial: (id: string, summary: unknown) =>
+    http<{ ok: boolean }>(`/sessions/${id}/facial`, { method: 'POST', body: JSON.stringify({ summary }) }),
   list: () => http<SessionListItem[]>('/sessions'),
   report: (id: string) => http<SessionReportView>(`/sessions/${id}/report`),
   // Candidate: the interviews assigned to the signed-in candidate's verified email.

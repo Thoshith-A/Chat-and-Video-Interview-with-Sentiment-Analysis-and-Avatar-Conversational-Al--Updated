@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { RekognitionService, aggregateFacialData } from '@/services/rekognitionService'
+import { useAppStore } from '@/store/useAppStore'
+import type { FacialSessionSummary } from '@/types/rekognition.types'
 
 /**
  * Owns ONE camera+mic stream for the whole Video Interview and records the
@@ -13,6 +16,8 @@ export function useAnswerRecorder() {
   const [ready, setReady] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const awsProxyUrl = useAppStore((s) => s.awsProxyUrl)
+  const rekogRef = useRef<RekognitionService | null>(null)
 
   const acquire = useCallback(async () => {
     if (streamRef.current) return streamRef.current
@@ -61,5 +66,31 @@ export function useAnswerRecorder() {
     if (el && streamRef.current) el.srcObject = streamRef.current
   }, [])
 
-  return { ready, recording, error, acquire, startRecording, stopRecording, attachPreview, streamRef }
+  // Facial capture (Task 7) — taps the SAME shared stream via AWS Rekognition,
+  // no second getUserMedia. Idempotent: a second startFacial call (e.g. from a
+  // remounted VideoStage) is a no-op once rekogRef is set. Graceful no-op when
+  // no proxy URL is configured.
+  const startFacial = useCallback((questionCount: number) => {
+    const stream = streamRef.current
+    if (!stream || !awsProxyUrl || rekogRef.current) return
+    const svc = new RekognitionService(awsProxyUrl)
+    rekogRef.current = svc
+    void svc.startCapture(stream)
+    void questionCount
+  }, [awsProxyUrl])
+
+  const setFacialQuestion = useCallback((idx: number) => { rekogRef.current?.setCurrentQuestion(idx) }, [])
+
+  const stopFacial = useCallback((questionCount: number): FacialSessionSummary | null => {
+    const svc = rekogRef.current
+    if (!svc) return null
+    const frames = svc.stopCapture()
+    rekogRef.current = null
+    return frames.length ? aggregateFacialData(frames, questionCount) : null
+  }, [])
+
+  return {
+    ready, recording, error, acquire, startRecording, stopRecording, attachPreview, streamRef,
+    startFacial, setFacialQuestion, stopFacial,
+  }
 }
