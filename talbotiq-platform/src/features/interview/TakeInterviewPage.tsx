@@ -111,7 +111,7 @@ export default function TakeInterviewPage() {
             secondsLeft={clock.secondsLeft}
             busy={clock.busy}
             onSkipPrep={clock.skipPrep}
-            onSubmitVideo={clock.submitVideo}
+            onSubmitText={clock.submit}
             onIntegrity={integrity.post}
           />
         </InterviewShell>
