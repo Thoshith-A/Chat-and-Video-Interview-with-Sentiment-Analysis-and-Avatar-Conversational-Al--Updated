@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { Wifi, Volume2, ShieldCheck, CheckCircle2 } from 'lucide-react'
 import type { BrandingConfig, TrackType } from '@shared/types'
 import { VideoSystemCheck } from './VideoSystemCheck'
+import { VideoIntro } from './VideoIntro'
 
 interface Props {
   branding: BrandingConfig
@@ -14,6 +15,10 @@ interface Props {
 export function SystemCheck({ branding, track, onBegin, busy }: Props) {
   const reduce = useReducedMotion()
   const [ready, setReady] = useState(false)
+
+  if (track === 'video') {
+    return <VideoIntro branding={branding} onBegin={onBegin} busy={busy} />
+  }
 
   if (track === 'video_avatar') {
     return <VideoSystemCheck branding={branding} onBegin={onBegin} busy={busy} />

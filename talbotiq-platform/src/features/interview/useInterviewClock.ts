@@ -103,10 +103,10 @@ export function useInterviewClock(sessionId: string) {
   const skipPrep = () => action(() => sessionsApi.skipPrep(sessionId))
   const completeNow = () => action(() => sessionsApi.complete(sessionId))
 
-  const submit = (answerText: string) => {
+  const submit = (answerText: string, videoUrl?: string) => {
     const qid = state?.question?.id
     if (!qid) return Promise.resolve()
-    return action(() => sessionsApi.submitAnswer(sessionId, { questionId: qid, answerText }))
+    return action(() => sessionsApi.submitAnswer(sessionId, { questionId: qid, answerText, ...(videoUrl ? { videoUrl } : {}) }))
   }
 
   const saveDraft = useCallback(
