@@ -66,6 +66,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
       }
     } catch (err) {
       console.error('[video] submit failed', err)
+      setSubmitFailed(true)
     } finally {
       // Last question: stop facial capture and upload the aggregated summary.
       // Its own try/catch, run regardless of whether the video upload/submit
