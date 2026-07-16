@@ -8,7 +8,7 @@ import type { TranscriptEntry } from '@/services/deepgram'
 export type { TranscriptEntry }
 
 export interface DraftForm {
-  replica_id: string; persona_id: string; conversation_name: string
+  replica_id: string; persona_id: string; ai_name: string; conversation_name: string
   conversational_context: string; custom_greeting: string; callback_url: string
   max_call_duration: number; participant_left_timeout: number; participant_absent_timeout: number
   enable_recording: boolean; enable_transcription: boolean; apply_conversation_override: boolean
@@ -209,18 +209,24 @@ export const useAppStore = create<AppState>()(
 
 /**
  * Hybrid: hydrate the non-secret "configured" flags from the server so the ported
- * UI gating works without any secret ever reaching the browser. Fire-and-forget at
- * module load; the server holds the real Deepgram/Hume/Gemini/AWS keys.
+ * UI gating works without any secret ever reaching the browser. The server holds
+ * the real Deepgram/Hume/Gemini/AWS keys.
+ *
+ * Called from the recruiter shell AFTER sign-in — the /api/avatar/status endpoint
+ * is recruiter-gated, so it must run authenticated (the ID token is attached by
+ * the global fetch interceptor in AuthProvider).
  */
-fetch('/api/avatar/status')
-  .then((r) => (r.ok ? r.json() : null))
-  .then((s: { deepgram?: boolean; hume?: boolean; gemini?: boolean; rekognition?: boolean } | null) => {
-    if (!s) return
-    useAppStore.setState({
-      deepgramKey: s.deepgram ? 'server' : '',
-      humeKey: s.hume ? 'server' : '',
-      geminiKey: s.gemini ? 'server' : '',
-      awsProxyUrl: s.rekognition ? '/api/avatar/analyze-face' : '',
+export function refreshServiceStatus() {
+  fetch('/api/avatar/status')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((s: { deepgram?: boolean; hume?: boolean; gemini?: boolean; rekognition?: boolean } | null) => {
+      if (!s) return
+      useAppStore.setState({
+        deepgramKey: s.deepgram ? 'server' : '',
+        humeKey: s.hume ? 'server' : '',
+        geminiKey: s.gemini ? 'server' : '',
+        awsProxyUrl: s.rekognition ? '/api/avatar/analyze-face' : '',
+      })
     })
-  })
-  .catch(() => { /* offline / server down — panels show their own "not configured" states */ })
+    .catch(() => { /* offline / server down — panels show their own "not configured" states */ })
+}

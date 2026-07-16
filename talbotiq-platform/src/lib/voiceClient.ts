@@ -1,6 +1,7 @@
 import type {
   VoiceServerMessage, VoiceClientMessage, VoicePhase, TimeOfDay,
 } from '@shared/types'
+import { getIdTokenOrNull } from '@/lib/firebase'
 
 /**
  * Low-latency browser transport for the Voice Track.
@@ -71,9 +72,13 @@ function int16BytesToFloat32(buf: ArrayBuffer): Float32Array {
   return out
 }
 
-export function voiceWsUrl(sessionId: string): string {
+export async function voiceWsUrl(sessionId: string): Promise<string> {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.host}/api/voice/${encodeURIComponent(sessionId)}`
+  // The WS handshake can't carry an Authorization header, so the ID token rides
+  // in the query string; the server verifies it and checks session assignment.
+  const token = await getIdTokenOrNull()
+  const q = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${proto}://${location.host}/api/voice/${encodeURIComponent(sessionId)}${q}`
 }
 
 export interface VoiceClientCallbacks {
@@ -82,9 +87,18 @@ export interface VoiceClientCallbacks {
   /** Agent audio became audible / drained. Server phases lead local playback by
    *  the buffered duration, so the UI should trust THIS for "speaking". */
   onAudioPlaying?: (playing: boolean) => void
+  /** The socket dropped and we're transparently reconnecting (mic stays open).
+   *  active=false once reconnected or after we give up. */
+  onReconnecting?: (active: boolean) => void
   onEnded?: (reason?: string, graceful?: boolean) => void
   onError?: (message: string) => void
 }
+
+// Backoff between reconnect attempts (ms), capped at the last value and repeated.
+const RECONNECT_DELAYS = [500, 1000, 2000, 3000, 5000, 8000]
+// Keep retrying for roughly this long — must stay under the SERVER's reconnect
+// grace window (60s) so we don't give up while the interview is still being held.
+const RECONNECT_WINDOW_MS = 55_000
 
 export class VoiceClient {
   private ws?: WebSocket
@@ -99,6 +113,11 @@ export class VoiceClient {
   private playing = false
   private muted = false
   private closed = false
+  private serverEnded = false                 // server sent 'ended' → do not reconnect
+  private timeOfDay?: TimeOfDay
+  private reconnectAttempts = 0
+  private reconnectStartedAt = 0
+  private reconnectTimer?: ReturnType<typeof setTimeout>
 
   constructor(private sessionId: string, private cbs: VoiceClientCallbacks) {}
 
@@ -128,16 +147,60 @@ export class VoiceClient {
     // 2) Playback context (agent audio is 24 kHz).
     this.playbackCtx = new AudioContext()
 
-    // 3) WebSocket to our backend relay.
-    this.ws = new WebSocket(voiceWsUrl(this.sessionId))
-    this.ws.binaryType = 'arraybuffer'
-    this.ws.onopen = () => this.sendControl({ type: 'ready', timeOfDay })
-    this.ws.onmessage = (ev) => {
+    // 3) WebSocket to our backend relay. The mic + playback contexts above stay
+    //    alive across reconnects — only this socket is recreated on a drop.
+    this.timeOfDay = timeOfDay
+    await this.openWs()
+  }
+
+  /** Open (or re-open) the relay socket. Reused for the initial connect and every
+   *  transparent reconnect; the server resumes the same interview seamlessly. */
+  private async openWs(): Promise<void> {
+    if (this.closed || this.serverEnded) return
+    let url: string
+    try { url = await voiceWsUrl(this.sessionId) } catch { this.scheduleReconnect(); return }
+    if (this.closed || this.serverEnded) return
+    const ws = new WebSocket(url)
+    this.ws = ws
+    ws.binaryType = 'arraybuffer'
+    ws.onopen = () => {
+      this.reconnectAttempts = 0
+      this.reconnectStartedAt = 0
+      this.cbs.onReconnecting?.(false)
+      this.sendControl({ type: 'ready', timeOfDay: this.timeOfDay })
+      if (this.muted) this.sendControl({ type: 'mute', muted: true }) // preserve mute across reconnect
+    }
+    ws.onmessage = (ev) => {
       if (typeof ev.data === 'string') this.onControl(JSON.parse(ev.data) as VoiceServerMessage)
       else this.enqueuePcm(ev.data as ArrayBuffer) // binary = agent audio (24 kHz PCM16)
     }
-    this.ws.onerror = () => this.cbs.onError?.('Connection error')
-    this.ws.onclose = () => { if (!this.closed) this.cbs.onEnded?.('disconnected', false) }
+    ws.onerror = () => { /* a 'close' event always follows; reconnect is handled there */ }
+    ws.onclose = () => {
+      if (this.ws !== ws) return                 // superseded by a newer socket
+      if (this.closed || this.serverEnded) return // intentional teardown / real finish
+      this.scheduleReconnect()
+    }
+  }
+
+  /** Retry the socket with backoff for up to RECONNECT_WINDOW_MS (matched to the
+   *  server's grace window); only surface "interrupted" once that window elapses. */
+  private scheduleReconnect(): void {
+    if (this.closed || this.serverEnded) return
+    this.flushPlayback() // drop stale audio buffered from the turn that was cut off
+    const now = Date.now()
+    if (this.reconnectStartedAt === 0) this.reconnectStartedAt = now
+    if (now - this.reconnectStartedAt >= RECONNECT_WINDOW_MS) {
+      this.cbs.onReconnecting?.(false)
+      this.cbs.onEnded?.('disconnected', false)
+      this.dispose() // release the mic + audio contexts; we've given up reconnecting
+      return
+    }
+    const delay = RECONNECT_DELAYS[Math.min(this.reconnectAttempts, RECONNECT_DELAYS.length - 1)]
+    this.reconnectAttempts++
+    this.cbs.onReconnecting?.(true)
+    this.cbs.onPhase?.('connecting')
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = setTimeout(() => { void this.openWs() }, delay)
   }
 
   private onControl(msg: VoiceServerMessage) {
@@ -145,7 +208,7 @@ export class VoiceClient {
       case 'state': this.cbs.onPhase?.(msg.phase); break
       case 'caption': this.cbs.onCaption?.(msg.role, msg.text, msg.final); break
       case 'interrupted': this.flushPlayback(); break
-      case 'ended': this.cbs.onEnded?.(msg.reason, msg.graceful !== false); this.dispose(); break
+      case 'ended': this.serverEnded = true; this.cbs.onEnded?.(msg.reason, msg.graceful !== false); this.dispose(); break
       case 'error': this.cbs.onError?.(msg.message); break
       // 'audio' as JSON is legacy; audio now arrives as binary frames.
     }
@@ -210,6 +273,7 @@ export class VoiceClient {
   dispose() {
     if (this.closed) return
     this.closed = true
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined }
     this.flushPlayback()
     try { this.worklet?.disconnect() } catch { /* noop */ }
     try { this.source?.disconnect() } catch { /* noop */ }

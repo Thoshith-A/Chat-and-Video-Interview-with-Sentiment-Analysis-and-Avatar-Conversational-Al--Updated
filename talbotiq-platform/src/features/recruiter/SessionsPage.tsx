@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Sparkles } from 'lucide-react'
 import {
   PageHeader, Card, Button, Input, Select, Badge, EmptyState, Skeleton, Modal, Toggle,
 } from '@/components/ui'
-import { templatesApi, sessionsApi } from '@/lib/api'
+import { templatesApi, sessionsApi, settingsApi } from '@/lib/api'
 import { GenerateFromResumeModal } from './GenerateFromResumeModal'
 import type { SessionListItem, TrackType } from '@shared/types'
 
@@ -20,12 +20,16 @@ const statusVariant: Record<string, 'success' | 'warning' | 'neutral' | 'info' |
 
 export default function SessionsPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [genOpen, setGenOpen] = useState(false)
   const [createdLink, setCreatedLink] = useState<string | null>(null)
 
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: sessionsApi.list })
   const templates = useQuery({ queryKey: ['templates'], queryFn: templatesApi.list })
+  // Whether a Video Avatar config has been applied (Setup page) — gates the
+  // Conversational AI mode: without it, candidate avatar interviews can't start.
+  const avatarApplied = useQuery({ queryKey: ['avatar-settings'], queryFn: settingsApi.avatarStatus })
 
   const [templateId, setTemplateId] = useState('')
   const [name, setName] = useState('')
@@ -91,7 +95,12 @@ export default function SessionsPage() {
         kicker="AI Interview"
         title="Sessions"
         description="Create interview links for candidates and review their scored results."
-        action={<Button onClick={openCreate}>+ New session</Button>}
+        action={
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={openCreate}>+ Single link</Button>
+            <Button onClick={() => navigate('/sessions/new')}>Invite candidates</Button>
+          </div>
+        }
       />
 
       {sessions.isLoading ? (
@@ -201,19 +210,42 @@ export default function SessionsPage() {
               <Input label="Candidate name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" />
               <Input label="Candidate email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" />
             </div>
-            <Select
-              label="Interview mode (optional override)"
-              value={track}
-              onChange={(e) => setTrack(e.target.value as TrackType)}
-              hint="Best set on the template. Overriding to a mode the template isn't configured for may not start."
-              options={[
-                { value: '', label: 'Use template default' },
-                { value: 'chatbot', label: 'Chatbot — conversational, typed (ChatGPT-style)' },
-                { value: 'voice', label: 'Voice — live spoken AI interviewer (Gemini Live)' },
-                { value: 'chat', label: 'Timed Q&A — 30s prep + 2 min answer (HireVue-style)' },
-                { value: 'video_avatar', label: 'Conversational AI — Video Avatar (Tavus)' },
-              ]}
-            />
+            <div>
+              <Select
+                label="Interview mode (optional override)"
+                value={track}
+                onChange={(e) => {
+                  const v = e.target.value as TrackType | ''
+                  // Conversational AI needs an APPLIED avatar setup (replica,
+                  // persona, greeting — configured once on the Setup page and
+                  // applied to all candidates). Not applied yet → take the
+                  // recruiter there; applied → the mode is ready to use.
+                  if (v === 'video_avatar' && !avatarApplied.data?.configured) {
+                    setOpen(false)
+                    toast('Configure your AI avatar once — it then applies to all Conversational AI candidates.')
+                    navigate('/setup', { state: { candidateName: name.trim() || undefined, returnTo: '/sessions' } })
+                    return
+                  }
+                  setTrack(v)
+                }}
+                hint="Best set on the template. Conversational AI uses the avatar applied on the Setup page."
+                options={[
+                  { value: '', label: 'Use template default' },
+                  { value: 'chatbot', label: 'Chatbot — conversational, typed (ChatGPT-style)' },
+                  { value: 'voice', label: 'Voice — live spoken AI interviewer (Gemini Live)' },
+                  { value: 'chat', label: 'Timed Q&A — 30s prep + 2 min answer (HireVue-style)' },
+                  { value: 'video_avatar', label: 'Conversational AI — Video Avatar (Tavus)' },
+                ]}
+              />
+              {track === 'video_avatar' && avatarApplied.data?.configured && (
+                <p className="mt-1.5 text-xs text-primary-700">
+                  ✓ Uses your applied avatar{avatarApplied.data.replicaId ? <> (<span className="font-mono">{avatarApplied.data.replicaId}</span>)</> : null} —{' '}
+                  <button type="button" className="font-semibold underline" onClick={() => { setOpen(false); navigate('/setup', { state: { returnTo: '/sessions' } }) }}>
+                    edit avatar setup
+                  </button>
+                </p>
+              )}
+            </div>
             <div className="space-y-3 rounded-xl border border-border bg-neutral-50/60 p-3">
               <Toggle
                 label="Per-question timer"

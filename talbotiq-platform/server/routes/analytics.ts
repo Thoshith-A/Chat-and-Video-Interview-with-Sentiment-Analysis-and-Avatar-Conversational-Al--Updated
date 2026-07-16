@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { computeAnalytics } from '../services/analytics'
+import { requireAuth } from '../middleware/auth'
 import type { AnalyticsFilters, TrackType } from '../../shared/types'
 
 export const analyticsRouter = Router()
@@ -8,8 +9,10 @@ const TRACKS: TrackType[] = ['chat', 'chatbot', 'video_avatar', 'voice']
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
 
 // GET /api/analytics — real aggregates over stored ResultReports. All filters
-// optional. No matches → zeros + empty arrays (never fabricated data).
+// optional. No matches → zeros + empty arrays (never fabricated data). Scoped to
+// the requesting recruiter's own sessions; admins see the whole tenant.
 analyticsRouter.get('/', (req, res) => {
+  const auth = requireAuth(req)
   const q = req.query
   const track = str(q.track)
   const filters: AnalyticsFilters = {
@@ -19,5 +22,6 @@ analyticsRouter.get('/', (req, res) => {
     dateFrom: str(q.dateFrom),
     dateTo: str(q.dateTo),
   }
-  res.json(computeAnalytics(filters))
+  const ownerId = auth.admin ? undefined : auth.uid
+  res.json(computeAnalytics(filters, undefined, ownerId))
 })

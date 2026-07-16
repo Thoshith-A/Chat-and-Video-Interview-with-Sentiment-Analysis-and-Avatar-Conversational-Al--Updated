@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { usePersonas, useCreatePersona, useUpdatePersona, useDeletePersona, useReplicas } from '@/hooks/useTavus'
 import { Button, Card, Modal, Input, Textarea, Select, Toggle, Slider, JsonPreview, SectionTitle, EmptyState, Skeleton, Badge, PageHeader } from '@/components/ui'
 import { cn } from '@/components/ui'
+import { ReplicaPicker } from '@/components/tavus/ReplicaPicker'
 import type { CreatePersonaInput, PersonaLayers, EmotionTag } from '@/types/tavus.types'
 
 const EMOTIONS: EmotionTag[] = ['anger', 'positivity', 'surprise', 'sadness', 'curiosity']
@@ -31,7 +32,6 @@ export default function PersonasPage() {
   const [editing, setEditing] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>({ persona_name: '', system_prompt: '', context: '', default_replica_id: '', layers: defaultLayers() })
 
-  const repOpts = [{ value: '', label: '— None —' }, ...(replicas ?? []).map(r => ({ value: r.replica_id, label: r.replica_name }))]
   const setF = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm(p => ({ ...p, [k]: v }))
   const setLayer = <S extends keyof PersonaLayers>(s: S, patch: Partial<NonNullable<PersonaLayers[S]>>) =>
     setForm(p => ({ ...p, layers: { ...p.layers, [s]: { ...(p.layers[s] ?? {}), ...patch } } }))
@@ -44,7 +44,13 @@ export default function PersonasPage() {
   }
 
   function submit() {
-    const payload: CreatePersonaInput = { persona_name: form.persona_name, system_prompt: form.system_prompt, ...(form.context && { context: form.context }), ...(form.default_replica_id && { default_replica_id: form.default_replica_id }), layers: form.layers }
+    const base = { persona_name: form.persona_name, system_prompt: form.system_prompt, layers: form.layers }
+    // Create (POST): omit empty optionals to avoid 400s. Edit (PATCH): send them
+    // explicitly (even as '') so clearing the default replica / context persists —
+    // a missing key in a PATCH leaves the old value untouched.
+    const payload: CreatePersonaInput = editing
+      ? { ...base, context: form.context, default_replica_id: form.default_replica_id }
+      : { ...base, ...(form.context && { context: form.context }), ...(form.default_replica_id && { default_replica_id: form.default_replica_id }) }
     const opts = { onSuccess: () => { toast.success(editing ? 'Persona updated' : 'Persona created'); setShowForm(false) }, onError: (e: any) => toast.error(e.message) }
     editing ? update.mutate({ id: editing, data: payload }, opts) : create.mutate(payload, opts)
   }
@@ -98,7 +104,7 @@ export default function PersonasPage() {
 
             <SectionTitle>Identity</SectionTitle>
             <Input label="Persona Name *" value={form.persona_name} onChange={e => setF('persona_name', e.target.value)} placeholder="e.g. Alex — TalbotIQ Senior Interviewer" />
-            <Select label="Default Replica" options={repOpts} value={form.default_replica_id} onChange={e => setF('default_replica_id', e.target.value)} />
+            <ReplicaPicker label="Default Replica" replicas={replicas ?? []} value={form.default_replica_id ?? ''} onChange={id => setF('default_replica_id', id)} includeNone noneLabel="— None —" loading={!replicas} />
             <Textarea label="System Prompt *" value={form.system_prompt} onChange={e => setF('system_prompt', e.target.value)} charLimit={4096} placeholder="You are Alex, a professional interviewer at TalbotIQ. Ask each question clearly and wait for the candidate's full response before proceeding. Maintain a warm, encouraging tone." className="min-h-[110px]" />
             <Textarea label="Context" value={form.context} onChange={e => setF('context', e.target.value)} placeholder="Additional context the avatar should know about the role, company, or candidate…" />
 

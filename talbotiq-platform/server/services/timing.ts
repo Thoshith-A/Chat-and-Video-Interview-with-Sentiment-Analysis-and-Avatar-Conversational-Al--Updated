@@ -154,6 +154,7 @@ export function computePublicState(
     integrity: template.integrity,
     tabSwitchWarnings: session.tabSwitchCount,
     awaitingResume,
+    hasResume: Boolean(session.resumeText),
   }
 }
 

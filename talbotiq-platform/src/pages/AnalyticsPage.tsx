@@ -39,6 +39,14 @@ export default function AnalyticsPage() {
 
   const a = analytics.data
   const hasFilters = Object.values(filters).some(Boolean)
+  // Score distribution, average score, and top candidates only make sense WITHIN a
+  // single position — averaging/ranking them across every role at once is misleading.
+  // Reveal them only once the recruiter narrows to a specific role or template.
+  const positionSelected = !!filters.role || !!filters.templateId
+  const positionLabel =
+    filters.role ??
+    (filters.templateId ? templates.data?.find((t) => t.id === filters.templateId)?.name : undefined) ??
+    'this position'
 
   const filterBar = (
     <div className="flex flex-wrap items-end gap-3">
@@ -97,18 +105,35 @@ export default function AnalyticsPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {/* Funnel / headline stats — all real */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Funnel / headline stats — all real. Average Score is position-specific. */}
+          <div className={cn('grid grid-cols-2 gap-4', positionSelected ? 'lg:grid-cols-4' : 'lg:grid-cols-3')}>
             <StatCard label="Interviews Created" value={a.totals.created} sub={`${a.totals.started} started · ${a.totals.completed} completed`} color={ACCENT} />
             <StatCard label="Completion Rate" value={pct(a.completionRate)} sub={`${a.totals.completed} of ${a.totals.created}`} color={ACCENT} />
-            <StatCard label="Average Score" value={a.averageOverall} sub={`across ${a.totals.scored} scored`} color="#d97706" />
+            {positionSelected && (
+              <StatCard label="Average Score" value={a.averageOverall} sub={`across ${a.totals.scored} scored`} color="#d97706" />
+            )}
             <StatCard label="Avg Duration" value={mmss(a.timeStats.avgDurationSeconds)} sub={`~${mmss(a.timeStats.avgTimePerQuestionSeconds)}/question`} color={ACCENT} />
           </div>
 
-          {/* Score distribution + trend */}
+          {/* In the aggregate (all-positions) view, position-specific insights are hidden. */}
+          {!positionSelected && (
+            <Card className="p-4">
+              <div className="flex items-start gap-3 text-sm text-neutral-500">
+                <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">ℹ</span>
+                <p className="leading-relaxed">
+                  Select a <span className="font-semibold text-neutral-700">Role</span> or <span className="font-semibold text-neutral-700">Template</span> above to see the
+                  {' '}<span className="font-medium">average score</span>, <span className="font-medium">score distribution</span>, <span className="font-medium">KPI averages</span>, and <span className="font-medium">top candidates</span> for that position.
+                  These are only meaningful within a single position.
+                </p>
+              </div>
+            </Card>
+          )}
+
+          {/* Score distribution + trend — position-specific (hidden in the aggregate view) */}
+          {positionSelected && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <Card className="p-5">
-              <div className="mb-4"><p className="text-sm font-semibold text-neutral-800">Score Distribution</p><p className="text-xs text-neutral-400 mt-0.5">Overall scores, all scored interviews</p></div>
+              <div className="mb-4"><p className="text-sm font-semibold text-neutral-800">Score Distribution</p><p className="text-xs text-neutral-400 mt-0.5">Scored interviews · {positionLabel}</p></div>
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={a.scoreDistribution} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="2 4" stroke="#f1f5f9" />
@@ -140,10 +165,12 @@ export default function AnalyticsPage() {
               )}
             </Card>
           </div>
+          )}
 
-          {/* Per-KPI averages (by id, with coverage) */}
+          {/* Per-KPI averages — position-specific (hidden in the aggregate view) */}
+          {positionSelected && (
           <Card className="p-5">
-            <SectionTitle>KPI Averages</SectionTitle>
+            <SectionTitle>KPI Averages · {positionLabel}</SectionTitle>
             {a.kpiAverages.length === 0 ? (
               <p className="text-sm text-neutral-400">No KPI data.</p>
             ) : (
@@ -161,6 +188,7 @@ export default function AnalyticsPage() {
               </div>
             )}
           </Card>
+          )}
 
           {/* Track comparison + recommendation distribution */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -244,25 +272,32 @@ export default function AnalyticsPage() {
             </Card>
           </div>
 
-          {/* Top candidates */}
+          {/* Top candidates — position-specific (hidden in the aggregate view) */}
+          {positionSelected && (
           <Card className="p-5">
-            <SectionTitle>Top Candidates</SectionTitle>
+            <SectionTitle>Top Candidates · {positionLabel}</SectionTitle>
             {a.topCandidates.length === 0 ? <p className="text-sm text-neutral-400">No scored candidates yet.</p> : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
-                {a.topCandidates.map((c, i) => (
-                  <Link key={c.sessionId} to={`/sessions/${c.sessionId}/report`}
-                    className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-neutral-50 transition-colors">
-                    <span className={cn('w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0', i === 0 ? 'bg-primary-700 text-white' : 'bg-neutral-100 text-neutral-500')}>{i + 1}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-neutral-800">{c.name}</span>
-                      {c.role && <span className="block truncate text-xs text-neutral-400">{c.role}</span>}
-                    </span>
-                    <span className="text-sm font-bold tabular-nums flex-shrink-0" style={{ color: ACCENT }}>{c.overallScore}</span>
-                  </Link>
-                ))}
-              </div>
+              <>
+                <p className="mb-2 -mt-1 text-xs text-neutral-400">Click a candidate to open their full report — AI summary, strengths, areas to improve, per-question breakdown and KPI scores.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+                  {a.topCandidates.map((c, i) => (
+                    <Link key={c.sessionId} to={`/sessions/${c.sessionId}/report`}
+                      title={`Open ${c.name}'s full candidate report`}
+                      className="group flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-neutral-50 transition-colors">
+                      <span className={cn('w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold flex-shrink-0', i === 0 ? 'bg-primary-700 text-white' : 'bg-neutral-100 text-neutral-500')}>{i + 1}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-neutral-800">{c.name}</span>
+                        {c.role && <span className="block truncate text-xs text-neutral-400">{c.role}</span>}
+                      </span>
+                      <span className="hidden flex-shrink-0 text-xs font-semibold text-primary-700 group-hover:inline">View report →</span>
+                      <span className="text-sm font-bold tabular-nums flex-shrink-0" style={{ color: ACCENT }}>{c.overallScore}</span>
+                    </Link>
+                  ))}
+                </div>
+              </>
             )}
           </Card>
+          )}
 
           <p className="text-center text-[11px] text-neutral-300">Aggregated {new Date(a.generatedAt).toLocaleString()} · scored interviews only</p>
         </div>

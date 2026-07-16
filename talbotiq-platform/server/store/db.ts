@@ -6,6 +6,8 @@ import type {
   QuestionSet,
   InterviewSession,
   ResultReport,
+  AppUser,
+  AvatarInterviewSettings,
 } from '../../shared/types'
 import { seedData } from './seed'
 
@@ -16,6 +18,13 @@ const DATA_FILE = path.join(DATA_DIR, 'db.json')
 export interface AppSettings {
   geminiApiKey?: string
   geminiModel?: string
+  /** GLOBAL Tavus key — the single source of truth, synced from the Settings
+   *  page. Takes precedence everywhere; saving it also updates avatar.tavusKey
+   *  so every stored copy agrees and a key change applies everywhere at once. */
+  tavusApiKey?: string
+  /** Recruiter-applied Video Avatar config ("Apply to Candidate Interviews" on
+   *  the Setup page). The Tavus key is SERVER-held — never sent to candidates. */
+  avatar?: AvatarInterviewSettings & { tavusKey?: string; updatedAt?: string }
 }
 
 interface Snapshot {
@@ -23,6 +32,7 @@ interface Snapshot {
   questionSets: QuestionSet[]
   sessions: InterviewSession[]
   reports: ResultReport[]
+  users?: AppUser[]
   settings?: AppSettings
 }
 
@@ -36,6 +46,7 @@ class Database {
   questionSets = new Map<string, QuestionSet>()
   sessions = new Map<string, InterviewSession>()
   reports = new Map<string, ResultReport>()
+  users = new Map<string, AppUser>()   // keyed by Firebase uid
   settings: AppSettings = {}
 
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -48,6 +59,7 @@ class Database {
         snap.questionSets?.forEach((s) => this.questionSets.set(s.id, s))
         snap.sessions?.forEach((s) => this.sessions.set(s.id, s))
         snap.reports?.forEach((r) => this.reports.set(r.sessionId, r))
+        snap.users?.forEach((u) => this.users.set(u.uid, u))
         if (snap.settings) this.settings = snap.settings
       }
     } catch (err) {
@@ -77,6 +89,7 @@ class Database {
         questionSets: [...this.questionSets.values()],
         sessions: [...this.sessions.values()],
         reports: [...this.reports.values()],
+        users: [...this.users.values()],
         settings: this.settings,
       }
       fs.writeFileSync(DATA_FILE, JSON.stringify(snap, null, 2))

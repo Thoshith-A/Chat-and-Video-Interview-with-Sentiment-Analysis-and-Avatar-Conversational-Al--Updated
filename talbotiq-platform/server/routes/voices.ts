@@ -58,5 +58,9 @@ voicesRouter.post('/:id/sample', ah(async (req, res) => {
   })
 
   if (chunks.length === 0) throw new HttpError(502, 'Voice preview failed — try again')
-  res.json({ voiceId: voice.id, mimeType: 'audio/pcm;rate=24000', audio: chunks.join('') })
+  // Each inlineData chunk is an independently-padded base64 string; naively
+  // joining the strings yields invalid base64 that truncates at the first
+  // padding char when decoded. Concatenate the BYTES, then re-encode once.
+  const audio = Buffer.concat(chunks.map((c) => Buffer.from(c, 'base64'))).toString('base64')
+  res.json({ voiceId: voice.id, mimeType: 'audio/pcm;rate=24000', audio })
 }))

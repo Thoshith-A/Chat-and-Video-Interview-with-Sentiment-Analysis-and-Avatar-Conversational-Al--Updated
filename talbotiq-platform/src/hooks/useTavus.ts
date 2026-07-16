@@ -120,12 +120,15 @@ export function useConversations(filters?: ConversationFilters) {
   })
 }
 
-export function useConversation(id: string, poll = false) {
+export function useConversation(id: string, poll: boolean | number = false) {
   return useQuery({
     queryKey: QK.conversation(id),
     queryFn: () => tavus.getConversation(id),
     enabled: !!id,
-    refetchInterval: poll ? 3000 : false,
+    // `poll` may be a custom interval (ms). During a live call the page passes a
+    // SLOW interval and relies on the Daily 'left-meeting' event as the primary
+    // end signal — a 3s REST poll alongside a WebRTC call is wasted contention.
+    refetchInterval: poll ? (typeof poll === 'number' ? poll : 3000) : false,
   })
 }
 

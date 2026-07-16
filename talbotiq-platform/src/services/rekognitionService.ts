@@ -100,9 +100,24 @@ export class RekognitionService {
 
     ctx.drawImage(this.videoElement, 0, 0, this.canvasElement.width, this.canvasElement.height)
 
-    const imageBase64 = this.canvasElement
-      .toDataURL('image/jpeg', 0.85)
-      .replace('data:image/jpeg;base64,', '')
+    // Async JPEG encode (toBlob) instead of the synchronous toDataURL — the sync
+    // encode blocked the main thread during the LIVE call and read as video jank.
+    // Same wire format (base64 JSON) so the server proxy is untouched.
+    const canvas = this.canvasElement
+    const imageBase64 = await new Promise<string | null>((resolve) => {
+      try {
+        canvas.toBlob((blob) => {
+          if (!blob) { resolve(null); return }
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result).replace('data:image/jpeg;base64,', ''))
+          reader.onerror = () => resolve(null)
+          reader.readAsDataURL(blob)
+        }, 'image/jpeg', 0.85)
+      } catch {
+        resolve(null)
+      }
+    })
+    if (!imageBase64 || !this.isCapturing) return
 
     const timestampMs = Date.now() - this.sessionStartMs
 

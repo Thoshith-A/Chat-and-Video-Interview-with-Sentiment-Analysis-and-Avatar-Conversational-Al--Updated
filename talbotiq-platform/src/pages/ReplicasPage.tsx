@@ -6,7 +6,7 @@ import type { TavusReplica } from '@/types/tavus.types'
 import { formatDistanceToNow } from 'date-fns'
 
 function StatusBadge({ status }: { status: TavusReplica['status'] }) {
-  const map = { ready: 'success', training: 'warning', error: 'danger', deleted: 'neutral' } as const
+  const map = { ready: 'success', completed: 'success', training: 'warning', error: 'danger', deleted: 'neutral' } as const
   return <Badge variant={map[status]}>{status}</Badge>
 }
 

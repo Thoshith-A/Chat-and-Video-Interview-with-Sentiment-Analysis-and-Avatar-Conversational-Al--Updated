@@ -13,15 +13,25 @@ import { cn } from '@/components/ui'
 
 export default function InterviewPage() {
   const navigate = useNavigate()
-  const store = useAppStore()
-  const conv = store.currentConversation
-  const { data: liveConv } = useConversation(conv?.conversation_id ?? '', true)
+  // Narrow selectors ONLY — this component owns the live call iframe, and a
+  // whole-store subscription re-rendered it on every transcript chunk / metric
+  // update (several times per second while the candidate speaks). Actions are
+  // read via useAppStore.getState() inside handlers (stable, non-subscribing).
+  const conv = useAppStore((s) => s.currentConversation)
+  const interviewActive = useAppStore((s) => s.interviewActive)
+  const storeQuestions = useAppStore((s) => s.questions)
+  const currentQ = useAppStore((s) => s.currentQuestionIdx)
+  const transcriptLen = useAppStore((s) => s.sessionTranscript.length)
+  // Slow fallback poll — the Daily 'left-meeting' event (below) is the primary
+  // end signal; 3s REST polling next to a live WebRTC call was pure contention.
+  const { data: liveConv } = useConversation(conv?.conversation_id ?? '', 15000)
   const endConv = useEndConversation()
 
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [revealedIdx, setRevealedIdx] = useState(-1)   // which question index is currently revealed
   const [avatarSpeaking, setAvatarSpeaking] = useState(false)
   const [autoAdvance, setAutoAdvance] = useState(true)
+  const [callJoined, setCallJoined] = useState(false)  // gates the SECOND camera open
   const speakingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -35,14 +45,13 @@ export default function InterviewPage() {
 
   // Unified audio capture — one mic stream: live Deepgram transcription (server
   // relay) + a sealed WebM recording for post-interview voice-emotion analysis.
-  const { dgConnected, sealAndGetBlob } = useAudioAnalysis(store.interviewActive)
+  const { dgConnected, sealAndGetBlob } = useAudioAnalysis(interviewActive)
   // Optional facial analysis (AWS Rekognition) — separate video-only capture, additive
   const facialCapture = useFacialCapture()
   // ResultsPage polls for completion; keep the hook here too so it fires if user navigates back
   useHumePoll()
 
-  const questions = store.questions.filter(Boolean)
-  const currentQ = store.currentQuestionIdx
+  const questions = storeQuestions.filter(Boolean)
   // Question text is only shown once the avatar has reached this question
   const questionRevealed = revealedIdx === currentQ
 
@@ -52,21 +61,32 @@ export default function InterviewPage() {
   // a page remount mid-interview doesn't push a duplicate timestamp for the same
   // question (which would shift every later per-question emotion window).
   useEffect(() => {
-    if (store.interviewActive && useAppStore.getState().questionTimestamps.length <= currentQ) {
-      store.pushQuestionTimestamp(Date.now())
+    if (interviewActive && useAppStore.getState().questionTimestamps.length <= currentQ) {
+      useAppStore.getState().pushQuestionTimestamp(Date.now())
     }
   }, [currentQ]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Optional facial capture: start when the interview goes active, stop (and persist
-  // frames to facialDataStore) on cleanup / interview end. No-op if no AWS proxy is set.
+  // Optional facial capture: start once the interview is active AND the Daily
+  // call has actually joined (SEQUENCED camera acquisition — opening our second
+  // 640x480 camera while the prebuilt iframe is still acquiring its own device
+  // races exclusive-access webcams and steals bandwidth from the join). Demo
+  // mode (no conversation URL) starts immediately; a live call that never
+  // reports 'joined-meeting' (wrap unavailable) falls back after 15s.
   useEffect(() => {
-    if (store.interviewActive) {
+    if (!interviewActive || callJoined || !conv?.conversation_url) return
+    const t = setTimeout(() => setCallJoined(true), 15_000)
+    return () => clearTimeout(t)
+  }, [interviewActive, callJoined, conv?.conversation_url])
+  useEffect(() => {
+    const ready = interviewActive && (callJoined || !conv?.conversation_url)
+    if (ready) {
       // Fresh session — never let a previous candidate's frames leak into this report.
       facialDataStore.clear()
       facialCapture.startCapture()
+      return () => { facialCapture.stopCapture() }
     }
-    return () => { facialCapture.stopCapture() }
-  }, [store.interviewActive]) // eslint-disable-line react-hooks/exhaustive-deps
+    return undefined
+  }, [interviewActive, callJoined]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the facial capture's "current question" in sync for per-question aggregation
   useEffect(() => {
@@ -158,6 +178,8 @@ export default function InterviewPage() {
         call = (DailyIframe as any).getCallInstance?.() ?? null
         if (!call) call = DailyIframe.wrap(iframe)
         call.on('joined-meeting', (ev: any) => {
+          // Call is up → NOW the secondary (Rekognition) camera may open.
+          setCallJoined(true)
           localIdRef.current = ev?.participants?.local?.session_id ??
             call?.participants?.()?.local?.session_id
           // Identify avatar from any remote participants already in the room
@@ -169,6 +191,10 @@ export default function InterviewPage() {
             }
           }
         })
+        // PRIMARY end signal: the room closed (avatar wrapped up / user left via
+        // the prebuilt UI). Instant — replaces waiting up to 15s for the poll.
+        const onLeft = () => { void handleConversationEnded() }
+        call.on('left-meeting', onLeft)
         call.on('participant-joined', (ev: any) => {
           // First remote participant to join is the avatar
           if (!ev?.participant?.local && !avatarPeerIdRef.current) {
@@ -179,6 +205,7 @@ export default function InterviewPage() {
         call.on('app-message', onAppMessage)
         cleanup = () => {
           try {
+            call.off('left-meeting', onLeft)
             call.off('active-speaker-change', onActiveSpeaker)
             call.off('app-message', onAppMessage)
           } catch {}
@@ -194,12 +221,12 @@ export default function InterviewPage() {
   // Safety net: never leave a question stuck on "waiting". If no speaking event
   // arrives, reveal after a delay (live: 9s gives the avatar time to greet+ask; demo: 4s).
   useEffect(() => {
-    if (!store.interviewActive) return
+    if (!interviewActive) return
     if (revealedIdx === currentQ) return
     const delay = conv?.conversation_url ? 9000 : 4000
     const t = setTimeout(() => setRevealedIdx(currentQ), delay)
     return () => clearTimeout(t)
-  }, [currentQ, revealedIdx, conv?.conversation_url, store.interviewActive])
+  }, [currentQ, revealedIdx, conv?.conversation_url, interviewActive])
 
   // Timer-based auto-advance fallback: only for a SILENT stall. The timer restarts
   // on every committed transcript utterance (sessionTranscript.length dep), so it
@@ -207,7 +234,7 @@ export default function InterviewPage() {
   // answer and then the avatar's own next turn advanced AGAIN, desyncing the
   // index, question timestamps, and transcript attribution.
   useEffect(() => {
-    if (!store.interviewActive || !autoAdvance || revealedIdx !== currentQ) return
+    if (!interviewActive || !autoAdvance || revealedIdx !== currentQ) return
     const t = setTimeout(() => {
       if (!autoAdvanceRef.current) return
       const s = useAppStore.getState()
@@ -218,7 +245,7 @@ export default function InterviewPage() {
       }
     }, 90_000)
     return () => clearTimeout(t)
-  }, [currentQ, revealedIdx, store.interviewActive, autoAdvance, store.sessionTranscript.length])
+  }, [currentQ, revealedIdx, interviewActive, autoAdvance, transcriptLen])
 
   // NOTE: the old "jitter simulation" (random confidence/wpm/filler metrics) was
   // deliberately removed — it overwrote REAL Deepgram-derived metrics with fake
@@ -236,27 +263,33 @@ export default function InterviewPage() {
       const blob = await sealAndGetBlob()
       if (blob && blob.size > 20_000) {
         const jobId = await humeService.submitBatchJob(blob)
-        store.setHumeJobId(jobId)
-        store.setHumeJobStatus('QUEUED')
+        useAppStore.getState().setHumeJobId(jobId)
+        useAppStore.getState().setHumeJobStatus('QUEUED')
         toast.success('Interview audio submitted for voice analysis', { duration: 2500 })
       }
     } catch (err) {
       console.warn('[interview] voice-analysis submit failed:', err)
-      store.setHumeJobStatus('FAILED')
+      useAppStore.getState().setHumeJobStatus('FAILED')
     }
   }
 
-  // Detect conversation ended via polling (avatar finished / call timed out) —
-  // this path must ALSO submit the recording, not just the End button.
+  // Shared, idempotent natural-end sequence — fired INSTANTLY by the Daily
+  // 'left-meeting' event and (fallback) by the slow status poll below.
+  const endHandledRef = useRef(false)
+  async function handleConversationEnded() {
+    if (endHandledRef.current) return
+    if (!useAppStore.getState().interviewActive) return
+    endHandledRef.current = true
+    toast.success('Interview ended — generating scorecard')
+    await submitVoiceAnalysis()
+    useAppStore.getState().setInterviewActive(false)
+    setTimeout(() => navigate('/results'), 800)
+  }
+
+  // Fallback: detect conversation ended via the (slow) poll — e.g. the wrap was
+  // unavailable so no left-meeting event ever fires.
   useEffect(() => {
-    if (liveConv?.status === 'ended' && store.interviewActive) {
-      toast.success('Interview ended — generating scorecard')
-      void (async () => {
-        await submitVoiceAnalysis()
-        store.setInterviewActive(false)
-        setTimeout(() => navigate('/results'), 800)
-      })()
-    }
+    if (liveConv?.status === 'ended' && interviewActive) void handleConversationEnded()
   }, [liveConv?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Redirect if no conversation
@@ -267,8 +300,9 @@ export default function InterviewPage() {
   async function handleEndInterview() {
     if (!confirm('End the interview now?')) return
 
+    endHandledRef.current = true // manual end owns the sequence from here
     await submitVoiceAnalysis()
-    store.setInterviewActive(false)
+    useAppStore.getState().setInterviewActive(false)
 
     if (conv) {
       endConv.mutate(conv.conversation_id, {

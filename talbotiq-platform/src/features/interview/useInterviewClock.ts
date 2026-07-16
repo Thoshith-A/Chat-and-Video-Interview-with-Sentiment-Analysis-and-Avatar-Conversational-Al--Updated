@@ -38,6 +38,19 @@ export function useInterviewClock(sessionId: string) {
     try {
       apply(await sessionsApi.state(sessionId))
     } catch (e) {
+      // A bulk-invite link carries a Firestore interview id with no local session
+      // yet — claim it (materialises the session for the assigned candidate), then
+      // it loads normally. Any other error (or a failed claim) surfaces as-is.
+      if (e instanceof ApiError && e.status === 404) {
+        try {
+          apply(await sessionsApi.claimInvite(sessionId))
+          return
+        } catch (e2) {
+          setError(e2 instanceof ApiError ? e2.message : 'Could not load the interview')
+          setLoading(false)
+          return
+        }
+      }
       setError(e instanceof ApiError ? e.message : 'Could not load the interview')
       setLoading(false)
     } finally {
@@ -85,7 +98,7 @@ export function useInterviewClock(sessionId: string) {
 
   const setTrack = (t: TrackType) => action(() => sessionsApi.setTrack(sessionId, t))
   const systemCheck = () => action(() => sessionsApi.systemCheck(sessionId))
-  const uploadResume = (file: File) => action(() => sessionsApi.uploadResume(sessionId, file))
+  const uploadResume = (file: File, fullName?: string) => action(() => sessionsApi.uploadResume(sessionId, file, fullName))
   const begin = () => action(() => sessionsApi.begin(sessionId))
   const skipPrep = () => action(() => sessionsApi.skipPrep(sessionId))
   const completeNow = () => action(() => sessionsApi.complete(sessionId))

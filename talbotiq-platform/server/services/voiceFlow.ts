@@ -67,8 +67,8 @@ const HARD_CLOSING_RE = /\b(this concludes|the interview is (now )?(over|complet
 /* ─── controller ────────────────────────────────────────────────────────── */
 
 export function createVoiceFlow(questions: string[], opts: VoiceFlowOptions = {}) {
-  const idleMs = opts.idleMs ?? 120_000
-  const candidateSilenceMs = opts.candidateSilenceMs ?? 12_000
+  const idleMs = opts.idleMs ?? 180_000
+  const candidateSilenceMs = opts.candidateSilenceMs ?? 15_000
   const maxDurationMs = opts.maxDurationMs ?? 18 * 60_000
   const threshold = opts.matchThreshold ?? 0.5
   const N = questions.length
@@ -153,6 +153,19 @@ export function createVoiceFlow(questions: string[], opts: VoiceFlowOptions = {}
   /** Barge-in: no state change, just informational. */
   function onInterrupted(): FlowAction[] { return [] }
 
+  /**
+   * The candidate is actively speaking (streaming ASR). The call is NOT idle, so
+   * reset the idle watchdog — otherwise a long or thoughtful answer, during which
+   * the interviewer takes no turn, would trip the idle timeout and end the
+   * interview mid-answer. No coverage/answer state changes here; that happens on
+   * the turn boundary (onCandidateTurn). In closing, the candidateSilence timer
+   * governs instead, so leave it alone.
+   */
+  function onCandidateActivity(): FlowAction[] {
+    if (finalized || phase === 'done' || phase === 'closing') return []
+    return [{ kind: 'armTimer', tag: 'idle', ms: idleMs }]
+  }
+
   function onTimer(tag: TimerTag): FlowAction[] {
     if (finalized || phase === 'done') return []
     if (tag === 'maxDuration') { finalized = true; phase = 'done'; return [{ kind: 'finalize', reason: 'timeout', graceful: coverageComplete() }] }
@@ -182,7 +195,7 @@ export function createVoiceFlow(questions: string[], opts: VoiceFlowOptions = {}
   }
 
   return {
-    onInterviewerTurn, onCandidateTurn, onInterrupted, onTimer, onEnd, start,
+    onInterviewerTurn, onCandidateTurn, onInterrupted, onCandidateActivity, onTimer, onEnd, start,
     get phase() { return phase },
     get askedIndex() { return askedIndex },
     get answers() { return answers.slice() },

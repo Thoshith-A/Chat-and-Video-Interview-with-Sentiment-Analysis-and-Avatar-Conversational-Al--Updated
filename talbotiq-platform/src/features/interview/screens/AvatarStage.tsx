@@ -1,74 +1,166 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { Send, Loader2, Video, AlertTriangle, CheckCircle2, Mic } from 'lucide-react'
+import DailyIframe from '@daily-co/daily-js'
+import { Loader2, AlertTriangle, CheckCircle2, PhoneOff } from 'lucide-react'
 import type { BrandingConfig } from '@shared/types'
-import { useChatbotSession } from '../useChatbotSession'
-import { useTavusConversation } from '../useTavusConversation'
-import { CircularCountdown } from '../components/CircularCountdown'
+import { localTimeOfDay } from '@shared/speech'
+import { sessionsApi } from '@/lib/api'
+import { startCallStats, type CallStatsHandle } from '@/lib/callStats'
+import { FaceFitCheck } from '@/features/avatar-screening/facefit/FaceFitCheck'
 
 interface Props {
   sessionId: string
   branding: BrandingConfig
   onIntegrity?: (type: string) => void
+  /** Run the on-device face-framing pre-flight before showing the room.
+   *  While the candidate frames their face, avatar/start (question generation +
+   *  Tavus conversation create) runs in PARALLEL below, so the room is
+   *  typically ready the moment they lock in — instead of them staring at
+   *  "Connecting your interviewer…" for those seconds. */
+  preflight?: boolean
 }
 
+type Stage = 'connecting' | 'live' | 'ending' | 'ended' | 'error'
+
 /**
- * Video-avatar interview. The conversation engine (same as chatbot) decides each
- * question; the Tavus avatar SPEAKS it (echo mode); the candidate answers aloud
- * (transcribed) and/or edits the text before submitting — the text box is a
- * robust fallback so the flow works even if live captions are flaky.
+ * Video-avatar interview — STRICTLY the same experience as the recruiter's
+ * "Launch Session" room (src/pages/InterviewPage.tsx): the Tavus-hosted
+ * conversation page loads in a plain full-bleed iframe (its own join flow,
+ * device controls, and fullscreen), created SERVER-side from the recruiter's
+ * applied Setup config + this session's questions + the candidate's name.
+ *
+ * Like InterviewPage, we additionally WRAP the existing iframe with daily-js
+ * (never creating our own UI) purely to listen for utterance app-messages —
+ * both sides' speech streams to the server, bucketed per question, so the
+ * conversational scoring and the recruiter report work unchanged. If the wrap
+ * isn't available the call still works; transcripts are best-effort.
  */
-export function AvatarStage({ sessionId, branding, onIntegrity }: Props) {
-  const chat = useChatbotSession(sessionId)
+export function AvatarStage({ sessionId, branding, preflight = false }: Props) {
   const reduce = useReducedMotion()
-  const s = chat.state
   const accent = branding.accentColor || '#0d5c3a'
 
-  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null)
-  const [answer, setAnswer] = useState('')
-  const spokenRef = useRef<string | null>(null)
+  const [stage, setStage] = useState<Stage>('connecting')
+  // Face-fit gate (first entry only — mount-time value; later prop changes are
+  // intentionally ignored so a status poll can't yank the screen away mid-scan).
+  const [framed, setFramed] = useState(!preflight)
+  const [conversationUrl, setConversationUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [progress, setProgress] = useState<{ asked: number; total: number }>({ asked: 0, total: 0 })
+  const [attempt, setAttempt] = useState(0) // bump to retry after an error
 
-  const currentQ = s?.transcript.find((t) => t.id === s.currentTurnId)?.content ?? ''
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
+  const callRef = useRef<any>(null)
+  const leavingRef = useRef(false) // we initiated the end (End button)
+  const lastSentRef = useRef<{ role: string; text: string }>({ role: '', text: '' })
 
-  const avatar = useTavusConversation({
-    enabled: !!s && s.status === 'in_progress',
-    container: containerEl,
-    conversationalContext:
-      'You are a professional interviewer. Speak only the questions provided to you; do not add your own.',
-    onTranscript: (text) => setAnswer((prev) => (prev ? prev + ' ' : '') + text),
-  })
+  /** Forward one utterance to the server (per-question bucketing happens there). */
+  const sendUtterance = useCallback((role: 'interviewer' | 'candidate', text: string) => {
+    const t = text.trim()
+    if (!t) return
+    if (lastSentRef.current.role === role && lastSentRef.current.text === t) return // partial/final duplicate
+    lastSentRef.current = { role, text: t }
+    sessionsApi.avatarTranscript(sessionId, { role, text: t })
+      .then((r) => {
+        const rr = r as { ok: boolean; asked?: number; total?: number }
+        if (typeof rr.asked === 'number' && typeof rr.total === 'number') {
+          // Only re-render the header when the counter actually moved — partial
+          // utterances echo the same asked/total many times per turn.
+          setProgress((p) => (p.asked === rr.asked && p.total === rr.total ? p : { asked: rr.asked!, total: rr.total! }))
+        }
+      })
+      .catch(() => { /* transcript is best-effort — never interrupt the call */ })
+  }, [sessionId])
 
-  // Speak each new question exactly once, once the avatar is live.
+  const finish = useCallback(async () => {
+    if (leavingRef.current) return
+    leavingRef.current = true
+    setStage('ending')
+    try { callRef.current?.leave?.() } catch { /* best-effort */ }
+    try { await sessionsApi.avatarComplete(sessionId) } catch { /* server completes on its own timers as fallback */ }
+    setStage('ended')
+  }, [sessionId])
+
+  // 1) Ask the server to create the Tavus conversation (applied Setup config +
+  //    this session's questions + candidate name) and load its URL.
   useEffect(() => {
-    if (avatar.status === 'live' && s?.currentTurnId && currentQ && spokenRef.current !== s.currentTurnId) {
-      spokenRef.current = s.currentTurnId
-      setAnswer('')
-      avatar.speak(currentQ)
-    }
-  }, [avatar.status, s?.currentTurnId, currentQ, avatar])
+    let cancelled = false
+    setStage('connecting')
+    setError(null)
+    setConversationUrl(null)
+    ;(async () => {
+      try {
+        const { conversationUrl: url, totalQuestions } = await sessionsApi.avatarStart(sessionId, localTimeOfDay())
+        if (cancelled) return
+        setProgress({ asked: 0, total: totalQuestions })
+        setConversationUrl(url)
+        setStage('live')
+      } catch (e) {
+        if (cancelled) return
+        setError(e instanceof Error ? e.message : 'Could not start your interview')
+        setStage('error')
+      }
+    })()
+    return () => { cancelled = true }
+  }, [sessionId, attempt])
 
-  // End the Tavus call when the interview finishes.
+  // 2) Wrap the (already rendering) Tavus iframe for transcript events — the
+  //    exact pattern InterviewPage uses. Never replaces the room UI.
+  //    `framed` is a dep: during the face-fit pre-flight the iframe isn't
+  //    mounted yet, so the wrap must (re)run once the room actually renders.
   useEffect(() => {
-    if (s?.finished) avatar.end()
-  }, [s?.finished, avatar])
+    if (!conversationUrl || !framed) return
+    const iframe = iframeRef.current
+    if (!iframe) return
 
-  const inThinkingPhase = s?.phase === 'thinking' // optional timed prep sub-window
-  const submit = () => {
-    if (!answer.trim() || chat.sending || inThinkingPhase || s?.status !== 'in_progress') return
-    const a = answer
-    setAnswer('')
-    chat.send(a)
-  }
+    let cleanup = () => {}
+    let stats: CallStatsHandle | null = null
+    const timer = setTimeout(() => {
+      try {
+        let call: any = (DailyIframe as any).getCallInstance?.() ?? null
+        if (!call) call = DailyIframe.wrap(iframe)
+        callRef.current = call
+        // Dev-only (`?callstats=1`): transport health + turn-gap timing.
+        stats = startCallStats(call, 'avatar')
 
-  if (chat.loading && !s) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="animate-spin" size={26} style={{ color: accent }} />
-      </div>
-    )
-  }
+        // Tavus emits utterances as app-messages; shapes vary → match defensively.
+        const onAppMessage = (ev: any) => {
+          const d = (ev?.data ?? {}) as Record<string, unknown>
+          const et = String(d.event_type ?? d.type ?? '')
+          if (!/transcription|utterance/i.test(et)) return
+          const p = (d.properties ?? d) as Record<string, unknown>
+          const role = String(p.role ?? p.speaker ?? '')
+          const text = (p.text ?? p.speech ?? p.transcript ?? p.utterance) as string | undefined
+          if (!text) return
+          if (/replica|assistant|agent|interviewer/i.test(role)) {
+            stats?.markUtterance('interviewer')
+            sendUtterance('interviewer', String(text))
+          } else if (!role || /user|participant|candidate/i.test(role)) {
+            stats?.markUtterance('candidate')
+            sendUtterance('candidate', String(text))
+          }
+        }
+        // The avatar wrapped up / the room ended / the candidate left via the
+        // room's own controls → complete + score.
+        const onLeft = () => { if (!leavingRef.current) void finish() }
 
-  if (s?.finished) {
+        call.on('app-message', onAppMessage)
+        call.on('left-meeting', onLeft)
+        cleanup = () => {
+          try {
+            call.off('app-message', onAppMessage)
+            call.off('left-meeting', onLeft)
+          } catch { /* noop */ }
+        }
+      } catch (e) {
+        console.warn('[avatar] Daily wrap unavailable — interview continues without live transcript', e)
+      }
+    }, 1500)
+
+    return () => { clearTimeout(timer); stats?.stop(); cleanup(); callRef.current = null }
+  }, [conversationUrl, framed, sendUtterance, finish])
+
+  /* ── finished ── */
+  if (stage === 'ended') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <motion.div
@@ -88,107 +180,85 @@ export function AvatarStage({ sessionId, branding, onIntegrity }: Props) {
     )
   }
 
+  /* ── error (couldn't start) ── */
+  if (stage === 'error') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="max-w-md rounded-2xl border border-border bg-white p-10 text-center shadow-sm">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-danger-bg text-danger">
+            <AlertTriangle size={22} />
+          </span>
+          <h1 className="mt-4 text-xl font-bold text-neutral-900">We couldn’t start your interview</h1>
+          <p className="mt-2 text-sm leading-relaxed text-neutral-500">{error}</p>
+          <button
+            onClick={() => { setError(null); setAttempt((a) => a + 1) }}
+            className="mt-5 rounded-full px-5 py-2 text-sm font-semibold text-white"
+            style={{ background: accent }}
+          >
+            Try again
+          </button>
+          <p className="mt-3 text-xs text-neutral-400">If this keeps happening, contact your recruiter.</p>
+        </div>
+      </div>
+    )
+  }
+
+  /* ── face-framing pre-flight — the Tavus conversation is being created in
+        the background (effect 1) while the candidate lines up their face, so
+        locking in usually lands straight in a ready room. FaceFitCheck releases
+        the camera (plus a buffer) before onReady, so the room's own device
+        acquisition never races it. ── */
+  if (!framed) {
+    return <FaceFitCheck onReady={() => setFramed(true)} accentColor={accent} />
+  }
+
+  /* ── the live room — full-viewport, no page scroll, Tavus UI untouched ── */
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <div className="sticky top-0 z-10 border-b border-border bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-          <span className="truncate font-bold" style={{ color: accent }}>{branding.companyName}</span>
-          <div className="flex items-center gap-3">
-            {/* Countdown ring — only while a timed question turn is armed. */}
-            {s?.phase && (
-              <CircularCountdown
-                remaining={chat.remaining}
-                total={s.totalPhaseSeconds}
-                phase={s.phase === 'thinking' ? 'prep' : 'answer'}
-                warningThreshold={s.timing.warningThresholdSeconds}
-                accentColor={accent}
-                size={56}
-              />
-            )}
-          </div>
+    <div className="flex h-screen flex-col overflow-hidden bg-neutral-950">
+      <div className="flex h-[56px] flex-shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-neutral-950 px-4">
+        <span className="flex items-center gap-2 truncate font-bold text-white">
+          {branding.companyName}
+          {stage === 'live' && (
+            <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live
+            </span>
+          )}
+        </span>
+        <div className="flex items-center gap-3">
+          {progress.total > 0 && progress.asked > 0 && (
+            <span className="hidden text-xs font-medium text-neutral-300 sm:inline">
+              Question {Math.min(progress.asked, progress.total)} of {progress.total}
+            </span>
+          )}
+          <button
+            onClick={() => { if (window.confirm('End the interview now? You can’t rejoin afterwards.')) void finish() }}
+            disabled={stage === 'ending'}
+            className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-4 py-1.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/25 disabled:opacity-60"
+          >
+            {stage === 'ending' ? <Loader2 size={15} className="animate-spin" /> : <PhoneOff size={15} />}
+            End interview
+          </button>
         </div>
       </div>
 
-      <div className="mx-auto grid w-full max-w-6xl flex-1 gap-4 p-4 lg:grid-cols-[1.3fr_1fr]">
-        {/* avatar */}
-        <div className="relative overflow-hidden rounded-2xl border border-border bg-neutral-900" style={{ minHeight: 360 }}>
-          <div ref={setContainerEl} className="absolute inset-0" />
-          {avatar.status !== 'live' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-neutral-300">
-              {avatar.status === 'error' ? (
-                <>
-                  <AlertTriangle size={26} className="text-amber-400" />
-                  <p className="max-w-xs px-4 text-sm">{avatar.error}</p>
-                  <p className="text-xs text-neutral-500">You can still answer using the box on the right.</p>
-                </>
-              ) : (
-                <>
-                  <Loader2 size={26} className="animate-spin" />
-                  <p className="text-sm">Connecting your interviewer…</p>
-                </>
-              )}
-            </div>
-          )}
-          <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-xs font-medium text-white">
-            <Video size={12} /> AI Interviewer
-          </span>
-        </div>
-
-        {/* question + answer */}
-        <div className="flex flex-col gap-3">
-          <div className="rounded-2xl border border-border bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Current question</p>
-            {chat.sending || (chat.loading && !s) ? (
-              <p className="mt-1 flex items-center gap-2 text-sm text-neutral-400" role="status" aria-live="polite">
-                {!reduce && (
-                  <span className="flex items-center gap-1">
-                    {[0, 1, 2].map((i) => (
-                      <motion.span
-                        key={i}
-                        className="h-1.5 w-1.5 rounded-full bg-neutral-400"
-                        animate={{ opacity: [0.3, 1, 0.3] }}
-                        transition={{ duration: 1, repeat: Infinity, delay: i * 0.18 }}
-                      />
-                    ))}
-                  </span>
-                )}
-                Thinking…
-              </p>
-            ) : (
-              <p className="mt-1 text-sm leading-relaxed text-neutral-800">{currentQ || '…'}</p>
-            )}
+      <div className="relative flex-1">
+        {conversationUrl ? (
+          // EXACTLY the InterviewPage embed: the Tavus-hosted room, full-bleed,
+          // with its own join screen, device controls, and fullscreen.
+          <iframe
+            ref={iframeRef}
+            src={conversationUrl}
+            className="absolute inset-0 h-full w-full border-0"
+            allow="camera;microphone;autoplay;display-capture;fullscreen"
+            allowFullScreen
+            title="AI Interviewer"
+          />
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-neutral-300">
+            <Loader2 size={26} className="animate-spin" />
+            <p className="text-sm">{stage === 'ending' ? 'Wrapping up…' : 'Connecting your interviewer…'}</p>
           </div>
-
-          <div className="flex flex-1 flex-col rounded-2xl border border-border bg-white p-4">
-            <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-              <Mic size={13} /> Your answer <span className="font-normal normal-case text-neutral-400">— speak, or type/edit here</span>
-            </p>
-            <textarea
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit() } }}
-              onPaste={(e) => { if (s?.integrity.disablePasteInAnswers) { e.preventDefault(); onIntegrity?.('paste_blocked') } }}
-              onCopy={(e) => { if (s?.integrity.disableCopy) { e.preventDefault(); onIntegrity?.('copy_blocked') } }}
-              placeholder="Your spoken words appear here — review or edit, then submit."
-              className="mt-2 flex-1 resize-none rounded-xl border border-border p-3 text-sm text-neutral-800 outline-none focus:border-neutral-300"
-              style={{ minHeight: 160 }}
-              aria-label="Your answer"
-            />
-            <div className="mt-3 flex items-center justify-between">
-              <span className="text-xs text-neutral-400">⌘/Ctrl + Enter to submit</span>
-              <button
-                onClick={submit}
-                disabled={!answer.trim() || chat.sending || inThinkingPhase || s?.status !== 'in_progress'}
-                className="inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40"
-                style={{ background: accent }}
-              >
-                {chat.sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                Submit answer
-              </button>
-            </div>
-            {chat.error && <p className="mt-1.5 text-xs text-danger">{chat.error}</p>}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   )

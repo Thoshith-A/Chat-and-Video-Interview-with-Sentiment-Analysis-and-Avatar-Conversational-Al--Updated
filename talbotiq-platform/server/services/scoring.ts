@@ -8,6 +8,15 @@ import type {
 } from '../../shared/types'
 import { scoreWithGemini, scoreConversationWithGemini, geminiEnabled, type RawScore } from './gemini'
 import { primaryQuestionGroups } from './conversation'
+import { analyzeSentiment } from './signals'
+
+/** Attach the text-based communication/sentiment read to a conversation report
+ *  (best-effort — scoring never fails because sentiment couldn't be produced). */
+async function withSentiment(session: InterviewSession, report: ResultReport): Promise<ResultReport> {
+  const sentiment = await analyzeSentiment(session).catch(() => null)
+  if (sentiment) report.sentiment = sentiment
+  return report
+}
 
 const RECS: Recommendation[] = ['strong_yes', 'yes', 'maybe', 'no']
 const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)))
@@ -69,6 +78,15 @@ async function scoreConversation(
   session: InterviewSession,
   template: InterviewTemplate,
 ): Promise<ResultReport> {
+  // No candidate answers at all → do NOT ask the model to "evaluate" an empty
+  // transcript (it returns a misleading "No transcript was provided" summary
+  // with 0/No scores that read like a real judgment). Produce an honest
+  // not-evaluated report instead.
+  const answered =
+    primaryQuestionGroups(session).some((g) => g.answer.trim()) ||
+    (session.transcript ?? []).some((t) => t.role === 'candidate' && t.content.trim())
+  if (!answered) return notEvaluatedReport(session, template)
+
   if (geminiEnabled()) {
     try {
       const raw = await scoreConversationWithGemini(session, template)
@@ -81,7 +99,7 @@ async function scoreConversation(
       })
       const kpiAverages = averageKpis(template.rubric, perQuestion)
       const overallScore = weightedOverall(template.rubric, kpiAverages)
-      return {
+      return withSentiment(session, {
         sessionId: session.id,
         perQuestion,
         kpiAverages,
@@ -93,7 +111,7 @@ async function scoreConversation(
           ? (raw.recommendation as Recommendation)
           : recommendationFor(overallScore),
         generatedAt: new Date().toISOString(),
-      }
+      })
     } catch (err) {
       console.error('[scoring] conversation scoring failed, using heuristic fallback:', err)
     }
@@ -112,7 +130,7 @@ async function scoreConversation(
   })
   const kpiAverages = averageKpis(template.rubric, perQuestion)
   const overallScore = weightedOverall(template.rubric, kpiAverages)
-  return {
+  return withSentiment(session, {
     sessionId: session.id,
     perQuestion,
     kpiAverages,
@@ -121,6 +139,32 @@ async function scoreConversation(
     recommendation: recommendationFor(overallScore),
     generatedAt: new Date().toISOString(),
     degraded: true,
+  })
+}
+
+/**
+ * Honest report for a conversation interview where no candidate answers were
+ * captured (client transcript bridge failed, call dropped, etc.). Keeps the
+ * planned questions visible, hides the recommendation, and flags itself so the
+ * UI can say "not evaluated" instead of implying the candidate scored zero.
+ */
+function notEvaluatedReport(session: InterviewSession, template: InterviewTemplate): ResultReport {
+  const perQuestion: PerQuestionResult[] = session.questions.map((_q, i) => ({
+    questionId: `q${i}`,
+    kpiScores: {},
+    feedback: 'No answer was captured for this question.',
+  }))
+  return {
+    sessionId: session.id,
+    perQuestion,
+    kpiAverages: averageKpis(template.rubric, perQuestion),
+    overallScore: 0,
+    summary:
+      'No candidate answers were captured for this interview, so it was not evaluated. ' +
+      'This usually means the interview audio or transcript was not recorded (the call may have ended early, or capture failed). ' +
+      'Please ask the candidate to retake the interview, or check the avatar/voice configuration in Settings.',
+    generatedAt: new Date().toISOString(),
+    notEvaluated: true,
   }
 }
 

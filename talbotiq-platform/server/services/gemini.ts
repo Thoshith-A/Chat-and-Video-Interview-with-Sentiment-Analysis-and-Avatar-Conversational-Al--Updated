@@ -100,10 +100,35 @@ export async function generateQuestions(opts: {
   role: string
   seniority?: string
   count: number
+  // Recruiter's tailoring parameters (bulk-invite "tailor to each résumé" config).
+  style?: QuestionStyle
+  technicalCount?: number
+  nonTechnicalCount?: number
+  difficulty?: DifficultyChoice
+  focusTopics?: string[]
 }): Promise<GeneratedQuestion[]> {
-  const { resumeText, role, seniority, count } = opts
+  const { resumeText, role, seniority, count, style, technicalCount, nonTechnicalCount, difficulty, focusTopics } = opts
+
+  const styleLine =
+    style === 'technical'
+      ? 'Every question must be TECHNICAL, grounded in the specific technologies, tools, and projects shown in the résumé.'
+      : style === 'non_technical'
+        ? 'Every question must be NON-TECHNICAL (behavioral, situational, culture-fit), grounded in the candidate\'s actual roles and experience.'
+        : style === 'mix' && (technicalCount ?? 0) + (nonTechnicalCount ?? 0) > 0
+          ? `Write exactly ${technicalCount ?? 0} TECHNICAL questions and ${nonTechnicalCount ?? 0} NON-TECHNICAL (behavioral/situational) questions.`
+          : 'Mix behavioral and role-specific/technical questions, grounded in the candidate\'s actual experience.'
+  const difficultyLine =
+    difficulty && difficulty !== 'mixed'
+      ? `Difficulty: every question should be ${difficulty.toUpperCase()} for this seniority.`
+      : 'Difficulty: vary from easy warm-ups to genuinely challenging questions.'
+  const topicsLine = focusTopics?.length
+    ? `Focus areas, weave these domains into the questions wherever the résumé supports them: ${focusTopics.join(', ')}.`
+    : ''
+
   const prompt = `You are an expert interviewer. Based on the candidate's résumé below, write exactly ${count} interview questions tailored to a ${seniority ?? ''} ${role} role.
-Mix behavioral and role-specific/technical questions, grounded in the candidate's actual experience. For each question include a short category and concise ideal-answer notes a human scorer can use.
+${styleLine}
+${difficultyLine}
+${topicsLine ? `${topicsLine}\n` : ''}For each question include a short category and concise ideal-answer notes a human scorer can use.
 Keep each question SHORT and conversational: ONE or two sentences, at most ~30 words, single-focus, never compound or multi-part.
 Write the question text as PLAIN TEXT only: no markdown, no asterisks (*), no bullets, no bold, no backticks. Do NOT use em dashes or en dashes ("—" or "–") — use commas or periods instead.
 

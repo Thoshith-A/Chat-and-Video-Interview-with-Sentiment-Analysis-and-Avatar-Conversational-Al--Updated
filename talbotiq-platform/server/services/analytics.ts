@@ -58,12 +58,15 @@ function avgTimePerQuestion(row: Row): number | undefined {
  * the dashboard summary. Pure over the current db state — safe to call per
  * request. Score stats include only scored sessions; the funnel counts all.
  */
-export function computeAnalytics(filters: AnalyticsFilters = {}, generatedAt = new Date().toISOString()): AnalyticsSummary {
+export function computeAnalytics(filters: AnalyticsFilters = {}, generatedAt = new Date().toISOString(), ownerId?: string): AnalyticsSummary {
   const role = filters.role?.trim()
 
   // Cohort: sessions passing the filters, keyed by createdAt for the date range.
+  // When ownerId is set (a non-admin recruiter), the cohort is restricted to
+  // sessions that recruiter owns — tenant isolation for aggregate metrics.
   const sessions = [...db.sessions.values()].filter((s) => {
     const template = db.templates.get(s.templateId)
+    if (ownerId && s.recruiterId !== ownerId) return false
     if (filters.track && s.track !== filters.track) return false
     if (filters.templateId && s.templateId !== filters.templateId) return false
     if (role && (template?.role?.trim() || '(unspecified)') !== role) return false

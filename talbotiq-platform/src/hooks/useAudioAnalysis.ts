@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { audioStore } from '@/services/audioStore'
 import { countFillers, calcWpm } from '@/services/deepgram'
+import { getIdTokenOrNull } from '@/lib/firebase'
 import { createAudioCapture, type AudioCapture } from '@/services/audioCapture'
 import { useAppStore } from '@/store/useAppStore'
 
@@ -20,9 +21,19 @@ import { useAppStore } from '@/store/useAppStore'
  * Deepgram and remain fully functional.
  *
  * Public contract unchanged: { interimText, dgConnected, sealAndGetBlob }.
+ *
+ * PERF: `interimText` state updates fire several times per second while the
+ * candidate speaks and re-render the host component — which sits next to the
+ * live call iframe. No mounted consumer renders it today, so interim tracking
+ * is opt-in via `opts.trackInterim`; question attribution (utteranceQRef) is
+ * unaffected. The host is also no longer subscribed to the whole zustand store.
  */
-export function useAudioAnalysis(enabled: boolean) {
-  const store = useAppStore()
+export function useAudioAnalysis(enabled: boolean, opts?: { trackInterim?: boolean }) {
+  const trackInterim = opts?.trackInterim === true
+  const deepgramKey = useAppStore((s) => s.deepgramKey)
+  // Store ACTIONS are stable — read them off the store object once, not via a
+  // whole-store subscription that re-renders on every transcript/metric change.
+  const store = useAppStore.getState()
   const [interimText, setInterimText] = useState('')
   const [dgConnected, setDgConnected] = useState(false)
 
@@ -45,12 +56,12 @@ export function useAudioAnalysis(enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return
-    // store.deepgramKey is a non-secret 'server' sentinel when the backend has a
+    // deepgramKey is a non-secret 'server' sentinel when the backend has a
     // Deepgram key configured (see useAppStore). No key value is ever used here.
     // IMPORTANT: the mic RECORDING (for voice-emotion analysis) must run even
     // when Deepgram is unconfigured — only the live-transcription socket is
     // conditional on it.
-    const deepgramConfigured = !!store.deepgramKey
+    const deepgramConfigured = !!deepgramKey
 
     let cancelled = false
     let dgClosed = false
@@ -61,7 +72,8 @@ export function useAudioAnalysis(enabled: boolean) {
       // ── Deepgram via server relay — real-time transcription (optional) ───
       if (deepgramConfigured) try {
         const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-        const dgWs = new WebSocket(`${proto}://${location.host}/api/avatar/deepgram`)
+        const dgToken = await getIdTokenOrNull()
+        const dgWs = new WebSocket(`${proto}://${location.host}/api/avatar/deepgram${dgToken ? `?token=${encodeURIComponent(dgToken)}` : ''}`)
         dgWs.binaryType = 'arraybuffer'
         dgWsRef.current = dgWs
 
@@ -82,7 +94,7 @@ export function useAudioAnalysis(enabled: boolean) {
               const text = (msg.channel?.alternatives?.[0]?.transcript ?? '').trim()
               if (!text) return
               if (msg.is_final) {
-                setInterimText('')
+                if (trackInterim) setInterimText('')
                 totalFillersRef.current += countFillers(text)
                 const entry = {
                   role: 'candidate' as const,
@@ -102,10 +114,10 @@ export function useAudioAnalysis(enabled: boolean) {
                 })
               } else {
                 if (utteranceQRef.current === null) utteranceQRef.current = useAppStore.getState().currentQuestionIdx
-                setInterimText(text)
+                if (trackInterim) setInterimText(text)
               }
             }
-            if (msg.type === 'UtteranceEnd') { setInterimText(''); utteranceQRef.current = null }
+            if (msg.type === 'UtteranceEnd') { if (trackInterim) setInterimText(''); utteranceQRef.current = null }
           } catch { /* ignore malformed */ }
         }
 
@@ -145,7 +157,8 @@ export function useAudioAnalysis(enabled: boolean) {
               if (dgQueueRef.current.length > 48) dgQueueRef.current.shift()
             }
           },
-          onPCMChunk: () => { /* live EVI removed — no per-chunk consumer */ },
+          // No onPCMChunk: live EVI was removed, and omitting the consumer now
+          // skips the whole AudioContext + AudioWorklet pipeline (per-call CPU).
           onRecordingChunk: (blob: Blob) => { audioStore.push(blob) },
         })
         captureRef.current = capture
@@ -175,7 +188,7 @@ export function useAudioAnalysis(enabled: boolean) {
     return () => {
       cancelled = true
       setDgConnected(false)
-      setInterimText('')
+      if (trackInterim) setInterimText('')
       store.setDeepgramConnected(false)
       store.setHumeStreamActive(false)
       captureRef.current?.stop()
@@ -184,7 +197,7 @@ export function useAudioAnalysis(enabled: boolean) {
       dgWsRef.current?.close()
       dgWsRef.current = null
     }
-  }, [enabled, store.deepgramKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, deepgramKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return { interimText, dgConnected, sealAndGetBlob }
 }

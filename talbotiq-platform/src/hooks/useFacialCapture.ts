@@ -61,10 +61,12 @@ export function useFacialCapture(): FacialCaptureState {
       setStatus('active')
 
       uiIntervalRef.current = setInterval(() => {
+        // Functional updates bail out when unchanged → this poll no longer
+        // re-renders the live-call page every 2s (frames only land ~every 8s).
         const frames = service.getFrames()
-        setFrameCount(frames.length)
-        const last = frames[frames.length - 1]
-        if (last) setLastFrameQuality(last.frameQualityNote)
+        setFrameCount((prev) => (prev === frames.length ? prev : frames.length))
+        const note = frames[frames.length - 1]?.frameQualityNote
+        if (note) setLastFrameQuality((prev) => (prev === note ? prev : note))
       }, 2000)
     } catch (err: any) {
       if (err?.name === 'NotAllowedError') {

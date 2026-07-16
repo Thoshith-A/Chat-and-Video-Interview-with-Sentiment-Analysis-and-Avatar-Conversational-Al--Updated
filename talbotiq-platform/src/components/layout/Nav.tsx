@@ -1,12 +1,21 @@
 import { NavLink, useNavigate } from 'react-router-dom'
+import { LogOut } from 'lucide-react'
 import { cn } from '@/components/ui'
 import { useAppStore } from '@/store/useAppStore'
+import { useAuth } from '@/features/auth/AuthProvider'
 
+function initialsOf(label: string): string {
+  const parts = label.split(/[\s@._-]+/).filter(Boolean).slice(0, 2)
+  return parts.map((p) => p[0]?.toUpperCase() ?? '').join('') || 'U'
+}
+
+// NOTE: /setup is intentionally NOT in the nav — the Conversational AI (video
+// avatar) setup page opens when the recruiter picks that mode on Sessions
+// (and /interview still redirects there when no session is configured).
 const LINKS = [
   { to: '/sessions',      label: 'Sessions' },
   { to: '/templates',     label: 'Templates' },
   { to: '/question-sets', label: 'Question Sets' },
-  { to: '/setup',         label: 'Setup' },
   { to: '/interview',     label: 'Interview' },
   { to: '/results',       label: 'Results' },
   { to: '/analytics',     label: 'Analytics' },
@@ -15,7 +24,9 @@ const LINKS = [
 
 export function Nav() {
   const { interviewActive, tavusKey } = useAppStore()
+  const { user, signOutUser } = useAuth()
   const navigate = useNavigate()
+  const label = user?.displayName || user?.email || ''
 
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-[#dde8e0]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
@@ -68,10 +79,21 @@ export function Nav() {
             </button>
           )}
 
-          {/* User avatar — matches screenshot */}
-          <div className="w-9 h-9 rounded-full bg-[#0d5c3a] flex items-center justify-center text-white text-xs font-bold">
-            SN
+          {/* Signed-in user + sign out */}
+          <div
+            className="w-9 h-9 rounded-full bg-[#0d5c3a] flex items-center justify-center text-white text-xs font-bold"
+            title={label + (user?.admin ? ' (admin)' : '')}
+          >
+            {initialsOf(label)}
           </div>
+          <button
+            onClick={() => void signOutUser()}
+            title="Sign out"
+            aria-label="Sign out"
+            className="flex items-center justify-center w-9 h-9 rounded-full text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100 transition-colors"
+          >
+            <LogOut size={17} />
+          </button>
         </div>
       </div>
     </header>

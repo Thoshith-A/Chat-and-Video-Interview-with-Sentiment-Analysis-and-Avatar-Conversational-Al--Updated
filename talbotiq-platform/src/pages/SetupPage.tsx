@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { useReplicas, usePersonas, useCreateConversation } from '@/hooks/useTavus'
+import { settingsApi } from '@/lib/api'
+import { avatarInterviewContext, avatarGreetingText, localTimeOfDay } from '@shared/speech'
 import { useAppStore } from '@/store/useAppStore'
 import type { Draft } from '@/store/useAppStore'
 import { Button, Card, Input, Textarea, Select, Toggle, Slider, JsonPreview, SectionTitle, PageHeader, Divider } from '@/components/ui'
 import { cn } from '@/components/ui'
+import { ReplicaPicker } from '@/components/tavus/ReplicaPicker'
 import { formatDistanceToNow } from 'date-fns'
 import type { CreateConversationInput, SupportedLanguage, PipelineMode } from '@/types/tavus.types'
 
@@ -30,7 +34,7 @@ const PIPELINES: { value: PipelineMode; label: string }[] = [
 
 type F = import('@/store/useAppStore').DraftForm
 const DEF: F = {
-  replica_id: '', persona_id: '', conversation_name: '', conversational_context: '', custom_greeting: '',
+  replica_id: '', persona_id: '', ai_name: '', conversation_name: '', conversational_context: '', custom_greeting: '',
   callback_url: '', max_call_duration: 900, participant_left_timeout: 60, participant_absent_timeout: 300,
   enable_recording: false, enable_transcription: true, apply_conversation_override: false,
   apply_greenscreen: false, background_url: '', language: 'English', pipeline_mode: 'full',
@@ -39,13 +43,22 @@ const DEF: F = {
 
 export default function SetupPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const qc = useQueryClient()
   const store = useAppStore()
   const { data: replicas } = useReplicas()
   const { data: personas } = usePersonas()
   const create = useCreateConversation()
   const [f, setF] = useState<F>({ ...DEF, replica_id: store.defaultReplicaId, persona_id: store.defaultPersonaId })
   const [modal, setModal] = useState(false)
-  const [name, setName] = useState('')
+  // Prefilled when the recruiter arrives here by picking "Conversational AI"
+  // in the new-session modal on the Sessions page (returnTo brings them back
+  // after applying).
+  const navState = location.state as { candidateName?: string; returnTo?: string } | null
+  const [name, setName] = useState(navState?.candidateName ?? '')
+  // Server-applied avatar config (drives ALL candidate Video Avatar interviews).
+  const avatarApplied = useQuery({ queryKey: ['avatar-settings'], queryFn: settingsApi.avatarStatus })
+  const [applying, setApplying] = useState(false)
   const [draftModal, setDraftModal] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [errorModal, setErrorModal] = useState<{ open: boolean; message: string }>({ open: false, message: '' })
@@ -57,47 +70,30 @@ export default function SetupPage() {
   const customReplicas = allReplicas.filter(r => r.replica_type !== 'stock')
   const stockReplicas  = allReplicas.filter(r => r.replica_type === 'stock')
 
-  const repOpts = [
-    { value: '', label: allReplicas.length ? 'None (demo mode)' : 'None — no replicas found' },
-    // Custom replicas
-    ...customReplicas.map(r => ({
-      value: r.replica_id,
-      label: `${r.replica_name}${r.status !== 'ready' ? ` (${r.status})` : ''}`,
-    })),
-    // Stock replicas with prefix
-    ...stockReplicas.map(r => ({
-      value: r.replica_id,
-      label: `[Stock] ${r.replica_name}${r.status !== 'ready' ? ` (${r.status})` : ''}`,
-    })),
-  ]
   const perOpts = [{ value: '', label: 'None' }, ...(personas ?? []).map(p => ({ value: p.persona_id, label: p.persona_name }))]
 
-  // Build clean payload — only include non-empty optional fields to avoid 400s
+  // Build clean payload — only include non-empty optional fields to avoid 400s.
+  // The spoken parts (context + greeting) come from the SHARED voice/persona
+  // standard (shared/speech.ts) — the same warm greet → ready-check → varied
+  // thanks → warm wrap-up flow the Voice Interview and candidate avatar use,
+  // with questions stripped of formatting so nothing markdown-ish is spoken.
   function buildPayload(candidateName: string): CreateConversationInput {
     const qList = store.questions.filter(Boolean)
-    const numbered = qList.map((q, i) => `${i + 1}. ${q}`).join('\n')
+    const tod = localTimeOfDay()
 
-    // Persona / tone — either the recruiter's custom text or a sensible default
-    const persona = f.conversational_context.trim() ||
-      `You are Alex, a Senior Talent Specialist at TalbotIQ conducting a screening interview with ${candidateName}. Maintain a warm, professional tone.`
-
-    // ALWAYS enforce the exact configured questions — this block is appended no matter what,
-    // so the avatar never invents its own questions.
-    const ctx =
-`${persona}
-
-INTERVIEW SCRIPT — STRICT RULES:
-- Ask ONLY the questions listed below, exactly as written, in this exact order.
-- Ask one question at a time and wait for ${candidateName} to fully finish answering before moving to the next.
-- Do NOT invent, add, skip, reorder, or rephrase any questions.
-- Do NOT ask any follow-up questions that are not in this list.
-- After the final question, briefly thank ${candidateName} and end the interview.
-
-QUESTIONS:
-${numbered}`
-
-    const greeting = f.custom_greeting ||
-      `Hello ${candidateName}, welcome to your TalbotIQ interview. I'm excited to learn more about you today. Are you ready to begin?`
+    const ctx = avatarInterviewContext({
+      personaText: f.conversational_context,
+      candidateName,
+      aiName: f.ai_name,
+      questions: qList,
+      timeOfDay: tod,
+    })
+    const greeting = avatarGreetingText({
+      custom: f.custom_greeting,
+      candidateName,
+      aiName: f.ai_name,
+      timeOfDay: tod,
+    })
 
     const body: CreateConversationInput = {
       replica_id: f.replica_id,
@@ -161,6 +157,44 @@ ${numbered}`
     navigate('/interview')
   }
 
+  /**
+   * "Apply to Candidate Interviews" — saves this configuration SERVER-side.
+   * Every candidate who takes a Conversational AI (Video Avatar) interview gets
+   * THIS avatar: the server creates their Tavus conversation from it, with the
+   * session's own questions and the candidate's name. Candidates never see a key.
+   */
+  async function applyToCandidates() {
+    if (!f.replica_id) { toast.error('Pick a replica — candidates need a live avatar.'); return }
+    if (!store.tavusKey && !avatarApplied.data?.hasKey) {
+      toast.error('Add your Tavus API key in Settings first.')
+      return
+    }
+    setApplying(true)
+    try {
+      await settingsApi.applyAvatar({
+        replicaId: f.replica_id,
+        personaId: f.persona_id || undefined,
+        aiName: f.ai_name || undefined,
+        conversationName: f.conversation_name || undefined,
+        conversationalContext: f.conversational_context || undefined,
+        customGreeting: f.custom_greeting || undefined,
+        language: f.language || undefined,
+        maxCallDuration: f.max_call_duration,
+        enableRecording: f.enable_recording || undefined,
+        callbackUrl: f.callback_url || undefined,
+        fallbackQuestions: store.questions.filter(Boolean),
+        tavusKey: store.tavusKey || undefined,
+      })
+      qc.invalidateQueries({ queryKey: ['avatar-settings'] })
+      toast.success('Applied — every Conversational AI candidate interview now uses this avatar.')
+      if (navState?.returnTo) navigate(navState.returnTo, { state: { mode: 'video_avatar' } })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not apply the avatar settings')
+    } finally {
+      setApplying(false)
+    }
+  }
+
   function confirmLaunch() {
     if (!name.trim()) { toast.error('Enter a display name'); return }
 
@@ -199,15 +233,31 @@ ${numbered}`
           Interview Session
         </h2>
         <p className="text-neutral-500 text-base max-w-xl leading-relaxed">
-          Set up your AI avatar, questions, and analysis preferences. Everything
-          is customisable — from the avatar persona to scoring thresholds.
+          Set up your AI avatar, questions, and analysis preferences — then
+          <span className="font-semibold text-neutral-700"> apply it to candidate interviews</span>:
+          every candidate who takes a Conversational AI interview meets this avatar,
+          which greets them by name and asks their session’s questions.
         </p>
-        <div className="flex gap-3 mt-6">
-          <Button onClick={() => setModal(true)} loading={create.isPending}>
-            Launch Session
+        <div className="flex flex-wrap gap-3 mt-6">
+          <Button onClick={applyToCandidates} loading={applying}>
+            Apply to Candidate Interviews
+          </Button>
+          <Button variant="secondary" onClick={() => setModal(true)} loading={create.isPending}>
+            Launch Test Session
           </Button>
           <Button variant="secondary" onClick={() => { setDraftName(''); setDraftModal(true) }}>Save Draft</Button>
         </div>
+        {avatarApplied.data?.configured ? (
+          <p className="mt-3 text-xs font-medium text-primary-700">
+            ✓ An avatar is applied to candidate interviews
+            {avatarApplied.data.replicaId ? <> · replica <span className="font-mono">{avatarApplied.data.replicaId}</span></> : null}
+            {avatarApplied.data.updatedAt ? <> · updated {formatDistanceToNow(new Date(avatarApplied.data.updatedAt), { addSuffix: true })}</> : null}
+          </p>
+        ) : avatarApplied.isSuccess ? (
+          <p className="mt-3 text-xs text-amber-700">
+            No avatar applied yet — candidate Conversational AI interviews won’t start until you apply one.
+          </p>
+        ) : null}
       </div>
 
       {/* Saved Drafts */}
@@ -222,7 +272,7 @@ ${numbered}`
           <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {store.drafts.map((d: Draft) => (
               <div key={d.id} className="flex items-start justify-between gap-2 p-3 rounded-xl border border-border hover:border-primary-300 hover:bg-primary-50 transition-all group cursor-pointer"
-                onClick={() => { setF({ ...d.form }); store.setQuestions(d.questions); toast.success(`Loaded "${d.name}"`) }}>
+                onClick={() => { setF({ ...DEF, ...d.form }); store.setQuestions(d.questions); toast.success(`Loaded "${d.name}"`) }}>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-neutral-800 truncate">{d.name}</p>
                   <p className="text-xs text-neutral-400 mt-0.5">{d.questions.filter(Boolean).length} questions · saved {formatDistanceToNow(new Date(d.savedAt), { addSuffix: true })}</p>
@@ -254,11 +304,14 @@ ${numbered}`
             <div className="px-6 py-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
               {/* Replica — dropdown + manual ID search */}
               <div className="flex flex-col gap-1.5">
-                <label className="field-label">Replica (optional)</label>
-                <Select
-                  options={repOpts}
-                  value={allReplicas.find(r => r.replica_id === f.replica_id) ? f.replica_id : ''}
-                  onChange={e => set('replica_id', e.target.value)}
+                <ReplicaPicker
+                  label="Replica (optional)"
+                  replicas={allReplicas}
+                  value={f.replica_id}
+                  onChange={id => set('replica_id', id)}
+                  includeNone
+                  noneLabel={allReplicas.length ? 'None (demo mode)' : 'None — no replicas found'}
+                  loading={!replicas}
                 />
                 <div className="flex items-center gap-2 mt-1">
                   <div className="flex-1 h-px bg-border" />
@@ -292,7 +345,8 @@ ${numbered}`
               </div>
 
               <Select label="Persona" options={perOpts} value={f.persona_id} onChange={e => set('persona_id', e.target.value)} hint="Optional — inherits replica defaults if unset" />
-              <div className="sm:col-span-2"><Input label="Conversation Name" value={f.conversation_name} onChange={e => set('conversation_name', e.target.value)} placeholder="e.g. TalbotIQ — Senior Engineer Screen — Arjun Kumar" /></div>
+              <Input label="AI Interviewer Name" value={f.ai_name} onChange={e => set('ai_name', e.target.value)} placeholder="e.g. Maya" hint="The avatar introduces itself with this name (default: Alex)" />
+              <Input label="Conversation Name" value={f.conversation_name} onChange={e => set('conversation_name', e.target.value)} placeholder="e.g. Senior Engineer Screen" hint="Base name in Tavus; the candidate's name is appended" />
               <div className="sm:col-span-2"><Textarea label="Conversational Context" value={f.conversational_context} onChange={e => set('conversational_context', e.target.value)} placeholder="You are Alex, a Senior Talent Specialist at TalbotIQ. Ask each question clearly and wait for the candidate's full response before proceeding. Maintain a warm, professional tone throughout." className="min-h-[100px]" hint="This is the system prompt sent to the Tavus LLM" /></div>
               <div className="sm:col-span-2"><Input label="Custom Greeting" value={f.custom_greeting} onChange={e => set('custom_greeting', e.target.value)} placeholder="Hello! Welcome to your TalbotIQ interview. I'm excited to learn more about you today." hint="The very first thing the avatar says when the session starts" /></div>
               <div className="sm:col-span-2"><Input label="Callback URL" value={f.callback_url} onChange={e => set('callback_url', e.target.value)} placeholder="https://api.yourcompany.com/tavus-events" hint="Receives all conversation webhook events" /></div>
@@ -300,32 +354,18 @@ ${numbered}`
           </Card>
 
           {/* Questions */}
-          <Card className="divide-y divide-border">
-            <div className="px-6 py-4 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-neutral-800">Interview Questions</h3>
-                <p className="text-xs text-neutral-400 mt-0.5">{store.questions.filter(Boolean).length} question{store.questions.filter(Boolean).length !== 1 ? 's' : ''} configured</p>
-              </div>
-            </div>
-            <div className="px-6 py-5 space-y-2">
-              {store.questions.map((q, i) => (
-                <div key={i} className="flex gap-3 items-center group">
-                  <span className="w-6 h-6 rounded-md bg-primary-50 text-primary-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
-                  <input
-                    value={q}
-                    onChange={e => { const qs = [...store.questions]; qs[i] = e.target.value; store.setQuestions(qs) }}
-                    className="input-base flex-1"
-                    placeholder={`Question ${i + 1}`}
-                  />
-                  <button onClick={() => store.setQuestions(store.questions.filter((_, j) => j !== i))} className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-neutral-400 hover:text-danger hover:bg-danger-bg transition-all">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
-              ))}
-              <button onClick={() => store.setQuestions([...store.questions, ''])}
-                className="w-full h-9 border border-dashed border-neutral-200 rounded-lg text-xs font-medium text-neutral-400 hover:border-primary-300 hover:text-primary-600 hover:bg-primary-50 transition-all">
-                + Add Question
-              </button>
+          {/* Questions are NOT configured here — they come from the invite flow:
+              tailored per candidate from their résumé, or a chosen question set.
+              The server injects them into each candidate's Tavus conversation. */}
+          <Card className="px-6 py-4">
+            <div className="flex items-start gap-3 text-sm text-neutral-500">
+              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 font-bold text-primary-700">i</span>
+              <p className="leading-relaxed">
+                <span className="font-semibold text-neutral-700">Interview questions are set when you invite candidates</span> — tailored to each
+                candidate's résumé or taken from your question set, chosen in{' '}
+                <span className="font-medium text-neutral-700">Sessions → Invite candidates</span>. This page only configures the avatar
+                (face, persona, greeting, call properties); each candidate's questions are injected into the avatar's script automatically.
+              </p>
             </div>
           </Card>
 

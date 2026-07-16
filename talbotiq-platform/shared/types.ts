@@ -9,6 +9,38 @@
 export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice'
 export type QuestionSource = 'adaptive' | 'fixed'
 
+/* ─── Identity & access control (IAM) ───────────────────────────────────────
+ * Auth is handled by Firebase Authentication (Email/Password). The role lives on
+ * the Firestore document `users/{uid}.role` — chosen by the user at sign-up, read
+ * live by the client, and read per-request by the server (Admin SDK). This mirrors
+ * the Flutter app exactly so both clients interoperate on the same documents.
+ * There are NO custom claims. `admin` is an optional, server-only overlay (a
+ * recruiter with elevated visibility of unclaimed legacy sessions, from the
+ * ADMIN_EMAILS allowlist) — it is NOT a role and is never taken from the client. */
+
+export type UserRole = 'recruiter' | 'candidate'
+
+export interface AppUser {
+  uid: string
+  email: string
+  role: UserRole
+  admin?: boolean               // recruiter with elevated visibility (server overlay)
+  displayName?: string
+  emailVerified: boolean
+  status: 'active' | 'pending' | 'disabled'
+  createdAt: string
+  updatedAt: string
+}
+
+/** The verified identity attached to every authenticated server request. */
+export interface AuthContext {
+  uid: string
+  email: string
+  emailVerified: boolean
+  role: UserRole
+  admin: boolean
+}
+
 export interface TimingConfig {
   prepSeconds: number             // default 30
   answerSeconds: number           // default 120
@@ -234,8 +266,10 @@ export interface Turn {
 export interface InterviewSession {
   id: string
   templateId: string
+  recruiterId?: string         // OWNER (Firebase uid). Additive; legacy sessions
+                               // created before auth have none → admin-only until claimed.
   track: TrackType
-  candidate: { name: string; email: string }
+  candidate: { name: string; email: string }  // candidate.email is the ASSIGNMENT key
   status: SessionStatus
   questions: SessionQuestion[] // SERVER-HELD — never sent in full to the client
   currentIndex: number
@@ -251,6 +285,13 @@ export interface InterviewSession {
   plannedQuestionCount?: number
   followUpsThisQuestion?: number
   greetingTimeOfDay?: TimeOfDay   // candidate's local part-of-day, for the opening greeting
+  // Bulk-invite bridge: this local session mirrors a Firestore `interviews/{id}`
+  // doc (same id). On completion, its result/status are synced back to Firestore
+  // so the recruiter (and the Flutter app) see it. Server-only; additive.
+  viaInvite?: boolean
+  // Video-avatar track: id of the live Tavus conversation created for this
+  // session (server-side), so the server can end it on completion.
+  tavusConversationId?: string
 }
 
 /** Candidate's local part-of-day, derived client-side and sent at session start. */
@@ -265,6 +306,29 @@ export interface PerQuestionResult {
   kpiScores: Record<string, number> // keyed by KpiDefinition.id, 0–100
   feedback: string
 }
+/** Transcript-derived delivery metrics (voice / chatbot / avatar tracks). All
+ *  computed from stored text + timing — never fabricated acoustic data. */
+export interface SpeechMetrics {
+  words: number                 // total words the candidate spoke/typed
+  answers: number               // non-empty answers given
+  avgWordsPerAnswer: number
+  fillerCount: number           // "um", "you know", … in the transcript
+  fillerPer100: number          // filler words per 100 words
+  vocabularyPct: number         // unique words / total words, as a percentage
+  avgResponseSeconds?: number   // chatbot only (from per-answer timing)
+  spoken: boolean               // true for voice/avatar (heard), false for typed
+}
+
+/** Text-based sentiment / communication read (Gemini over the transcript).
+ *  Not acoustic prosody — labelled as transcript-derived in the UI. */
+export interface SentimentSignals {
+  overall: 'positive' | 'neutral' | 'negative' | 'mixed'
+  confidence: number            // 0–100
+  clarity: number               // 0–100
+  positivity: number            // 0–100
+  summary: string
+}
+
 export interface ResultReport {
   sessionId: string
   perQuestion: PerQuestionResult[]
@@ -276,6 +340,11 @@ export interface ResultReport {
   recommendation?: Recommendation
   generatedAt: string
   degraded?: boolean            // true when scoring fell back (no/failed Gemini)
+  /** True when NO candidate answers were captured — the interview was not
+   *  actually evaluated; the zero scores are placeholders, not judgments. */
+  notEvaluated?: boolean
+  /** Text-based communication/sentiment read (conversation tracks). */
+  sentiment?: SentimentSignals
 }
 
 /* ─── Client-safe DTOs (what the candidate browser is allowed to receive) ── */
@@ -307,6 +376,7 @@ export interface CandidateSessionState {
   integrity: IntegrityConfig
   tabSwitchWarnings: number
   awaitingResume: boolean          // adaptive track needs a résumé before starting
+  hasResume: boolean               // a résumé is already on file (video-avatar intake may still run without one)
 }
 
 /* ─── API request bodies ────────────────────────────────────────────────── */
@@ -344,6 +414,18 @@ export interface SessionListItem {
   overallScore?: number
 }
 
+/** Candidate-safe view of a session assigned to the signed-in candidate. Never
+ *  includes scores, reports, or any other candidate's data. */
+export interface CandidateAssignedSession {
+  id: string
+  templateName: string
+  role?: string
+  track: TrackType
+  status: SessionStatus
+  createdAt: string
+  completedAt?: string
+}
+
 export interface SessionReportQuestion {
   id: string
   text: string
@@ -352,6 +434,13 @@ export interface SessionReportQuestion {
   videoUrl?: string
   timeUsedSeconds?: number
   autoSubmitted: boolean
+}
+/** One transcript turn as shown on the recruiter report (conversation tracks). */
+export interface SessionReportTurn {
+  role: 'interviewer' | 'candidate'
+  content: string
+  questionIndex?: number
+  createdAt: string
 }
 export interface SessionReportView {
   session: {
@@ -366,9 +455,13 @@ export interface SessionReportView {
     questions: SessionReportQuestion[]
     integrityEvents: IntegrityEvent[]
     tabSwitchCount: number
+    /** Full conversation transcript (chatbot / voice / video_avatar tracks). */
+    transcript?: SessionReportTurn[]
   }
   rubric: KpiRubric
   report: ResultReport | null
+  /** Transcript-derived delivery metrics (conversation tracks). */
+  speech?: SpeechMetrics
 }
 
 export interface ApiError {
@@ -437,6 +530,42 @@ export interface AppSettingsStatus {
   model: string
 }
 
+/* ─── Video Avatar (Tavus) — recruiter-applied config for candidate interviews ─
+ * The recruiter configures the avatar once on the Setup page and clicks "Apply
+ * to Candidate Interviews". The config (and the Tavus key) is stored SERVER-side;
+ * every video_avatar candidate session creates its Tavus conversation from it —
+ * the candidate's browser never needs (or sees) a Tavus key. */
+
+export interface AvatarInterviewSettings {
+  replicaId: string               // Tavus replica that joins the call
+  personaId?: string              // optional Tavus persona
+  aiName?: string                 // the interviewer's name the avatar uses ("I'm Maya…"), default "Alex"
+  conversationName?: string       // base Tavus conversation name; candidate name is appended
+  conversationalContext?: string  // interviewer persona/system prompt (strict question script is appended per session)
+  customGreeting?: string         // avatar's first words (default greets the candidate by name)
+  language?: string               // full language name (Tavus format), default English
+  maxCallDuration?: number        // seconds, default 1800
+  enableRecording?: boolean       // Tavus session recording
+  callbackUrl?: string            // Tavus webhook for conversation events
+  fallbackQuestions?: string[]    // used only if a session has no question plan of its own
+}
+
+/** Masked status for the recruiter UI — never includes the key. */
+export interface AvatarSettingsStatus {
+  configured: boolean             // replica + key present → candidate avatar interviews will work
+  hasKey: boolean
+  replicaId?: string
+  personaId?: string
+  language?: string
+  updatedAt?: string
+}
+
+/** POST /sessions/:id/avatar/start response. */
+export interface AvatarStartResponse {
+  conversationUrl: string
+  totalQuestions: number
+}
+
 /* ─── Chatbot track — client-safe DTOs & requests ───────────────────────── */
 
 export interface ChatbotPublicTiming {
@@ -502,6 +631,43 @@ export interface SaveChatDraftRequest {
 export interface VoiceCatalog {
   voices: VoiceOption[]
   personas: InterviewPersona[]
+}
+
+/* ─── Bulk invite — candidate email/role extraction (POST /api/invites/extract) ── */
+
+/** One candidate parsed out of an uploaded CSV / Excel / PDF / text file. */
+export interface ExtractedCandidate {
+  email: string
+  role: string       // extracted role, or the recruiter's Step-1 role as fallback
+  valid: boolean     // email passed format validation
+}
+export interface ExtractCandidatesResult {
+  rows: ExtractedCandidate[]
+  warnings: string[] // e.g. "roles defaulted from an unstructured file", "N duplicates removed"
+}
+
+/** Recruiter → server: create one interview per candidate + (optionally) email them. */
+export interface CreateInvitesRequest {
+  mode: TrackType                                   // Chatbot / Voice / Video Avatar / Timed Q&A
+  role: string                                      // batch candidate role (Step 1)
+  source: 'tailor' | 'set'
+  config?: {                                        // tailor-per-résumé generation params (§2)
+    style: QuestionStyle
+    techCount: number
+    nonTechCount: number
+    difficulty: DifficultyChoice
+    domains: string[]
+    model: GeminiModel
+  }
+  questionSetId?: string                            // when source === 'set'
+  candidates: { email: string; role: string }[]
+  origin?: string                                   // web origin, for the invite link in emails
+}
+export interface CreateInvitesResult {
+  testId: string
+  created: { id: string; email: string; link: string }[]
+  emailed: number     // how many invite emails actually went out (0 while the mailer is in dry-run)
+  dryRun: boolean     // true when the mailer isn't fully configured yet
 }
 
 /** High-level state of the live call, surfaced to the candidate UI. */

@@ -160,5 +160,33 @@ const finalizeOf = (acts: FlowAction[]) => acts.find((a) => a.kind === 'finalize
   assert('early End finalizes as NOT graceful (coverage incomplete)', !!fin && fin.graceful === false)
 }
 
+/* ── 10. Candidate activity resets the idle watchdog (no mid-answer end) ──── */
+{
+  console.log('\n=== 10. Candidate speech re-arms idle; long answer is not cut off ===')
+  const f = createVoiceFlow(QS)
+  f.start()
+  f.onInterviewerTurn('Hi! Ready?'); f.onCandidateTurn('yes')
+  f.onInterviewerTurn('Tell me about your experience with distributed systems?')
+  // Candidate is still speaking (streaming partials) — this must re-arm 'idle'.
+  const act = f.onCandidateActivity()
+  assert('activity re-arms the idle timer', has(act, 'armTimer') && act.some((a) => a.kind === 'armTimer' && a.tag === 'idle'))
+  assert('activity does NOT finalize and does NOT advance coverage', !finalizeOf(act) && f.askedIndex === 1)
+}
+
+/* ── 11. Activity in closing does NOT re-arm idle (candidateSilence governs) ── */
+{
+  console.log('\n=== 11. Closing-phase activity leaves the wrap-up timers alone ===')
+  const f = createVoiceFlow(QS)
+  f.start()
+  f.onInterviewerTurn('Hi! Ready?'); f.onCandidateTurn('yes')
+  f.onInterviewerTurn('Tell me about your experience with distributed systems?'); f.onCandidateTurn('a1')
+  f.onInterviewerTurn('How did you optimize the SQL queries in the registration system?'); f.onCandidateTurn('a2')
+  f.onInterviewerTurn('Describe a time you handled a difficult production incident?'); f.onCandidateTurn('a3')
+  f.onInterviewerTurn("That's everything, thank you. You can leave now; HR will be in touch.")
+  assert('in closing', f.phase === 'closing')
+  const act = f.onCandidateActivity()
+  assert('no idle re-arm during closing', !has(act, 'armTimer'))
+}
+
 console.log(`\n${failures === 0 ? '✅ ALL VOICE-FLOW TESTS PASSED' : `❌ ${failures} ASSERTION(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

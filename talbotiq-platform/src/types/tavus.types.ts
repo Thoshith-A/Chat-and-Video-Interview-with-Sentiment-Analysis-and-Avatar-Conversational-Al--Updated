@@ -1,5 +1,7 @@
 // ── Replicas ──────────────────────────────────────────────────────────────────
-export type ReplicaStatus = 'ready' | 'training' | 'error' | 'deleted'
+// Tavus reports a trained replica as 'completed' (and sometimes 'ready'); both
+// mean usable. 'training' | 'error' are the not-yet-usable states.
+export type ReplicaStatus = 'ready' | 'completed' | 'training' | 'error' | 'deleted'
 
 export interface TavusReplica {
   replica_id: string

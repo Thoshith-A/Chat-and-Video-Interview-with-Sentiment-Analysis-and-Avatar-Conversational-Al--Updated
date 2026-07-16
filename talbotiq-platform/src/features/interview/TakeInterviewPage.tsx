@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
 import { Loader2, AlertTriangle } from 'lucide-react'
+import { useAuth } from '@/features/auth/AuthProvider'
 import { useInterviewClock } from './useInterviewClock'
 import { useIntegrityMonitor } from './useIntegrityMonitor'
 import { InterviewShell } from './components/InterviewShell'
@@ -22,6 +23,7 @@ type PreStep = 'track' | 'welcome' | 'resume' | 'systemcheck'
 
 export default function TakeInterviewPage() {
   const { sessionId = '' } = useParams()
+  const { signOutUser } = useAuth()
   const clock = useInterviewClock(sessionId)
   const [preStep, setPreStep] = useState<PreStep>('track')
   const [chatbotStarted, setChatbotStarted] = useState(false)
@@ -37,16 +39,27 @@ export default function TakeInterviewPage() {
     )
   }
 
-  // Hard error (e.g. bad link)
+  // Hard error (bad link, or signed in with a different account than the invite's).
   if (clock.error && !clock.state) {
+    const wrongAccount = /different email/i.test(clock.error)
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-5">
         <div className="max-w-sm rounded-2xl border border-border bg-white p-8 text-center shadow-sm">
           <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-danger-bg text-danger">
             <AlertTriangle size={22} />
           </span>
-          <h1 className="mt-4 text-xl font-bold text-neutral-900">Interview not found</h1>
-          <p className="mt-2 text-sm text-neutral-500">{clock.error}. Please double-check your invite link.</p>
+          <h1 className="mt-4 text-xl font-bold text-neutral-900">
+            {wrongAccount ? 'Signed in with a different account' : 'Interview not found'}
+          </h1>
+          <p className="mt-2 text-sm text-neutral-500">
+            {clock.error}{wrongAccount ? '' : '. Please double-check your invite link.'}
+          </p>
+          <button
+            onClick={() => { void signOutUser() }}
+            className="mt-5 rounded-full bg-[#0d5c3a] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0a4a2f]"
+          >
+            Sign out &amp; switch account
+          </button>
         </div>
       </div>
     )
@@ -68,7 +81,18 @@ export default function TakeInterviewPage() {
     return <ChatbotStage sessionId={sessionId} branding={branding} onIntegrity={integrity.post} />
   }
   if (s.track === 'video_avatar' && (chatbotStarted || s.status === 'in_progress')) {
-    return <AvatarStage sessionId={sessionId} branding={branding} onIntegrity={integrity.post} />
+    // First entry runs the on-device face-framing pre-flight inside AvatarStage
+    // (the Tavus conversation is created in parallel while the candidate frames
+    // their face). Reconnects — status already in_progress — skip straight back
+    // into the room; never re-gate a refresh mid-call.
+    return (
+      <AvatarStage
+        sessionId={sessionId}
+        branding={branding}
+        onIntegrity={integrity.post}
+        preflight={s.status !== 'in_progress'}
+      />
+    )
   }
   // Voice track runs its own realtime call screen (WebSocket → Gemini Live).
   if (s.track === 'voice' && (chatbotStarted || s.status === 'in_progress')) {
@@ -98,6 +122,11 @@ export default function TakeInterviewPage() {
   // status: created | system_check → pre-interview screens.
   // The chatbot/voice track's format is fixed by the template, so skip "choose format".
   const conversational = s.track === 'chatbot' || s.track === 'video_avatar' || s.track === 'voice'
+  // Video-avatar interviews ALWAYS collect the candidate's full name + résumé
+  // first — both are fed to the Tavus avatar (name in the greeting/questions,
+  // résumé as its background knowledge). Other tracks only when the question
+  // plan needs the résumé.
+  const needsIntake = s.awaitingResume || (s.track === 'video_avatar' && !s.hasResume)
   const step: PreStep = conversational && preStep === 'track' ? 'welcome' : preStep
   return (
     <InterviewShell branding={branding}>
@@ -120,7 +149,7 @@ export default function TakeInterviewPage() {
             branding={branding}
             timing={s.timing}
             onContinue={() => {
-              if (s.awaitingResume) { setPreStep('resume') }
+              if (needsIntake) { setPreStep('resume') }
               else { clock.systemCheck(); setPreStep('systemcheck') }
             }}
           />
@@ -130,7 +159,7 @@ export default function TakeInterviewPage() {
             key="resume"
             branding={branding}
             busy={clock.busy}
-            onUpload={async (file) => { await clock.uploadResume(file); clock.systemCheck(); setPreStep('systemcheck') }}
+            onUpload={async (file, fullName) => { await clock.uploadResume(file, fullName); clock.systemCheck(); setPreStep('systemcheck') }}
           />
         )}
         {step === 'systemcheck' && (

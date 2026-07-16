@@ -8,7 +8,13 @@ import { sessionsRouter } from './routes/sessions'
 import { settingsRouter } from './routes/settings'
 import { voicesRouter } from './routes/voices'
 import { analyticsRouter } from './routes/analytics'
+import { invitesRouter } from './routes/invites'
 import { avatarRouter } from './routes/avatar'
+import { authRouter } from './routes/auth'
+import { faceCacheRouter } from './routes/faceCache'
+import { helpRouter } from './routes/help'
+import { authenticate, requireRecruiter } from './middleware/auth'
+import { authConfigured } from './services/firebaseAdmin'
 import { attachVoiceWebSocket } from './services/voice'
 import { attachDeepgramRelay } from './services/deepgramRelay'
 import { HttpError } from './util/ah'
@@ -24,16 +30,41 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     ts: new Date().toISOString(),
     gemini: Boolean(process.env.GEMINI_API_KEY),
+    auth: authConfigured(),
+    authMode: authConfigured() ? 'firebase' : 'none',
   })
 })
 
-app.use('/api/templates', templatesRouter)
-app.use('/api/question-sets', questionSetsRouter)
-app.use('/api/sessions', sessionsRouter)
-app.use('/api/settings', settingsRouter)
-app.use('/api/voices', voicesRouter)
-app.use('/api/analytics', analyticsRouter)
-app.use('/api/avatar', avatarRouter)
+// ─── Authentication + access control ──────────────────────────────────────
+// Defense in depth: the backend is the real security boundary. Every ID token
+// is verified server-side (Admin SDK) and authorization is enforced on every
+// endpoint — client route guards are UX only.
+app.use('/api/auth', authRouter)
+
+// Recruiter-only surfaces: templates, question sets, settings, the voice
+// catalog, aggregate analytics, and all AI-Avatar-Screening proxies. Gated
+// centrally here so the routers stay focused on their domain logic.
+app.use('/api/templates', authenticate, requireRecruiter, templatesRouter)
+app.use('/api/question-sets', authenticate, requireRecruiter, questionSetsRouter)
+app.use('/api/settings', authenticate, requireRecruiter, settingsRouter)
+app.use('/api/voices', authenticate, requireRecruiter, voicesRouter)
+app.use('/api/analytics', authenticate, requireRecruiter, analyticsRouter)
+app.use('/api/invites', authenticate, requireRecruiter, invitesRouter)
+// Mounted BEFORE /api/avatar so it wins for this path: it carries its own auth
+// that also accepts ?token= (video tags can't send the Authorization header).
+app.use('/api/avatar/face-cache', faceCacheRouter)
+app.use('/api/avatar', authenticate, requireRecruiter, avatarRouter)
+
+// Sessions mix recruiter (create/list/report) and candidate (take the interview)
+// endpoints, so every request is authenticated at the router and each handler
+// enforces ownership (recruiter) or verified-email assignment (candidate).
+app.use('/api/sessions', authenticate, sessionsRouter)
+
+// Mimic Guide in-app help assistant. Authenticated (recruiters + candidates);
+// the caller's role tailors the answer's navigation links. Reuses the existing
+// server-side Gemini client — no new key or provider. Additive: reads product
+// knowledge only, never touches sessions/templates/question-set logic.
+app.use('/api/help', authenticate, helpRouter)
 
 const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof HttpError) {
@@ -50,6 +81,8 @@ const server = app.listen(PORT, () => {
   console.log(`[server] TalbotIQ API listening on http://localhost:${PORT}`)
   if (!process.env.GEMINI_API_KEY)
     console.warn('[server] GEMINI_API_KEY not set — adaptive questions & scoring use heuristic fallback.')
+  if (!authConfigured())
+    console.warn('[auth] Firebase Admin is NOT configured — auth-guarded /api endpoints will return 503. Set FIREBASE_PROJECT_ID/CLIENT_EMAIL/PRIVATE_KEY (see docs/AUTH.md).')
 })
 
 // Real-time Voice Track: WebSocket relay to Gemini Live at /api/voice/:sessionId.

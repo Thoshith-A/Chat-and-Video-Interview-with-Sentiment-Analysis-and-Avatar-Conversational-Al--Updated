@@ -18,6 +18,14 @@ import type {
   VoiceCatalog,
   AnalyticsSummary,
   AnalyticsFilters,
+  AppUser,
+  CandidateAssignedSession,
+  ExtractCandidatesResult,
+  CreateInvitesRequest,
+  CreateInvitesResult,
+  AvatarInterviewSettings,
+  AvatarSettingsStatus,
+  AvatarStartResponse,
 } from '@shared/types'
 
 const BASE = '/api'
@@ -41,6 +49,15 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public payload?: unknown) {
     super(message)
   }
+}
+
+/* ─── Auth ──────────────────────────────────────────────────────────────────
+ * The Firebase ID token is attached to every /api request by the global fetch
+ * interceptor installed in AuthProvider. The role is NOT decided here — it lives
+ * on Firestore users/{uid}.role (read live by the client, and read by the server
+ * on each request). This endpoint just returns the current user's mirror view. */
+export const authApi = {
+  me: () => http<AppUser>('/auth/me'),
 }
 
 /* ─── Templates ─────────────────────────────────────────────────────────── */
@@ -83,12 +100,27 @@ export const settingsApi = {
       body: JSON.stringify({ apiKey, model }),
     }),
   clearGeminiKey: () => http<AppSettingsStatus>('/settings/gemini-key', { method: 'DELETE' }),
+  // Tavus key — GLOBAL, single source of truth. Saving from the Settings page
+  // pushes it server-side so it applies everywhere (candidate avatar interviews,
+  // any previously-applied Setup config) in one step.
+  saveTavusKey: (apiKey: string) =>
+    http<{ tavusKeySet: boolean; tavusKeyMasked?: string }>('/settings/tavus-key', {
+      method: 'PUT',
+      body: JSON.stringify({ apiKey }),
+    }),
+  // Video Avatar (Tavus) — the Setup page's "Apply to Candidate Interviews".
+  // Config + key are stored server-side; the status response is always masked.
+  avatarStatus: () => http<AvatarSettingsStatus>('/settings/avatar'),
+  applyAvatar: (body: AvatarInterviewSettings & { tavusKey?: string }) =>
+    http<AvatarSettingsStatus>('/settings/avatar', { method: 'PUT', body: JSON.stringify(body) }),
 }
 
 /* ─── Sessions (candidate + recruiter) ──────────────────────────────────── */
 export const sessionsApi = {
   create: (body: CreateSessionRequest) =>
     http<{ id: string }>('/sessions', { method: 'POST', body: JSON.stringify(body) }),
+  // Bulk-invite: resolve a Firestore interview id into a local session (idempotent).
+  claimInvite: (id: string) => http<CandidateSessionState>(`/sessions/${id}/claim`, { method: 'POST' }),
   state: (id: string) => http<CandidateSessionState>(`/sessions/${id}/state`),
   setTrack: (id: string, track: TrackType) =>
     http<CandidateSessionState>(`/sessions/${id}/track`, {
@@ -97,9 +129,12 @@ export const sessionsApi = {
     }),
   systemCheck: (id: string) =>
     http<CandidateSessionState>(`/sessions/${id}/system-check`, { method: 'POST' }),
-  uploadResume: async (id: string, file: File): Promise<CandidateSessionState> => {
+  uploadResume: async (id: string, file: File, fullName?: string): Promise<CandidateSessionState> => {
     const fd = new FormData()
     fd.append('resume', file)
+    // Candidate's full name, asked before upload — the AI interviewer uses it
+    // to address them in questions (stored as session.candidate.name).
+    if (fullName?.trim()) fd.append('fullName', fullName.trim())
     const res = await fetch(`${BASE}/sessions/${id}/resume`, { method: 'POST', body: fd })
     const text = await res.text()
     const data = text ? JSON.parse(text) : undefined
@@ -129,6 +164,17 @@ export const sessionsApi = {
     http<CandidateSessionState>(`/sessions/${id}/complete`, { method: 'POST' }),
   list: () => http<SessionListItem[]>('/sessions'),
   report: (id: string) => http<SessionReportView>(`/sessions/${id}/report`),
+  // Candidate: the interviews assigned to the signed-in candidate's verified email.
+  mine: () => http<CandidateAssignedSession[]>('/sessions/mine'),
+  // Video Avatar (Tavus): the server creates the conversation from the recruiter's
+  // applied Setup config — the client only receives the join URL. timeOfDay makes
+  // the avatar's greeting time-appropriate ("Good morning …").
+  avatarStart: (id: string, timeOfDay?: 'morning' | 'afternoon' | 'evening') =>
+    http<AvatarStartResponse>(`/sessions/${id}/avatar/start`, { method: 'POST', body: JSON.stringify({ timeOfDay }) }),
+  avatarTranscript: (id: string, body: { role: 'interviewer' | 'candidate'; text: string }) =>
+    http<{ ok: boolean }>(`/sessions/${id}/avatar/transcript`, { method: 'POST', body: JSON.stringify(body) }),
+  avatarComplete: (id: string) =>
+    http<{ ok: boolean }>(`/sessions/${id}/avatar/complete`, { method: 'POST' }),
 }
 
 /* ─── Chatbot (conversational) track ────────────────────────────────────── */
@@ -145,6 +191,22 @@ export const chatbotApi = {
   // The question is now presented (composer enabled) → start its clock server-side.
   questionPresented: (id: string) =>
     http<ChatbotSessionState>(`/sessions/${id}/chat/question-presented`, { method: 'POST' }),
+}
+
+/* ─── Bulk invite — candidate email/role extraction ─────────────────────── */
+export const invitesApi = {
+  extract: async (file: File, role: string): Promise<ExtractCandidatesResult> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (role) fd.append('role', role)
+    const res = await fetch(`${BASE}/invites/extract`, { method: 'POST', body: fd })
+    const text = await res.text()
+    const data = text ? JSON.parse(text) : undefined
+    if (!res.ok) throw new ApiError((data && data.error) || `Extraction failed (${res.status})`, res.status, data)
+    return data as ExtractCandidatesResult
+  },
+  create: (body: CreateInvitesRequest) =>
+    http<CreateInvitesResult>('/invites', { method: 'POST', body: JSON.stringify(body) }),
 }
 
 /* ─── Analytics (aggregate dashboard) ───────────────────────────────────── */

@@ -20,6 +20,7 @@ export function useVoiceSession(sessionId: string) {
   const [muted, setMuted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [permissionDenied, setPermissionDenied] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false) // socket dropped, transparently retrying
   const [endedGraceful, setEndedGraceful] = useState(true) // false ⇒ interrupted, not a real finish
   const clientRef = useRef<VoiceClient | null>(null)
   const startedRef = useRef(false)
@@ -47,7 +48,8 @@ export function useVoiceSession(sessionId: string) {
           }
           return [...prev, { role, text, final }]
         }),
-      onEnded: (_reason, graceful) => { setEndedGraceful(graceful !== false); setServerPhase('ended') },
+      onReconnecting: (active) => setReconnecting(active),
+      onEnded: (_reason, graceful) => { setReconnecting(false); setEndedGraceful(graceful !== false); setServerPhase('ended') },
       onError: (m) => setError(m),
     })
     clientRef.current = client
@@ -94,5 +96,5 @@ export function useVoiceSession(sessionId: string) {
             ? 'listening'
             : serverPhase
 
-  return { phase, captions, muted, error, permissionDenied, endedGraceful, start, toggleMute, end }
+  return { phase, captions, muted, error, permissionDenied, reconnecting, endedGraceful, start, toggleMute, end }
 }

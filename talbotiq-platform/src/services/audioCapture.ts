@@ -9,8 +9,10 @@
 // dedicated real-time audio thread so it never drops frames (unlike ScriptProcessorNode).
 
 export interface AudioCaptureConfig {
-  /** Called for EVERY Int16 PCM chunk produced by the worklet (~256ms @ 16kHz). For Hume EVI. */
-  onPCMChunk: (chunk: ArrayBuffer) => void
+  /** Called for EVERY Int16 PCM chunk produced by the worklet (~256ms @ 16kHz).
+   *  OPTIONAL — when absent, the AudioContext + AudioWorklet pipeline is not
+   *  created at all (it's real per-call CPU; don't pay for it without a consumer). */
+  onPCMChunk?: (chunk: ArrayBuffer) => void
   /** Called for each batch MediaRecorder data chunk — push to the batch audio store. */
   onRecordingChunk?: (chunk: Blob) => void
   /**
@@ -101,6 +103,12 @@ export function createAudioCapture(config: AudioCaptureConfig): AudioCapture {
 
     // ── SECONDARY, BEST-EFFORT PATH: AudioWorklet for real-time PCM (Hume EVI) ──
     // Wrapped so any failure here never takes down the recorders above.
+    // Skipped entirely when no PCM consumer is registered — a live AudioContext +
+    // worklet thread + per-chunk postMessage is pure overhead during a video call.
+    if (!config.onPCMChunk) {
+      console.log(`[CAP] capture started — recorder=${mimeType} (no PCM consumer; worklet skipped)`)
+      return
+    }
     try {
       audioContext = new AudioContext({ sampleRate: targetRate, latencyHint: 'interactive' })
       if (audioContext.state === 'suspended') {
@@ -123,7 +131,7 @@ export function createAudioCapture(config: AudioCaptureConfig): AudioCapture {
           if (chunkCount === 1 || chunkCount % 40 === 0) {
             console.log(`[CAP] PCM chunk #${chunkCount}, bytes=${(event.data.buffer as ArrayBuffer).byteLength}`)
           }
-          config.onPCMChunk(event.data.buffer as ArrayBuffer)
+          config.onPCMChunk?.(event.data.buffer as ArrayBuffer)
         }
       }
 

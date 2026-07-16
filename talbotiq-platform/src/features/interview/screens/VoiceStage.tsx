@@ -129,6 +129,7 @@ export function VoiceStage({ sessionId, branding, personaName = 'AI Interviewer'
   }
 
   const connecting = v.phase === 'connecting'
+  const statusLabel = v.reconnecting ? 'Reconnecting…' : PHASE_LABEL[v.phase]
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -138,7 +139,7 @@ export function VoiceStage({ sessionId, branding, personaName = 'AI Interviewer'
           <span className="truncate font-bold" style={{ color: accent }}>{branding.companyName}</span>
           <span className="flex items-center gap-1.5 text-xs font-medium text-neutral-500" aria-live="polite">
             <span className={`h-2 w-2 rounded-full ${connecting ? 'bg-amber-400 animate-pulse' : 'bg-[#16a34a]'}`} />
-            {connecting ? 'Connecting' : 'Live'}
+            {v.reconnecting ? 'Reconnecting' : connecting ? 'Connecting' : 'Live'}
           </span>
         </div>
       </div>
@@ -149,8 +150,11 @@ export function VoiceStage({ sessionId, branding, personaName = 'AI Interviewer'
         <p className="mt-2 text-lg font-semibold text-neutral-800">{personaName}</p>
         <p className="mt-1 flex items-center gap-2 text-sm text-neutral-500" aria-live="polite">
           {connecting && <Loader2 size={14} className="animate-spin" />}
-          {PHASE_LABEL[v.phase]}
+          {statusLabel}
         </p>
+        {v.reconnecting && (
+          <p className="mt-1 text-xs text-neutral-400">Connection hiccup — your interview is saved and will resume in a moment.</p>
+        )}
 
         {/* captions */}
         {showCaptions && (

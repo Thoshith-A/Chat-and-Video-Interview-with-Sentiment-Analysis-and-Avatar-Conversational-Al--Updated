@@ -11,13 +11,20 @@ import {
 import { PageHeader, Card, Button, Badge, Skeleton, cn } from '@/components/ui'
 import { sessionsApi } from '@/lib/api'
 import { exportElementToPdf } from '@/lib/pdf'
-import type { Recommendation, SessionReportView } from '@shared/types'
+import type { Recommendation, SessionReportView, SpeechMetrics, SentimentSignals } from '@shared/types'
 
 const REC: Record<Recommendation, { label: string; cls: string }> = {
   strong_yes: { label: 'Strong Yes', cls: 'bg-success-bg text-success border-success-border' },
   yes:        { label: 'Yes',        cls: 'bg-primary-50 text-primary-700 border-primary-200' },
   maybe:      { label: 'Maybe',      cls: 'bg-warning-bg text-warning border-warning-border' },
   no:         { label: 'No',         cls: 'bg-danger-bg text-danger border-danger-border' },
+}
+
+const TRACK_LABEL: Record<string, string> = {
+  chat: 'Timed Q&A',
+  chatbot: 'Chatbot',
+  voice: 'Voice',
+  video_avatar: 'Video Avatar',
 }
 
 const scoreColor = (s: number) => (s >= 75 ? '#16a34a' : s >= 55 ? '#d97706' : '#dc2626')
@@ -49,6 +56,9 @@ export default function ReportPage() {
   const q = useQuery({
     queryKey: ['report', id],
     queryFn: () => sessionsApi.report(id),
+    // Transient blips (token refresh, network) must not kill the page —
+    // especially while polling. Retry before surfacing an error.
+    retry: 2,
     // Poll while scoring is still in flight.
     refetchInterval: (query) => ((query.state.data as SessionReportView | undefined)?.report ? false : 2500),
   })
@@ -56,11 +66,28 @@ export default function ReportPage() {
   if (q.isLoading) {
     return <div className="max-w-[1100px] mx-auto px-6 py-8 space-y-4"><Skeleton className="h-10 w-64" /><Skeleton className="h-72" /></div>
   }
-  if (q.isError || !q.data) {
-    return <div className="max-w-[1100px] mx-auto px-6 py-8"><Card className="p-0"><div className="p-10 text-center text-neutral-500">Couldn’t load this report. <Link to="/sessions" className="text-primary-700">Back to sessions</Link></div></Card></div>
+  // Only a hard failure with NO data at all blocks the page — a failed
+  // background refetch keeps showing the last good data instead of erroring.
+  if (!q.data) {
+    const reason = q.error instanceof Error ? q.error.message : 'Something went wrong while fetching it.'
+    return (
+      <div className="max-w-[1100px] mx-auto px-6 py-8">
+        <Card className="p-0">
+          <div className="flex flex-col items-center gap-3 p-10 text-center">
+            <AlertTriangle className="text-warning" size={24} />
+            <p className="font-semibold text-neutral-700">Couldn’t load this report</p>
+            <p className="text-sm text-neutral-400">{reason}</p>
+            <div className="flex items-center gap-3">
+              <Button onClick={() => void q.refetch()}>Try again</Button>
+              <Link to="/sessions" className="text-sm font-medium text-primary-700">Back to sessions</Link>
+            </div>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
-  const { session, rubric, report } = q.data
+  const { session, rubric, report, speech } = q.data
   const kpiLabel = (kid: string) => rubric.kpis.find((k) => k.id === kid)?.label ?? kid
 
   const exportPdf = async () => {
@@ -83,7 +110,7 @@ export default function ReportPage() {
       <PageHeader
         kicker="Candidate Report"
         title={session.candidate.name}
-        description={`${session.templateName} · ${session.track === 'video_avatar' ? 'Video Avatar' : 'Chat'} · ${session.completedAt ? new Date(session.completedAt).toLocaleString() : 'in progress'}`}
+        description={`${session.templateName} · ${TRACK_LABEL[session.track] ?? session.track} · ${session.completedAt ? new Date(session.completedAt).toLocaleString() : 'in progress'}`}
         action={report ? <Button icon={<Download size={16} />} loading={exporting} onClick={exportPdf}>Export PDF</Button> : undefined}
       />
 
@@ -97,6 +124,16 @@ export default function ReportPage() {
         </Card>
       ) : (
         <div ref={reportRef} className="space-y-6 bg-background">
+          {report.notEvaluated && (
+            <div className="flex items-start gap-2 rounded-xl border border-warning-border bg-warning-bg p-3 text-sm text-warning">
+              <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+              <span>
+                <strong>Not evaluated.</strong> No candidate answers were captured for this interview, so
+                there are no real scores — the values below are placeholders, not a judgment of the candidate.
+                The interview may need to be retaken.
+              </span>
+            </div>
+          )}
           {report.degraded && (
             <div className="flex items-start gap-2 rounded-xl border border-warning-border bg-warning-bg p-3 text-sm text-warning">
               <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
@@ -107,7 +144,14 @@ export default function ReportPage() {
           {/* summary row */}
           <div className="grid gap-6 md:grid-cols-[200px_1fr]">
             <Card className="flex flex-col items-center justify-center gap-3 p-5">
-              <Gauge score={report.overallScore} />
+              {report.notEvaluated ? (
+                <div className="flex flex-col items-center justify-center" style={{ width: 160, height: 160 }}>
+                  <span className="text-5xl font-bold text-neutral-300">—</span>
+                  <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">Not evaluated</span>
+                </div>
+              ) : (
+                <Gauge score={report.overallScore} />
+              )}
               {report.recommendation && (
                 <span className={cn('rounded-full border px-3 py-1 text-sm font-bold', REC[report.recommendation].cls)}>
                   {REC[report.recommendation].label}
@@ -234,10 +278,166 @@ export default function ReportPage() {
                   </div>
                 )
               })}
+              {session.questions.length === 0 && (
+                <div className="p-8 text-center text-sm text-neutral-400">
+                  No questions were recorded for this interview.
+                </div>
+              )}
             </div>
           </Card>
+
+          {/* full transcript (conversation tracks) */}
+          {session.transcript && (
+            <Card className="p-0">
+              <h3 className="border-b border-border px-5 py-4 text-sm font-bold uppercase tracking-wide text-neutral-500">
+                Interview transcript
+              </h3>
+              {session.transcript.length === 0 ? (
+                <div className="p-8 text-center text-sm text-neutral-400">
+                  No transcript was captured for this interview.
+                </div>
+              ) : (
+                <div className="max-h-[420px] space-y-3 overflow-y-auto p-5">
+                  {session.transcript.map((t, i) => (
+                    <div key={i} className="flex gap-3">
+                      <span className={cn(
+                        'w-24 flex-shrink-0 text-xs font-bold uppercase tracking-wide',
+                        t.role === 'interviewer' ? 'text-primary-700' : 'text-neutral-500',
+                      )}>
+                        {t.role === 'interviewer' ? 'Interviewer' : 'Candidate'}
+                      </span>
+                      <p className="whitespace-pre-wrap text-sm text-neutral-700">{t.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* signal analytics — real transcript-derived metrics + text sentiment */}
+          <SignalAnalytics track={session.track} speech={speech} sentiment={report.sentiment} />
         </div>
       )}
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border border-border bg-white px-3 py-2">
+      <div className="text-lg font-bold tabular-nums text-neutral-800">{value}</div>
+      <div className="text-[11px] uppercase tracking-wide text-neutral-400">{label}</div>
+    </div>
+  )
+}
+
+function SignalBar({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-24 text-xs text-neutral-600">{label}</span>
+      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-neutral-100">
+        <div className="h-full rounded-full" style={{ width: `${value}%`, background: scoreColor(value) }} />
+      </div>
+      <span className="w-8 text-right text-xs font-bold tabular-nums" style={{ color: scoreColor(value) }}>{value}</span>
+    </div>
+  )
+}
+
+const SENTIMENT_STYLE: Record<SentimentSignals['overall'], string> = {
+  positive: 'bg-success-bg text-success border-success-border',
+  mixed: 'bg-warning-bg text-warning border-warning-border',
+  neutral: 'bg-neutral-100 text-neutral-600 border-border',
+  negative: 'bg-danger-bg text-danger border-danger-border',
+}
+
+/**
+ * Real signal analytics for conversation tracks: delivery metrics computed from
+ * the stored transcript, and a text-based communication/sentiment read. Acoustic
+ * pitch/energy prosody and facial analysis genuinely need the raw audio/video
+ * (only captured in the live recruiter room), so those stay honest empty states.
+ */
+function SignalAnalytics({
+  track,
+  speech,
+  sentiment,
+}: {
+  track: string
+  speech?: SpeechMetrics
+  sentiment?: SentimentSignals
+}) {
+  const spoken = speech?.spoken ?? (track === 'voice' || track === 'video_avatar')
+
+  if (!speech && !sentiment) {
+    return (
+      <Card className="p-5">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-neutral-500">Signal analytics</h3>
+        <p className="mt-2 text-sm text-neutral-500">
+          Delivery metrics and sentiment are available for voice and conversational interviews with a
+          transcript. This interview type doesn’t produce one.
+        </p>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="grid gap-6 md:grid-cols-2">
+      {/* Delivery metrics (from the transcript) */}
+      <Card className="p-5">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-neutral-500">
+          {spoken ? 'Speech metrics' : 'Response metrics'}
+        </h3>
+        {speech ? (
+          <>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <Stat label="Words" value={speech.words} />
+              <Stat label="Answers" value={speech.answers} />
+              <Stat label="Avg words" value={speech.avgWordsPerAnswer} />
+              {spoken && <Stat label="Fillers" value={speech.fillerCount} />}
+              {spoken && <Stat label="Fillers /100" value={speech.fillerPer100} />}
+              <Stat label="Vocabulary" value={`${speech.vocabularyPct}%`} />
+              {typeof speech.avgResponseSeconds === 'number' && (
+                <Stat label="Avg reply" value={`${speech.avgResponseSeconds}s`} />
+              )}
+            </div>
+            <p className="mt-3 text-xs text-neutral-400">
+              Computed from the interview transcript.
+              {spoken
+                ? ' Fillers depend on how the transcription captured speech; acoustic pace/pitch needs the live room.'
+                : ''}
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-400">No transcript was captured for this interview.</p>
+        )}
+      </Card>
+
+      {/* Communication & sentiment (text-based) */}
+      <Card className="p-5">
+        <h3 className="text-sm font-bold uppercase tracking-wide text-neutral-500">Communication &amp; sentiment</h3>
+        {sentiment ? (
+          <>
+            <div className="mt-2 flex items-center gap-2">
+              <span className={cn('rounded-full border px-2.5 py-0.5 text-xs font-bold capitalize', SENTIMENT_STYLE[sentiment.overall])}>
+                {sentiment.overall}
+              </span>
+              <span className="text-xs text-neutral-400">overall tone</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              <SignalBar label="Confidence" value={sentiment.confidence} />
+              <SignalBar label="Clarity" value={sentiment.clarity} />
+              <SignalBar label="Positivity" value={sentiment.positivity} />
+            </div>
+            <p className="mt-3 text-sm text-neutral-600">{sentiment.summary}</p>
+            <p className="mt-2 text-xs text-neutral-400">
+              From the transcript — reflects what the words convey, not audio tone.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-400">
+            Sentiment analysis needs a Gemini API key. Add one in Settings to enable it.
+          </p>
+        )}
+      </Card>
     </div>
   )
 }

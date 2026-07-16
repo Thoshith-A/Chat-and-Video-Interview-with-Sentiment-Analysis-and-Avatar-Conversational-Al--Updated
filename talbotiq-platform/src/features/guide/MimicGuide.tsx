@@ -1,0 +1,775 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import toast from 'react-hot-toast'
+import {
+  Sparkles,
+  Mic,
+  Send,
+  ChevronDown,
+  Volume2,
+  VolumeX,
+  Square,
+  X,
+} from 'lucide-react'
+import { cn } from '@/components/ui'
+import { useAuth } from '@/features/auth/AuthProvider'
+import { GuideMarkdown } from '@/features/guide/guide-markdown'
+import { LANGUAGES, findLanguage, type Language } from '@/lib/languages'
+import {
+  isSpeechRecognitionSupported,
+  startSpeechRecognition,
+} from '@/lib/speechRecognition'
+import { cancelSpeech } from '@/lib/speechSynthesis'
+import { SPEECH_LOCALES, plainTextForSpeech, prewarmSpeech, speakSmart } from '@/lib/guideSpeech'
+
+// ── Endpoint contract: POST /api/help/chat → { reply } ─────────────────────
+// The global fetch interceptor (AuthProvider) attaches the bearer token, so a
+// raw fetch here is authenticated automatically.
+type Role = 'user' | 'assistant'
+type ChatMessage = { role: Role; content: string; error?: boolean }
+
+const HISTORY_KEY = 'mimic-guide-history'
+const VOICE_LANG_KEY = 'mimic-guide-voice-lang'
+const AUTOSPEAK_KEY = 'mimic-guide-autospeak'
+const MAX_HISTORY = 20
+
+// Suggested prompts, localized for the 6 most common Indian languages; every
+// other voice language falls back to English (no API call for this).
+const SUGGESTED_PROMPTS: Record<string, string[]> = {
+  en: [
+    'How do I create an interview session?',
+    'What interview tracks are there?',
+    'How does AI Avatar Screening work?',
+    "Where do I see a candidate's score?",
+  ],
+  hi: [
+    'इंटरव्यू सेशन कैसे बनाएं?',
+    'कौन-कौन से इंटरव्यू ट्रैक हैं?',
+    'AI Avatar Screening कैसे काम करती है?',
+    'उम्मीदवार का स्कोर कहाँ देखें?',
+  ],
+  mr: [
+    'मुलाखत सेशन कसे तयार करायचे?',
+    'कोणते इंटरव्यू ट्रॅक आहेत?',
+    'AI Avatar Screening कशी काम करते?',
+    'उमेदवाराचा स्कोअर कुठे पाहायचा?',
+  ],
+  ta: [
+    'நேர்காணல் அமர்வை எப்படி உருவாக்குவது?',
+    'என்னென்ன நேர்காணல் டிராக்குகள் உள்ளன?',
+    'AI Avatar Screening எப்படி வேலை செய்கிறது?',
+    'வேட்பாளரின் மதிப்பெண்ணை எங்கே பார்ப்பது?',
+  ],
+  te: [
+    'ఇంటర్వ్యూ సెషన్‌ను ఎలా సృష్టించాలి?',
+    'ఏ ఏ ఇంటర్వ్యూ ట్రాక్‌లు ఉన్నాయి?',
+    'AI Avatar Screening ఎలా పనిచేస్తుంది?',
+    'అభ్యర్థి స్కోర్ ఎక్కడ చూడాలి?',
+  ],
+  kn: [
+    'ಸಂದರ್ಶನ ಸೆಷನ್ ಅನ್ನು ಹೇಗೆ ರಚಿಸುವುದು?',
+    'ಯಾವ ಸಂದರ್ಶನ ಟ್ರ್ಯಾಕ್‌ಗಳಿವೆ?',
+    'AI Avatar Screening ಹೇಗೆ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತದೆ?',
+    'ಅಭ್ಯರ್ಥಿಯ ಸ್ಕೋರ್ ಅನ್ನು ಎಲ್ಲಿ ನೋಡುವುದು?',
+  ],
+  ml: [
+    'ഇന്റർവ്യൂ സെഷൻ എങ്ങനെ സൃഷ്ടിക്കാം?',
+    'ഏതൊക്കെ ഇന്റർവ്യൂ ട്രാക്കുകൾ ഉണ്ട്?',
+    'AI Avatar Screening എങ്ങനെ പ്രവർത്തിക്കുന്നു?',
+    'ഉദ്യോഗാർത്ഥിയുടെ സ്കോർ എവിടെ കാണാം?',
+  ],
+}
+
+// Locale mapping, markdown→plain-text stripping, and the browser/server TTS
+// routing all live in src/lib/guideSpeech.ts (imported above): TTS uses a real
+// browser voice when one is installed for the language and falls back to
+// server-side Gemini synthesis otherwise, so every language is actually spoken
+// in that language.
+
+/** Rare dead-end: no browser voice AND server synthesis failed. Tell the user
+ *  instead of failing silently. */
+function notifyVoiceUnavailable() {
+  toast.error("Couldn't play the voice for this language right now — please try again.")
+}
+
+/** Default the voice language to the browser's language if we support it. */
+function detectDefaultLang(): string {
+  if (typeof navigator === 'undefined') return 'en'
+  const base = (navigator.language || 'en').split('-')[0].toLowerCase()
+  return findLanguage(base) ? base : 'en'
+}
+
+/**
+ * Client-only chat persistence. The last 20 turns are mirrored to localStorage
+ * so the conversation survives reloads and navigation. The history is only ever
+ * sent to the same /api/help/chat the user is already talking to.
+ */
+function loadHistory(): ChatMessage[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isChatMessage).slice(-MAX_HISTORY)
+  } catch {
+    return []
+  }
+}
+
+function saveHistory(messages: ChatMessage[]): void {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-MAX_HISTORY)))
+  } catch {
+    // Ignore quota / private-mode failures — persistence is best-effort.
+  }
+}
+
+function isChatMessage(value: unknown): value is ChatMessage {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return (
+    (record.role === 'user' || record.role === 'assistant') &&
+    typeof record.content === 'string'
+  )
+}
+
+function promptsForLang(code: string): string[] {
+  return SUGGESTED_PROMPTS[code] ?? SUGGESTED_PROMPTS.en
+}
+
+/** Compact searchable language dropdown for the voice-input locale. */
+function VoiceLangSelect({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (code: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const current = findLanguage(value) ?? findLanguage('en')
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    const timer = window.setTimeout(() => searchRef.current?.focus(), 30)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+      window.clearTimeout(timer)
+    }
+  }, [open])
+
+  const results = useMemo<Language[]>(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return LANGUAGES
+    return LANGUAGES.filter(
+      (l) =>
+        l.name.toLowerCase().includes(q) ||
+        l.native.toLowerCase().includes(q) ||
+        l.code.toLowerCase().includes(q),
+    )
+  }, [query])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-[200px] items-center gap-1.5 rounded-md border border-white/10 bg-[#1a1d2e] px-2 py-1 text-xs text-neutral-100 transition-colors hover:border-white/20"
+      >
+        <span className="leading-none">{current?.flag}</span>
+        <span className="truncate">{current?.name}</span>
+        <ChevronDown className="ml-auto size-3.5 text-neutral-400" />
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-white/10 bg-[#0d0f1a] shadow-2xl">
+          <div className="p-1.5">
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search languages…"
+              className="w-full rounded-md border border-white/10 bg-[#1a1d2e] px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-500"
+            />
+          </div>
+          <div className="max-h-56 overflow-y-auto px-1 pb-1">
+            {results.map((lang) => (
+              <button
+                key={lang.code}
+                type="button"
+                onClick={() => {
+                  onChange(lang.code)
+                  setQuery('')
+                  setOpen(false)
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-white/5',
+                  lang.code === value && 'bg-[#a78bfa]/10 text-[#c4b5fd]',
+                )}
+              >
+                <span className="leading-none">{lang.flag}</span>
+                <span className="text-neutral-100">{lang.name}</span>
+                <span className="truncate text-neutral-400">{lang.native}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Mimic Guide — the in-app TalbotIQ assistant. A floating launcher (bottom-right,
+ * visible to any signed-in user) that opens a chat panel. Free-form markdown
+ * answers, localStorage history, suggested prompts, a 55-language voice selector,
+ * Web Speech voice input (STT), and spoken answers (TTS).
+ */
+export default function MimicGuide() {
+  const { isAuthenticated, role } = useAuth()
+
+  const [open, setOpen] = useState(false)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [draft, setDraft] = useState('')
+  const [pending, setPending] = useState(false)
+  const [voiceLang, setVoiceLang] = useState('en')
+  const [listening, setListening] = useState(false)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [hydrated, setHydrated] = useState(false)
+  const [autoSpeak, setAutoSpeak] = useState(true)
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null)
+
+  const controllerRef = useRef<AbortController | null>(null)
+  const stopListeningRef = useRef<(() => void) | null>(null)
+  const stopSpeakRef = useRef<(() => void) | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  // Mirror state into refs so the auto-speak effect (keyed on messages only)
+  // reads current values without re-firing on every toggle.
+  const autoSpeakRef = useRef(true)
+  const voiceLangRef = useRef('en')
+  const spokenRef = useRef(0) // index up to which messages have been auto-handled
+
+  // Load persisted state on mount; default voice language to the browser's.
+  useEffect(() => {
+    const loaded = loadHistory()
+    setMessages(loaded)
+    spokenRef.current = loaded.length // don't auto-speak restored history
+    const stored = (() => {
+      try {
+        return localStorage.getItem(VOICE_LANG_KEY)
+      } catch {
+        return null
+      }
+    })()
+    setVoiceLang(stored ?? detectDefaultLang())
+    const autoStored = (() => {
+      try {
+        return localStorage.getItem(AUTOSPEAK_KEY)
+      } catch {
+        return null
+      }
+    })()
+    setAutoSpeak(autoStored === null ? true : autoStored === 'true')
+    setHydrated(true)
+  }, [])
+
+  // Keep refs in sync for the auto-speak effect.
+  useEffect(() => {
+    autoSpeakRef.current = autoSpeak
+  }, [autoSpeak])
+  useEffect(() => {
+    voiceLangRef.current = voiceLang
+  }, [voiceLang])
+  useEffect(() => {
+    if (hydrated) {
+      try {
+        localStorage.setItem(AUTOSPEAK_KEY, String(autoSpeak))
+      } catch {
+        // best-effort
+      }
+    }
+  }, [autoSpeak, hydrated])
+
+  // On each newly-arrived assistant answer: pre-synthesize its audio so a later
+  // Listen click is instant (even when auto-speak is off), and auto-speak it
+  // when enabled.
+  useEffect(() => {
+    const lastIndex = messages.length - 1
+    if (lastIndex < spokenRef.current) return // nothing new
+    const last = messages[lastIndex]
+    spokenRef.current = messages.length
+    if (!last || last.role !== 'assistant' || last.error) return
+
+    if (!autoSpeakRef.current) {
+      // Auto-speak is off: pre-synthesize now so a later Listen plays instantly.
+      // (When auto-speak is on, playback below already caches the clip.)
+      prewarmSpeech(last.content, voiceLangRef.current)
+      return
+    }
+    const text = plainTextForSpeech(last.content)
+    if (!text) return
+    stopSpeakRef.current?.()
+    setSpeakingIndex(lastIndex)
+    stopSpeakRef.current = speakSmart(
+      text,
+      voiceLangRef.current,
+      () => setSpeakingIndex((cur) => (cur === lastIndex ? null : cur)),
+      notifyVoiceUnavailable,
+    )
+  }, [messages])
+
+  // Persist after hydration so we don't overwrite stored history with [].
+  useEffect(() => {
+    if (hydrated) saveHistory(messages)
+  }, [messages, hydrated])
+
+  useEffect(() => {
+    if (!hydrated) return
+    try {
+      localStorage.setItem(VOICE_LANG_KEY, voiceLang)
+    } catch {
+      // best-effort
+    }
+  }, [voiceLang, hydrated])
+
+  // Auto-scroll to the latest message (and the thinking indicator).
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
+  }, [messages, pending])
+
+  // Auto-focus the textarea when the panel opens.
+  useEffect(() => {
+    if (!open) return
+    const timer = window.setTimeout(() => textareaRef.current?.focus(), 80)
+    return () => window.clearTimeout(timer)
+  }, [open])
+
+  // Close on Escape while the panel is open.
+  useEffect(() => {
+    if (!open) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleOpenChange(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // Abort an in-flight turn / stop recognition on unmount.
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.abort()
+      stopListeningRef.current?.()
+      cancelSpeech()
+    }
+  }, [])
+
+  const toggleSpeak = (index: number, content: string) => {
+    if (speakingIndex === index) {
+      stopSpeakRef.current?.()
+      cancelSpeech()
+      setSpeakingIndex(null)
+      return
+    }
+    const text = plainTextForSpeech(content)
+    if (!text) return
+    stopSpeakRef.current?.()
+    setSpeakingIndex(index)
+    stopSpeakRef.current = speakSmart(
+      text,
+      voiceLangRef.current,
+      () => setSpeakingIndex((cur) => (cur === index ? null : cur)),
+      notifyVoiceUnavailable,
+    )
+  }
+
+  const toggleAutoSpeak = () => {
+    setAutoSpeak((prev) => {
+      const next = !prev
+      if (!next) {
+        cancelSpeech()
+        setSpeakingIndex(null)
+      }
+      return next
+    })
+  }
+
+  const resizeTextarea = () => {
+    const node = textareaRef.current
+    if (!node) return
+    node.style.height = 'auto'
+    node.style.height = `${Math.min(node.scrollHeight, 72)}px` // ~3 rows
+  }
+
+  const send = (raw: string) => {
+    const content = raw.trim()
+    if (!content || pending) return
+
+    stopSpeakRef.current?.()
+    cancelSpeech()
+    setSpeakingIndex(null)
+
+    const next: ChatMessage[] = [...messages, { role: 'user', content }]
+    setMessages(next)
+    setDraft('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    setPending(true)
+
+    const controller = new AbortController()
+    controllerRef.current = controller
+
+    // Slice each message to the server's per-message cap so one very long turn
+    // (a pasted wall of text, an unusually long answer) can never make the
+    // whole history fail validation.
+    const payload = next
+      .slice(-MAX_HISTORY)
+      .map(({ role, content: text }) => ({ role, content: text.slice(0, 8000) }))
+
+    fetch('/api/help/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: payload }),
+      signal: controller.signal,
+    })
+      .then((res) => res.json() as Promise<{ reply: string }>)
+      .then((data) => {
+        if (controller.signal.aborted) return
+        setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || error instanceof DOMException) return
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: 'Something went wrong. Please try again.', error: true },
+        ])
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPending(false)
+      })
+  }
+
+  const toggleMic = () => {
+    if (listening) {
+      stopListeningRef.current?.()
+      setListening(false)
+      return
+    }
+    if (!isSpeechRecognitionSupported()) {
+      setVoiceError("Voice input isn't supported in this browser.")
+      return
+    }
+    setVoiceError(null)
+    setListening(true)
+    stopListeningRef.current = startSpeechRecognition(
+      SPEECH_LOCALES[voiceLang] ?? voiceLang,
+      (result) => {
+        setDraft((prev) => (prev ? `${prev} ${result.transcript}` : result.transcript))
+        window.setTimeout(resizeTextarea, 0)
+      },
+      (error) => {
+        setVoiceError(
+          error === 'not-allowed' || error === 'service-not-allowed'
+            ? 'Microphone permission denied.'
+            : "Couldn't capture audio — please try again.",
+        )
+        setListening(false)
+      },
+      () => setListening(false),
+    )
+  }
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      controllerRef.current?.abort()
+      stopListeningRef.current?.()
+      cancelSpeech()
+      setSpeakingIndex(null)
+      setListening(false)
+      setPending(false)
+    }
+    setOpen(nextOpen)
+  }
+
+  const clearChat = () => {
+    cancelSpeech()
+    setSpeakingIndex(null)
+    spokenRef.current = 0
+    setMessages([])
+    try {
+      localStorage.removeItem(HISTORY_KEY)
+    } catch {
+      // best-effort
+    }
+  }
+
+  // Recruiter-only: candidates never see the guide (keeps the interview surface
+  // clean and distraction-free). The endpoint requires auth regardless.
+  if (!isAuthenticated || role !== 'recruiter') return null
+
+  const prompts = promptsForLang(voiceLang)
+
+  return (
+    <>
+      {/* Floating launcher — bottom-right, visible on every authenticated screen. */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Mimic Guide — your TalbotIQ assistant"
+        aria-label="Open Mimic Guide"
+        className={cn(
+          'fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-[#a78bfa] px-4 py-3 text-sm font-semibold text-[#0d0f1a] shadow-xl transition-all hover:bg-[#b9a3fb] hover:shadow-2xl',
+          open && 'pointer-events-none opacity-0',
+        )}
+      >
+        <Sparkles className="size-4" />
+        Mimic Guide
+        <span className="absolute -top-0.5 -right-0.5 size-2.5 animate-pulse rounded-full bg-emerald-400" />
+      </button>
+
+      {/* Overlay + slide-in panel. */}
+      <div
+        className={cn(
+          'fixed inset-0 z-[60]',
+          open ? 'pointer-events-auto' : 'pointer-events-none',
+        )}
+        aria-hidden={!open}
+      >
+        <div
+          onClick={() => handleOpenChange(false)}
+          className={cn(
+            'absolute inset-0 bg-black/50 transition-opacity duration-300',
+            open ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+        <div
+          role="dialog"
+          aria-label="Mimic Guide"
+          className={cn(
+            'absolute right-0 top-0 flex h-full w-full flex-col bg-[#0d0f1a] shadow-2xl transition-transform duration-300 sm:max-w-md',
+            open ? 'translate-x-0' : 'translate-x-full',
+          )}
+        >
+          {/* Header */}
+          <div className="flex flex-col gap-2 border-b border-[#a78bfa]/20 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-semibold text-white">
+                <Sparkles className="size-4 text-[#a78bfa]" />
+                Mimic Guide
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={toggleAutoSpeak}
+                  title={autoSpeak ? 'Auto-speak answers: on' : 'Auto-speak answers: off'}
+                  aria-label="Toggle auto-speak"
+                  aria-pressed={autoSpeak}
+                  className="transition-colors hover:text-white"
+                >
+                  {autoSpeak ? (
+                    <Volume2 className="size-4 text-[#a78bfa]" />
+                  ) : (
+                    <VolumeX className="size-4 text-neutral-400" />
+                  )}
+                </button>
+                {messages.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={clearChat}
+                    className="text-xs text-neutral-400 transition-colors hover:text-white"
+                  >
+                    Clear chat
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => handleOpenChange(false)}
+                  className="text-neutral-400 transition-colors hover:text-white"
+                  aria-label="Close"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-neutral-400">Your TalbotIQ AI assistant</p>
+            <div className="flex items-center gap-2 pt-1 text-xs text-neutral-400">
+              <span aria-hidden>🎙</span>
+              <span>Voice language:</span>
+              <VoiceLangSelect value={voiceLang} onChange={setVoiceLang} />
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
+            {messages.length === 0 ? (
+              <div className="flex flex-col gap-4">
+                <p className="text-sm text-neutral-400">
+                  Hi! I&apos;m <span className="font-medium text-white">Mimic Guide</span>. Ask me
+                  anything about TalbotIQ — interviews, templates, question sets, sessions, AI
+                  Avatar Screening, or results.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {prompts.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => setDraft(prompt)}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-left text-xs text-neutral-100 transition-colors hover:bg-white/5"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {messages.map((message, index) => (
+                  <MessageBubble
+                    key={index}
+                    message={message}
+                    speaking={speakingIndex === index}
+                    onToggleSpeak={() => toggleSpeak(index, message.content)}
+                    onNavigate={() => handleOpenChange(false)}
+                  />
+                ))}
+                {pending ? <ThinkingDots /> : null}
+              </div>
+            )}
+          </div>
+
+          {/* Composer */}
+          <div className="border-t border-white/5 bg-[#1a1d2e] p-3">
+            {voiceError ? <p className="mb-2 text-xs text-red-400">{voiceError}</p> : null}
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={toggleMic}
+                title={listening ? 'Listening… speak now' : 'Voice input'}
+                aria-label="Voice input"
+                className={cn(
+                  'flex size-9 shrink-0 items-center justify-center rounded-lg border transition-colors',
+                  listening
+                    ? 'animate-pulse border-red-500/50 bg-red-500/15 text-red-400'
+                    : 'border-white/10 text-neutral-400 hover:text-white',
+                )}
+              >
+                <Mic className="size-4" />
+              </button>
+              <textarea
+                ref={textareaRef}
+                value={draft}
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  resizeTextarea()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    send(draft)
+                  }
+                }}
+                rows={1}
+                placeholder="Ask anything about TalbotIQ…"
+                className="max-h-[72px] min-h-9 flex-1 resize-none rounded-lg border border-white/10 bg-[#0d0f1a] px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500 focus-visible:border-[#a78bfa]/50"
+              />
+              <button
+                type="button"
+                onClick={() => send(draft)}
+                disabled={pending || draft.trim().length === 0}
+                title="Send"
+                aria-label="Send"
+                className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#a78bfa] text-[#0d0f1a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Send className="size-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+function MessageBubble({
+  message,
+  speaking,
+  onToggleSpeak,
+  onNavigate,
+}: {
+  message: ChatMessage
+  speaking: boolean
+  onToggleSpeak: () => void
+  onNavigate: () => void
+}) {
+  if (message.role === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-[#a78bfa]/30 bg-[#a78bfa]/20 px-3 py-2 text-sm text-neutral-100">
+          {message.content}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <div
+        className={cn(
+          'max-w-[90%] rounded-2xl rounded-tl-sm border px-3 py-2',
+          message.error
+            ? 'border-red-500/30 bg-red-500/10 text-red-400'
+            : 'border-white/5 bg-[#1a1d2e] text-neutral-100',
+        )}
+      >
+        {message.error ? (
+          <p className="text-sm">{message.content}</p>
+        ) : (
+          <GuideMarkdown text={message.content} onNavigate={onNavigate} />
+        )}
+      </div>
+      {message.error ? null : (
+        <button
+          type="button"
+          onClick={onToggleSpeak}
+          title={speaking ? 'Stop' : 'Listen'}
+          className={cn(
+            'flex items-center gap-1 px-1 text-[11px] transition-colors',
+            speaking ? 'text-[#a78bfa]' : 'text-neutral-400 hover:text-white',
+          )}
+        >
+          {speaking ? <Square className="size-3" /> : <Volume2 className="size-3" />}
+          {speaking ? 'Stop' : 'Listen'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ThinkingDots() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-white/5 bg-[#1a1d2e] px-3 py-2.5">
+        <span className="sr-only">Thinking…</span>
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="size-1.5 animate-bounce rounded-full bg-[#a78bfa]"
+            style={{ animationDelay: `${i * 150}ms` }}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}

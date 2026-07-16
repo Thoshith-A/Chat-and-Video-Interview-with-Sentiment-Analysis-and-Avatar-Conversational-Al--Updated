@@ -3,6 +3,7 @@ import toast from 'react-hot-toast'
 import { Button, Card, Toggle, PageHeader, Input } from '@/components/ui'
 import { useAppStore } from '@/store/useAppStore'
 import { tavus } from '@/services/tavus'
+import { settingsApi } from '@/lib/api'
 import { GeminiKeyCard } from '@/features/recruiter/GeminiKeyCard'
 
 /**
@@ -55,11 +56,23 @@ export default function SettingsPage() {
     }
   }
 
-  function save() {
+  const [saving, setSaving] = useState(false)
+  async function save() {
+    setSaving(true)
+    // Local (this browser): recruiter dashboard pages call Tavus with this key.
     store.setTavusKey(tavusKey)
     store.setWebhookUrl(webhook)
     tavus.setKey(tavusKey)
-    toast.success('Settings saved')
+    // Server (single source of truth): applies the key EVERYWHERE at once —
+    // candidate avatar interviews + any previously-applied Setup config.
+    try {
+      await settingsApi.saveTavusKey(tavusKey.trim())
+      toast.success('Settings saved — Tavus key applied everywhere')
+    } catch (e) {
+      toast.error(`Saved locally, but the server sync failed: ${(e as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -68,14 +81,14 @@ export default function SettingsPage() {
         kicker="Platform Config"
         title="Settings"
         description="Manage API credentials, webhook endpoints, and platform behaviour."
-        action={<Button onClick={save}>Save Settings</Button>}
+        action={<Button onClick={() => void save()} loading={saving}>Save Settings</Button>}
       />
 
       {/* Tavus (runtime key) */}
       <Card className="mb-5 divide-y divide-border">
         <div className="px-6 py-4">
           <h3 className="text-sm font-semibold text-neutral-800">Tavus — Avatar</h3>
-          <p className="text-xs text-neutral-400 mt-0.5">Entered here at runtime and stored only in your browser — never compiled into the app bundle.</p>
+          <p className="text-xs text-neutral-400 mt-0.5">The single source of truth for your Tavus key — saving applies it everywhere at once (this browser, candidate interviews, and any applied avatar config). Never compiled into the app bundle.</p>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div>

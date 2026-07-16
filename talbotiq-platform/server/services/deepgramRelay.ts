@@ -1,5 +1,6 @@
 import type { Server } from 'node:http'
 import { WebSocketServer, WebSocket } from 'ws'
+import { contextFromUpgrade } from '../middleware/auth'
 
 /**
  * Deepgram Nova-3 live-transcription relay (hybrid, key stays server-side).
@@ -58,12 +59,22 @@ function handle(client: WebSocket) {
   client.on('error', () => { try { upstream.close() } catch { /* noop */ } })
 }
 
-/** Mount the Deepgram relay on the existing HTTP server (own WSS, path-gated). */
+/** Mount the Deepgram relay on the existing HTTP server (own WSS, path-gated).
+ *  The AI-Avatar-Screening transcription is a recruiter tool, so the upgrade is
+ *  authenticated (token in the query string) and restricted to recruiters. */
 export function attachDeepgramRelay(server: Server) {
   const wss = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '', 'http://localhost')
     if (url.pathname !== '/api/avatar/deepgram') return // let other upgrade handlers deal with it
-    wss.handleUpgrade(req, socket, head, (ws) => handle(ws))
+    void (async () => {
+      const auth = await contextFromUpgrade(req)
+      if (!auth || auth.role !== 'recruiter') {
+        try { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n') } catch { /* noop */ }
+        socket.destroy()
+        return
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => handle(ws))
+    })()
   })
 }
