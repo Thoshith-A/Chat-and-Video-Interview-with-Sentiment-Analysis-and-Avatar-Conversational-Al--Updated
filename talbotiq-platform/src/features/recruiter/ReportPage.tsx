@@ -267,7 +267,7 @@ export default function ReportPage() {
                           )}
                           <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700">
                             {qq.answerText?.trim()
-                              ? <><span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Transcript · </span>{qq.answerText}</>
+                              ? <>{qq.videoUrl && <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Transcript · </span>}{qq.answerText}</>
                               : <span className="italic text-neutral-400">{qq.videoUrl ? 'No speech was transcribed for this clip.' : 'No answer provided.'}</span>}
                           </p>
                         </div>
