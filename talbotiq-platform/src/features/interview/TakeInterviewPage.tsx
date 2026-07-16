@@ -122,12 +122,15 @@ export default function TakeInterviewPage() {
   // status: created | system_check → pre-interview screens.
   // The chatbot/voice track's format is fixed by the template, so skip "choose format".
   const conversational = s.track === 'chatbot' || s.track === 'video_avatar' || s.track === 'voice'
+  // Video Interview's format is fixed by the invite too — skip "choose format",
+  // but it runs on the timed engine (not the conversational full-screen engines).
+  const fixedFormat = conversational || s.track === 'video'
   // Video-avatar interviews ALWAYS collect the candidate's full name + résumé
   // first — both are fed to the Tavus avatar (name in the greeting/questions,
   // résumé as its background knowledge). Other tracks only when the question
   // plan needs the résumé.
   const needsIntake = s.awaitingResume || (s.track === 'video_avatar' && !s.hasResume)
-  const step: PreStep = conversational && preStep === 'track' ? 'welcome' : preStep
+  const step: PreStep = fixedFormat && preStep === 'track' ? 'welcome' : preStep
   return (
     <InterviewShell branding={branding}>
       <AnimatePresence mode="wait">

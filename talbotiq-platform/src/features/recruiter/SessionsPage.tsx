@@ -136,7 +136,7 @@ export default function SessionsPage() {
                   </td>
                   <td className="px-5 py-3 text-neutral-600">{s.templateName}</td>
                   <td className="px-5 py-3 text-neutral-600">
-                    {s.track === 'video_avatar' ? 'Video Avatar' : s.track === 'voice' ? 'Voice' : s.track === 'chatbot' ? 'Chatbot' : 'Chat'}
+                    {s.track === 'video_avatar' ? 'Video Avatar' : s.track === 'voice' ? 'Voice' : s.track === 'chatbot' ? 'Chatbot' : s.track === 'video' ? 'Video Interview' : 'Chat'}
                   </td>
                   <td className="px-5 py-3">
                     <Badge variant={statusVariant[s.status] ?? 'neutral'}>{s.status.replace('_', ' ')}</Badge>
