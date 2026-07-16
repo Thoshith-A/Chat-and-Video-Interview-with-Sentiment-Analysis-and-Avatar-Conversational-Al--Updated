@@ -33,6 +33,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
   const [uploading, setUploading] = useState(false)
   const [submitFailed, setSubmitFailed] = useState(false)
   const submittingRef = useRef(false)
+  const facialDoneRef = useRef(false)
   const isAnswer = phase === 'answer'
   const warning = isAnswer && secondsLeft <= timing.warningThresholdSeconds
   const total = state.progress.total
@@ -48,7 +49,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
   // Facial capture (Task 7): start once the camera is ready (startFacial is
   // idempotent, so this is safe across VideoStage remounts per question), and
   // keep it pointed at the current question for per-question bucketing.
-  useEffect(() => { if (rec.ready) rec.startFacial(sessionId, total) }, [rec, rec.ready, sessionId, total])
+  useEffect(() => { if (rec.ready && !facialDoneRef.current) rec.startFacial(sessionId, total) }, [rec, rec.ready, sessionId, total])
   useEffect(() => { rec.setFacialQuestion(Math.max(0, state.progress.current - 1)) }, [rec, state.progress.current])
 
   const doSubmit = async () => {
@@ -73,6 +74,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
       if (state.progress.current >= total) {
         try {
           const summary = rec.stopFacial(total)
+          facialDoneRef.current = true
           if (summary) await sessionsApi.facial(sessionId, summary)
         } catch (err) { console.error('[video] facial upload failed', err) }
       }

@@ -16,7 +16,11 @@ export function parseDeepgramTranscript(json: unknown): string {
 /** Transcribe a clip at `url`. Returns '' on any failure or when no key is set. */
 export async function transcribeVideoUrl(url: string): Promise<string> {
   const key = (process.env.DEEPGRAM_API_KEY ?? '').trim()
-  if (!key || !url) return ''
+  if (!key) {
+    if (url) console.warn('[transcribe] DEEPGRAM_API_KEY not set — video answer will have no transcript')
+    return ''
+  }
+  if (!url) return ''
   // A hung fetch/Deepgram round-trip must never block scoring forever — scoring
   // waits on these transcriptions (see maybeScore), so bound them hard.
   const ctrl = new AbortController()

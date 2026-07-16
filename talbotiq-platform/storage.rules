@@ -1,16 +1,17 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    // Video Interview answer clips. Reads go through the tokenised download URL
-    // (getDownloadURL bypasses these rules), so no read rule is granted. Writes
-    // are scoped to the invited candidate for this session — the interviews/{id}
-    // Firestore doc (same id) carries candidateEmailLower, mirroring the server's
-    // assignment check in inviteBridge.materializeInviteSession.
+    // Video Interview answer clips. Writes AND the getDownloadURL() metadata read
+    // are scoped to the invited candidate for this session (the interviews/{id}
+    // Firestore doc, same id, carries candidateEmailLower — mirrors the server's
+    // assignment check. The recruiter never calls getDownloadURL(); the report
+    // plays the stored tokenised download URL, whose token bypasses these rules.
     //
-    // Note: recruiter-created direct sessions (which have no interviews/{id}
-    // Firestore doc) are not covered by this rule — the Video Interview flow is
-    // invite-driven.
+    // Note: recruiter-created direct sessions (no interviews/{id} doc) are not
+    // covered — the Video Interview flow is invite-driven.
     match /interviews/{sessionId}/{fileName} {
+      allow read: if request.auth != null
+                  && firestore.get(/databases/(default)/documents/interviews/$(sessionId)).data.candidateEmailLower == request.auth.token.email.lower();
       allow write: if request.auth != null
                    && firestore.get(/databases/(default)/documents/interviews/$(sessionId)).data.candidateEmailLower == request.auth.token.email.lower()
                    && request.resource.size < 50 * 1024 * 1024

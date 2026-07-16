@@ -43,7 +43,7 @@ interface Row {
  *  track; otherwise total duration / number of scored questions. */
 function avgTimePerQuestion(row: Row): number | undefined {
   const { session, report } = row
-  if (session.track === 'chat') {
+  if (session.track === 'chat' || session.track === 'video') {
     const times = session.questions.map(answerTimeUsed).filter((n): n is number => typeof n === 'number')
     if (times.length) return times.reduce((a, b) => a + b, 0) / times.length
   }
