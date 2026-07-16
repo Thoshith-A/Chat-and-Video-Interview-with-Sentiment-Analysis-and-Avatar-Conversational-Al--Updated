@@ -6,7 +6,7 @@
 
 /* ─── Core config ───────────────────────────────────────────────────────── */
 
-export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice'
+export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice' | 'video'
 export type QuestionSource = 'adaptive' | 'fixed'
 
 /* ─── Identity & access control (IAM) ───────────────────────────────────────
@@ -223,7 +223,7 @@ export interface SessionQuestion {
   answerStartedAt?: string
   submittedAt?: string
   answerText?: string       // chat track
-  videoUrl?: string         // video avatar track
+  videoUrl?: string         // video interview + video avatar tracks
   autoSubmitted: boolean
   draft?: string            // last auto-saved in-progress text
 }

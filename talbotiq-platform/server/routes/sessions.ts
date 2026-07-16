@@ -197,7 +197,7 @@ sessionsRouter.post('/:id/track', ah((req, res) => {
   if (session.status !== 'created' && session.status !== 'system_check')
     throw new HttpError(409, 'Track can only be chosen before the interview begins')
   const track = req.body?.track
-  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice')
+  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice' && track !== 'video')
     throw new HttpError(400, 'Invalid track')
   session.track = track
   db.scheduleSave()
@@ -788,7 +788,7 @@ sessionsRouter.get('/mine', ah(async (req, res) => {
       if (seen.has(doc.id)) continue
       const d = doc.data() as Record<string, unknown>
       const mode = d.mode as string | undefined
-      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat')
+      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat' || mode === 'video')
         ? mode
         : d.type === 'video' ? 'video_avatar' as const : 'chat' as const
       const created = (d.createdAt as { toDate?: () => Date } | undefined)?.toDate?.()?.toISOString() ?? new Date().toISOString()

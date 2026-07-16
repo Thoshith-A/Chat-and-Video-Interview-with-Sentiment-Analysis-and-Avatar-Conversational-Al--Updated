@@ -31,8 +31,11 @@ invitesRouter.post('/extract', upload.single('file'), ah(async (req, res) => {
 /* ── Flutter `interviews.type` supports only video|chat. Map the web's richer
  *    modes onto it (so the Flutter app never chokes) and keep the precise track
  *    in an additive `mode` field the web candidate flow reads. ────────────── */
-const typeForMode = (mode: TrackType): 'video' | 'chat' => (mode === 'video_avatar' ? 'video' : 'chat')
-const MODE_LABEL: Record<string, string> = { chatbot: 'Chatbot', voice: 'Voice', video_avatar: 'Video Avatar', chat: 'Timed Q&A' }
+export const typeForMode = (mode: TrackType): 'video' | 'chat' =>
+  (mode === 'video_avatar' || mode === 'video' ? 'video' : 'chat')
+export const MODE_LABEL: Record<string, string> = {
+  chatbot: 'Chatbot', voice: 'Voice', video_avatar: 'Video Avatar', chat: 'Timed Q&A', video: 'Video Interview',
+}
 
 function inviteEmail(role: string, fromName: string, link: string, candidateEmail: string) {
   const subject = `Interview invitation — ${role}`
