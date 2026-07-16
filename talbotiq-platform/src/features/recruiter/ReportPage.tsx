@@ -25,6 +25,7 @@ const TRACK_LABEL: Record<string, string> = {
   chatbot: 'Chatbot',
   voice: 'Voice',
   video_avatar: 'Video Avatar',
+  video: 'Video Interview',
 }
 
 const scoreColor = (s: number) => (s >= 75 ? '#16a34a' : s >= 55 ? '#d97706' : '#dc2626')
@@ -254,8 +255,21 @@ export default function ReportPage() {
                     {isOpen && (
                       <div className="space-y-4 bg-neutral-50/60 px-5 pb-5 pt-1">
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Answer</p>
-                          <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-700">{qq.answerText?.trim() || <span className="italic text-neutral-400">No answer provided.</span>}</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                            {qq.videoUrl ? 'Recorded answer' : 'Answer'}
+                          </p>
+                          {qq.videoUrl && (
+                            <video
+                              controls
+                              src={qq.videoUrl}
+                              className="mt-2 aspect-video w-full max-w-lg overflow-hidden rounded-xl border border-border bg-neutral-900"
+                            />
+                          )}
+                          <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700">
+                            {qq.answerText?.trim()
+                              ? <><span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Transcript · </span>{qq.answerText}</>
+                              : <span className="italic text-neutral-400">{qq.videoUrl ? 'No speech was transcribed for this clip.' : 'No answer provided.'}</span>}
+                          </p>
                         </div>
                         {pq && (
                           <>
