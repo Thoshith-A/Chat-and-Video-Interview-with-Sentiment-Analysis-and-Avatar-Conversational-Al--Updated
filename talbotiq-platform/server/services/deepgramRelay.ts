@@ -23,7 +23,7 @@ const DG_PARAMS = new URLSearchParams({
   filler_words: 'true',
 })
 
-function handle(client: WebSocket) {
+export function handle(client: WebSocket) {
   const key = (process.env.DEEPGRAM_API_KEY ?? '').trim()
   if (!key) { try { client.close(1011, 'Deepgram not configured') } catch { /* noop */ } return }
 
@@ -70,6 +70,26 @@ export function attachDeepgramRelay(server: Server) {
     void (async () => {
       const auth = await contextFromUpgrade(req)
       if (!auth || auth.role !== 'recruiter') {
+        try { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n') } catch { /* noop */ }
+        socket.destroy()
+        return
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => handle(ws))
+    })()
+  })
+}
+
+/** Candidate-reachable Deepgram relay for the Video Interview (live transcription).
+ *  Same relay as /api/avatar/deepgram but authorized for ANY authenticated user
+ *  (the /api/avatar path is recruiter-only). Key stays server-side. */
+export function attachCandidateDeepgramRelay(server: Server) {
+  const wss = new WebSocketServer({ noServer: true })
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url ?? '', 'http://localhost')
+    if (url.pathname !== '/api/interview/deepgram') return
+    void (async () => {
+      const auth = await contextFromUpgrade(req)
+      if (!auth) {
         try { socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n') } catch { /* noop */ }
         socket.destroy()
         return
