@@ -11,6 +11,7 @@ import { scoreSession } from '../services/scoring'
 import { computeSpeechMetrics, analyzeSentiment } from '../services/signals'
 import { extractResumeText } from '../services/resume'
 import { generateQuestions, geminiEnabled } from '../services/gemini'
+import { transcribeVideoUrl } from '../services/transcription'
 import { createCandidateConversation, endCandidateConversation, fetchConversationTranscript } from '../services/tavusServer'
 import { materializeInviteSession, syncInviteResult } from '../services/inviteBridge'
 import {
@@ -551,7 +552,7 @@ sessionsRouter.post('/:id/draft', ah((req, res) => {
 }))
 
 // Submit the current answer → lock → advance.
-sessionsRouter.post('/:id/answers', ah((req, res) => {
+sessionsRouter.post('/:id/answers', ah(async (req, res) => {
   const { session, template } = load(req)
   settle(session, template) // may have already auto-advanced
 
@@ -572,6 +573,12 @@ sessionsRouter.post('/:id/answers', ah((req, res) => {
   q.answerText =
     typeof req.body?.answerText === 'string' ? req.body.answerText : q.draft ?? ''
   if (req.body?.videoUrl) q.videoUrl = req.body.videoUrl
+  // Video Interview: no typed text — transcribe the recorded clip (Deepgram,
+  // key server-side) so the existing per-question Gemini scoring has content.
+  if (session.track === 'video' && q.videoUrl && !q.answerText?.trim()) {
+    try { q.answerText = await transcribeVideoUrl(q.videoUrl) }
+    catch (err) { console.error('[transcribe] failed for', session.id, q.id, err) }
+  }
   q.submittedAt = now
   q.autoSubmitted = false
 
