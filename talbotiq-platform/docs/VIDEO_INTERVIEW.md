@@ -5,7 +5,7 @@ The **Video Interview** track is a one-way video mode where candidates record an
 ## Overview
 
 - **Track type:** `video` (alongside `voice`, `video_avatar`, `chat`, `chatbot`)
-- **Candidate flow:** Consent gate → 30-second prep countdown → record per question → auto-submit after time expires → submit review screen → upload to Firebase Storage
+- **Candidate flow:** Consent gate → 30-second prep countdown → record per question → submit answer (MediaRecorder stops) → upload to Firebase Storage → server advances
 - **Recruiter view:** Report page with video playback, transcript, Gemini per-question scores, and AWS Rekognition facial analysis (engagement/emotion metrics)
 
 ## Pipeline
@@ -14,19 +14,18 @@ The **Video Interview** track is a one-way video mode where candidates record an
 ┌─ Candidate Interview ──────────────────────────────────────┐
 │ 1. Consent gate (data collection, facial recording)        │
 │ 2. 30-second prep countdown (question visible)             │
-│ 3. Record answer (MediaRecorder or browser WebRTC)         │
+│ 3. Record answer (MediaRecorder via getUserMedia)         │
 │ 4. Question advances automatically after time expires      │
 │ 5. Pre-submit upload (~3s before deadline) to Firebase     │
 │    Storage at /interviews/{sessionId}/{fileName}           │
 │ 6. Server auto-submit if client upload fails               │
-│ 7. Review screen (optional playback before final submit)   │
-│ 8. Submit → interviews/{sessionId} Firestore doc updated   │
+│ 7. Submit answer → POST /api/sessions/:id/answers          │
 └────────────────────────────────────────────────────────────┘
                             ↓
 ┌─ Async Processing ─────────────────────────────────────────┐
 │ (Off critical path)                                        │
-│ • Deepgram Nova-3 speech-to-text → interviews.answers[].   │
-│   transcript (batched or triggered by recruiter)           │
+│ • Deepgram Nova-3 speech-to-text via transcribeVideoUrl()  │
+│   (server-side, deferred, fire-and-forget)                 │
 │ • Gemini per-question scoring (resume context)             │
 │ • AWS Rekognition facial analysis                          │
 │   - Facial landmarks / engagement frames                   │
@@ -60,7 +59,7 @@ All keys are **server-side only** — the client receives only the public Fireba
 
 **Speech-to-Text (Deepgram Nova-3)**
 ```bash
-DEEPGRAM_API_KEY=  # Live relay + Video Interview STT (server proxy via POST /api/avatar/deepgram/token)
+DEEPGRAM_API_KEY=  # Video Interview STT via server-side pre-recorded transcribeVideoUrl(); also used by live avatar relay
 ```
 
 **Gemini Scoring (AI Answer Analysis)**
@@ -152,7 +151,7 @@ Edit `android/app/src/main/AndroidManifest.xml` and add:
 ### WebRTC / MediaRecorder Support
 
 - **WebView:** Capacitor's WebView supports `getUserMedia()` and `MediaRecorder` on Android 7+ (API 24+).
-- **Codec fallback:** The recorder hook (`useMediaRecorder` or similar) probes `MediaRecorder.isTypeSupported('video/webm')`:
+- **Codec fallback:** The recorder hook (`useAnswerRecorder`) probes `MediaRecorder.isTypeSupported('video/webm')`:
   - If **supported:** uses `video/webm` (better compression, widely compatible).
   - If **unsupported:** falls back to `video/mp4` or browser default (some older Android versions).
   - **Test on your target device** — WebM support varies by manufacturer.
@@ -193,16 +192,17 @@ Check browser console for:
 ### Deepgram Transcription Hangs
 
 Transcription is off the critical path (async). If a transcript doesn't appear:
-- Check server logs: `POST /api/avatar/deepgram/transcribe` endpoint
+- Check server logs for `[transcribe] failed` errors from `transcribeVideoUrl()`
 - Verify `DEEPGRAM_API_KEY` is set and valid
 - Audio duration must be ≥ 0.5 seconds
 
 ### Facial Analysis Missing
 
 AWS Rekognition analysis is also deferred. If the `FacialAnalysisPanel` is empty:
+- Check server logs for `[facial-frame]` Rekognition DetectFaces errors from `POST /api/sessions/:id/facial-frame`
 - Verify `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set
 - Confirm bucket region matches `AWS_REGION`
-- Check server logs for Rekognition API errors
+- Facial capture is a graceful no-op / shows "not captured" when AWS is unconfigured
 
 ### Rules Simulator Rejects the Write
 
@@ -213,4 +213,4 @@ AWS Rekognition analysis is also deferred. If the `FacialAnalysisPanel` is empty
 
 ---
 
-**Last updated:** 2025 Video Interview launch (Task 8)
+**Last updated:** 2026-07 (Task 8)
