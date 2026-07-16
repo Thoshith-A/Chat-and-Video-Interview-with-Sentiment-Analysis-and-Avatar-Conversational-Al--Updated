@@ -48,7 +48,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
   // Facial capture (Task 7): start once the camera is ready (startFacial is
   // idempotent, so this is safe across VideoStage remounts per question), and
   // keep it pointed at the current question for per-question bucketing.
-  useEffect(() => { if (rec.ready) rec.startFacial(total) }, [rec, rec.ready, total])
+  useEffect(() => { if (rec.ready) rec.startFacial(sessionId, total) }, [rec, rec.ready, sessionId, total])
   useEffect(() => { rec.setFacialQuestion(Math.max(0, state.progress.current - 1)) }, [rec, state.progress.current])
 
   const doSubmit = async () => {
@@ -63,17 +63,19 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
         setSubmitFailed(true)
         console.error('[video] answer submit failed (deadline/network) for', question.id)
       }
-      // Last question: stop facial capture and upload the aggregated summary
-      // (best-effort — a failed upload must not block the interview finishing).
-      if (state.progress.current >= total) {
-        const summary = rec.stopFacial(total)
-        if (summary) {
-          try { await sessionsApi.facial(sessionId, summary) } catch { /* best-effort */ }
-        }
-      }
     } catch (err) {
       console.error('[video] submit failed', err)
     } finally {
+      // Last question: stop facial capture and upload the aggregated summary.
+      // Its own try/catch, run regardless of whether the video upload/submit
+      // above threw — otherwise a failure on the LAST question would lose the
+      // facial summary AND leave the Rekognition capture loop running.
+      if (state.progress.current >= total) {
+        try {
+          const summary = rec.stopFacial(total)
+          if (summary) await sessionsApi.facial(sessionId, summary)
+        } catch (err) { console.error('[video] facial upload failed', err) }
+      }
       setUploading(false)
       submittingRef.current = false
     }

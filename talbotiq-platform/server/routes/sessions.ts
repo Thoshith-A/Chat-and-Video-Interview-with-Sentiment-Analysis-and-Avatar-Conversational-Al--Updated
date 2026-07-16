@@ -12,6 +12,7 @@ import { computeSpeechMetrics, analyzeSentiment } from '../services/signals'
 import { extractResumeText } from '../services/resume'
 import { generateQuestions, geminiEnabled } from '../services/gemini'
 import { transcribeVideoUrl } from '../services/transcription'
+import { detectFaces } from '../services/rekognition'
 import { createCandidateConversation, endCandidateConversation, fetchConversationTranscript } from '../services/tavusServer'
 import { materializeInviteSession, syncInviteResult } from '../services/inviteBridge'
 import {
@@ -616,17 +617,38 @@ sessionsRouter.post('/:id/answers', ah(async (req, res) => {
   res.json(computePublicState(session, template))
 }))
 
+// Video Interview: per-frame Rekognition proxy the CANDIDATE can reach (the
+// /api/avatar/analyze-face route is recruiter-only). Authorized as a session
+// participant; same request/response shape the client RekognitionService uses.
+sessionsRouter.post('/:id/facial-frame', ah(async (req, res) => {
+  const { session } = load(req)               // asserts participant (candidate or owner)
+  if (session.track !== 'video') throw new HttpError(400, 'This interview does not capture facial analysis')
+  const { imageBase64, questionIdx, timestampMs } = req.body ?? {}
+  if (!imageBase64 || typeof imageBase64 !== 'string') return res.status(400).json({ success: false, error: 'imageBase64 required' })
+  if ((imageBase64.length * 3) / 4 < 5000) return res.json({ success: false, reason: 'frame_too_small', questionIdx, timestampMs })
+  try {
+    const r = await detectFaces(imageBase64)
+    if (!r.success) return res.status(400).json({ success: false, error: r.error })
+    res.json({ success: true, faceDetails: r.faceDetails, questionIdx, timestampMs })
+  } catch (err) {
+    const e = err as { message?: string }
+    console.error('[facial-frame] Rekognition error for', session.id, e?.message)
+    res.status(500).json({ success: false, error: e?.message ?? String(err) })
+  }
+}))
+
 // Video Interview: candidate uploads the aggregated AWS Rekognition facial
 // summary (computed client-side) on completion. Additive; stored opaquely.
 sessionsRouter.post('/:id/facial', ah((req, res) => {
   const { session } = load(req)
   if (session.track !== 'video') throw new HttpError(400, 'This interview does not capture facial analysis')
   const summary = req.body?.summary
-  if (summary && typeof summary === 'object') {
+  if (summary && typeof summary === 'object' && !Array.isArray(summary) && Array.isArray((summary as { perQuestion?: unknown }).perQuestion)) {
     session.facialSummary = summary as Record<string, unknown>
     db.scheduleSave()
+    return res.json({ ok: true })
   }
-  res.json({ ok: true })
+  res.json({ ok: false })
 }))
 
 // Log an integrity event (tab switch, blur, blocked paste/copy, fullscreen exit).

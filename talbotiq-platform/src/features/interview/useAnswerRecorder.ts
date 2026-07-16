@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RekognitionService, aggregateFacialData } from '@/services/rekognitionService'
-import { useAppStore } from '@/store/useAppStore'
 import type { FacialSessionSummary } from '@/types/rekognition.types'
 
 /**
@@ -16,7 +15,6 @@ export function useAnswerRecorder() {
   const [ready, setReady] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const awsProxyUrl = useAppStore((s) => s.awsProxyUrl)
   const rekogRef = useRef<RekognitionService | null>(null)
 
   const acquire = useCallback(async () => {
@@ -62,22 +60,29 @@ export function useAnswerRecorder() {
   // Release the camera on unmount (once — the whole interview shares this stream).
   useEffect(() => () => { streamRef.current?.getTracks().forEach((t) => t.stop()) }, [])
 
+  // Release the Rekognition capture on unmount too, so an abandoned interview
+  // doesn't leak its setInterval + hidden video/canvas elements.
+  useEffect(() => () => { rekogRef.current?.stopCapture(); rekogRef.current = null }, [])
+
   const attachPreview = useCallback((el: HTMLVideoElement | null) => {
     if (el && streamRef.current) el.srcObject = streamRef.current
   }, [])
 
   // Facial capture (Task 7) — taps the SAME shared stream via AWS Rekognition,
   // no second getUserMedia. Idempotent: a second startFacial call (e.g. from a
-  // remounted VideoStage) is a no-op once rekogRef is set. Graceful no-op when
-  // no proxy URL is configured.
-  const startFacial = useCallback((questionCount: number) => {
+  // remounted VideoStage) is a no-op once rekogRef is set. Frames POST to the
+  // candidate-authorized session route (not the recruiter-only avatar proxy),
+  // so a Video-Interview candidate can actually reach it. Degrades gracefully:
+  // when the server has no AWS creds, the route replies with a failed-frame
+  // shape and FacialAnalysisPanel shows a clear "not captured" state.
+  const startFacial = useCallback((sessionId: string, questionCount: number) => {
     const stream = streamRef.current
-    if (!stream || !awsProxyUrl || rekogRef.current) return
-    const svc = new RekognitionService(awsProxyUrl)
+    if (!stream || rekogRef.current) return
+    const svc = new RekognitionService(`/api/sessions/${sessionId}/facial-frame`)
     rekogRef.current = svc
     void svc.startCapture(stream)
     void questionCount
-  }, [awsProxyUrl])
+  }, [])
 
   const setFacialQuestion = useCallback((idx: number) => { rekogRef.current?.setCurrentQuestion(idx) }, [])
 
