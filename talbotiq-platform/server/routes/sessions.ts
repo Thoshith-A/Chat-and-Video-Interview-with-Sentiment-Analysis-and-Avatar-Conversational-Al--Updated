@@ -11,6 +11,8 @@ import { scoreSession } from '../services/scoring'
 import { computeSpeechMetrics, analyzeSentiment } from '../services/signals'
 import { extractResumeText } from '../services/resume'
 import { generateQuestions, geminiEnabled } from '../services/gemini'
+import { transcribeVideoUrl } from '../services/transcription'
+import { detectFaces } from '../services/rekognition'
 import { createCandidateConversation, endCandidateConversation, fetchConversationTranscript } from '../services/tavusServer'
 import { materializeInviteSession, syncInviteResult } from '../services/inviteBridge'
 import {
@@ -105,19 +107,34 @@ function settle(session: InterviewSession, template: InterviewTemplate) {
 }
 
 const scoringInFlight = new Set<string>()
+
+/** In-flight video-answer transcriptions per session. Video scoring waits for
+ *  these so answers submitted just before the deadline are still transcribed. */
+const pendingTranscriptions = new Map<string, Promise<void>[]>()
+function trackTranscription(sessionId: string, p: Promise<unknown>) {
+  const arr = pendingTranscriptions.get(sessionId) ?? []
+  arr.push(p.then(() => undefined, () => undefined))
+  pendingTranscriptions.set(sessionId, arr)
+}
+
 function maybeScore(session: InterviewSession, template: InterviewTemplate) {
   if (session.status !== 'completed') return
   if (db.reports.has(session.id) || scoringInFlight.has(session.id)) return
   scoringInFlight.add(session.id)
-  // Fire-and-forget: the candidate's completion screen never waits on scoring.
-  scoreSession(session, template)
+  // Video answers transcribe asynchronously; wait for them so scoring reads the
+  // real transcripts (not empty answerText) — mirrors the avatar recovery deferral.
+  const ready = session.track === 'video'
+    ? Promise.allSettled(pendingTranscriptions.get(session.id) ?? [])
+    : Promise.resolve([])
+  ready
+    .then(() => scoreSession(session, template))
     .then((report) => {
       db.reports.set(session.id, report)
       db.scheduleSave()
       syncInviteResult(session, report) // bulk-invite: push score back to Firestore (no-op otherwise)
     })
     .catch((err) => console.error('[scoring] failed for', session.id, err))
-    .finally(() => scoringInFlight.delete(session.id))
+    .finally(() => { scoringInFlight.delete(session.id); pendingTranscriptions.delete(session.id) })
 }
 
 /* ─── candidate lifecycle ───────────────────────────────────────────────── */
@@ -197,7 +214,7 @@ sessionsRouter.post('/:id/track', ah((req, res) => {
   if (session.status !== 'created' && session.status !== 'system_check')
     throw new HttpError(409, 'Track can only be chosen before the interview begins')
   const track = req.body?.track
-  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice')
+  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice' && track !== 'video')
     throw new HttpError(400, 'Invalid track')
   session.track = track
   db.scheduleSave()
@@ -551,7 +568,7 @@ sessionsRouter.post('/:id/draft', ah((req, res) => {
 }))
 
 // Submit the current answer → lock → advance.
-sessionsRouter.post('/:id/answers', ah((req, res) => {
+sessionsRouter.post('/:id/answers', ah(async (req, res) => {
   const { session, template } = load(req)
   settle(session, template) // may have already auto-advanced
 
@@ -572,6 +589,18 @@ sessionsRouter.post('/:id/answers', ah((req, res) => {
   q.answerText =
     typeof req.body?.answerText === 'string' ? req.body.answerText : q.draft ?? ''
   if (req.body?.videoUrl) q.videoUrl = req.body.videoUrl
+  // Video track: transcribe OFF the submit critical path so /answers returns fast
+  // (the client must beat the auto-submit deadline). Scoring waits for these below.
+  if (session.track === 'video' && q.videoUrl && !q.answerText?.trim()) {
+    const questionId = q.id
+    const url = q.videoUrl
+    trackTranscription(session.id, transcribeVideoUrl(url)
+      .then((text) => {
+        const cur = db.sessions.get(session.id)?.questions.find((x) => x.id === questionId)
+        if (cur && !cur.answerText?.trim() && text.trim()) { cur.answerText = text; db.scheduleSave() }
+      })
+      .catch((err) => console.error('[transcribe] failed for', session.id, questionId, err)))
+  }
   q.submittedAt = now
   q.autoSubmitted = false
 
@@ -586,6 +615,40 @@ sessionsRouter.post('/:id/answers', ah((req, res) => {
   db.scheduleSave()
   maybeScore(session, template)
   res.json(computePublicState(session, template))
+}))
+
+// Video Interview: per-frame Rekognition proxy the CANDIDATE can reach (the
+// /api/avatar/analyze-face route is recruiter-only). Authorized as a session
+// participant; same request/response shape the client RekognitionService uses.
+sessionsRouter.post('/:id/facial-frame', ah(async (req, res) => {
+  const { session } = load(req)               // asserts participant (candidate or owner)
+  if (session.track !== 'video') throw new HttpError(400, 'This interview does not capture facial analysis')
+  const { imageBase64, questionIdx, timestampMs } = req.body ?? {}
+  if (!imageBase64 || typeof imageBase64 !== 'string') return res.status(400).json({ success: false, error: 'imageBase64 required' })
+  if ((imageBase64.length * 3) / 4 < 5000) return res.json({ success: false, reason: 'frame_too_small', questionIdx, timestampMs })
+  try {
+    const r = await detectFaces(imageBase64)
+    if (!r.success) return res.status(400).json({ success: false, error: r.error })
+    res.json({ success: true, faceDetails: r.faceDetails, questionIdx, timestampMs })
+  } catch (err) {
+    const e = err as { message?: string }
+    console.error('[facial-frame] Rekognition error for', session.id, e?.message)
+    res.status(500).json({ success: false, error: e?.message ?? String(err) })
+  }
+}))
+
+// Video Interview: candidate uploads the aggregated AWS Rekognition facial
+// summary (computed client-side) on completion. Additive; stored opaquely.
+sessionsRouter.post('/:id/facial', ah((req, res) => {
+  const { session } = load(req)
+  if (session.track !== 'video') throw new HttpError(400, 'This interview does not capture facial analysis')
+  const summary = req.body?.summary
+  if (summary && typeof summary === 'object' && !Array.isArray(summary) && Array.isArray((summary as { perQuestion?: unknown }).perQuestion)) {
+    session.facialSummary = summary as Record<string, unknown>
+    db.scheduleSave()
+    return res.json({ ok: true })
+  }
+  res.json({ ok: false })
 }))
 
 // Log an integrity event (tab switch, blur, blocked paste/copy, fullscreen exit).
@@ -788,7 +851,7 @@ sessionsRouter.get('/mine', ah(async (req, res) => {
       if (seen.has(doc.id)) continue
       const d = doc.data() as Record<string, unknown>
       const mode = d.mode as string | undefined
-      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat')
+      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat' || mode === 'video')
         ? mode
         : d.type === 'video' ? 'video_avatar' as const : 'chat' as const
       const created = (d.createdAt as { toDate?: () => Date } | undefined)?.toDate?.()?.toISOString() ?? new Date().toISOString()
@@ -876,6 +939,8 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
     report: db.reports.get(session.id) ?? null,
     // Transcript-derived delivery metrics (voice / chatbot / avatar).
     ...(isConversation ? { speech: computeSpeechMetrics(session) ?? undefined } : {}),
+    // AWS Rekognition facial summary (video track).
+    ...(session.facialSummary ? { facial: session.facialSummary } : {}),
   }
 
   // Backfill the text sentiment read for conversation reports scored before this

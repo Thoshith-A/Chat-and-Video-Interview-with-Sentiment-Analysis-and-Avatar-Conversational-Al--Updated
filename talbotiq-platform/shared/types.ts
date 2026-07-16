@@ -6,7 +6,7 @@
 
 /* ─── Core config ───────────────────────────────────────────────────────── */
 
-export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice'
+export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice' | 'video'
 export type QuestionSource = 'adaptive' | 'fixed'
 
 /* ─── Identity & access control (IAM) ───────────────────────────────────────
@@ -223,7 +223,7 @@ export interface SessionQuestion {
   answerStartedAt?: string
   submittedAt?: string
   answerText?: string       // chat track
-  videoUrl?: string         // video avatar track
+  videoUrl?: string         // video interview + video avatar tracks
   autoSubmitted: boolean
   draft?: string            // last auto-saved in-progress text
 }
@@ -292,6 +292,9 @@ export interface InterviewSession {
   // Video-avatar track: id of the live Tavus conversation created for this
   // session (server-side), so the server can end it on completion.
   tavusConversationId?: string
+  // Video Interview: AWS Rekognition facial summary captured on the candidate
+  // device and uploaded on completion. Opaque JSON (client owns the shape).
+  facialSummary?: Record<string, unknown>
 }
 
 /** Candidate's local part-of-day, derived client-side and sent at session start. */
@@ -462,6 +465,8 @@ export interface SessionReportView {
   report: ResultReport | null
   /** Transcript-derived delivery metrics (conversation tracks). */
   speech?: SpeechMetrics
+  /** AWS Rekognition facial analysis summary (video track). */
+  facial?: Record<string, unknown>
 }
 
 export interface ApiError {

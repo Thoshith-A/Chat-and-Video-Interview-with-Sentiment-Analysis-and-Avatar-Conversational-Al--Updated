@@ -29,9 +29,12 @@ const inviteTemplateId = (interviewId: string) => `invite:${interviewId}`
 /** Web mode → local track (the Firestore doc stores the precise `mode`). */
 function trackForInvite(data: Record<string, unknown>): TrackType {
   const mode = data.mode as string | undefined
-  if (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat') return mode
+  if (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat' || mode === 'video') return mode
   return data.type === 'video' ? 'video_avatar' : 'chat' // fall back from the Flutter `type`
 }
+
+/** Test-only surface (pure helpers). */
+export const __test = { trackForInvite }
 
 /** Build a valid local template from the invite's stored screening config. */
 function synthTemplate(interviewId: string, data: Record<string, unknown>, now: string): InterviewTemplate {

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { MessageSquare, Mic, Video, Clock, ArrowLeft, Check, FileText, Layers, Plus, UploadCloud, Trash2, AlertTriangle, Loader2, CheckCircle2, Copy } from 'lucide-react'
+import { MessageSquare, Mic, Video, Clock, Clapperboard, ArrowLeft, Check, FileText, Layers, Plus, UploadCloud, Trash2, AlertTriangle, Loader2, CheckCircle2, Copy } from 'lucide-react'
 import { Button, Input, Skeleton, cn } from '@/components/ui'
 import { questionSetsApi, invitesApi, settingsApi } from '@/lib/api'
 import { GenerateFromResumeModal } from './GenerateFromResumeModal'
@@ -23,7 +23,7 @@ const emailOk = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim())
  * the Firestore `interviews` schema + Admin credentials + email provider are in place.
  */
 
-type Mode = Extract<TrackType, 'chatbot' | 'voice' | 'video_avatar' | 'chat'>
+type Mode = Extract<TrackType, 'chatbot' | 'voice' | 'video_avatar' | 'chat' | 'video'>
 type Source = 'tailor' | 'set'
 
 const MODES: { value: Mode; label: string; blurb: string; icon: React.ReactNode }[] = [
@@ -31,6 +31,7 @@ const MODES: { value: Mode; label: string; blurb: string; icon: React.ReactNode 
   { value: 'voice',        label: 'Voice',        blurb: 'Live spoken AI interviewer (Gemini Live).', icon: <Mic size={20} /> },
   { value: 'video_avatar', label: 'Video Avatar', blurb: 'Conversational AI video avatar (Tavus).',   icon: <Video size={20} /> },
   { value: 'chat',         label: 'Timed Q&A',    blurb: '30s prep + timed answers (HireVue-style).', icon: <Clock size={20} /> },
+  { value: 'video',        label: 'Video Interview', blurb: 'Candidate records webcam answers per question.', icon: <Clapperboard size={20} /> },
 ]
 
 const STYLES: { value: QuestionStyle; label: string }[] = [

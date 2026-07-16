@@ -1,10 +1,10 @@
 import { Router } from 'express'
 import { randomUUID } from 'node:crypto'
 import multer from 'multer'
-import { RekognitionClient, DetectFacesCommand } from '@aws-sdk/client-rekognition'
 import { ah, HttpError } from '../util/ah'
 import { db } from '../store/db'
 import { geminiClient } from '../services/gemini'
+import { detectFaces } from '../services/rekognition'
 
 /**
  * AI Avatar Screening — hybrid credential proxy.
@@ -271,24 +271,15 @@ avatarRouter.post('/gemini-generate', ah(async (req, res) => {
 }))
 
 /* ─── AWS Rekognition DetectFaces (folded in from the standalone proxy) ──── */
-let rekClient: RekognitionClient | null = null
-function rek(): RekognitionClient | null {
-  const c = awsCreds()
-  if (!c.accessKeyId || !c.secretAccessKey) return null
-  if (!rekClient) rekClient = new RekognitionClient({ region: c.region, credentials: { accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey } })
-  return rekClient
-}
-
 avatarRouter.post('/analyze-face', ah(async (req, res) => {
   const { imageBase64, questionIdx, timestampMs } = req.body ?? {}
   if (!imageBase64) return res.status(400).json({ success: false, error: 'imageBase64 required' })
   // Reject tiny/blank frames without spending an API call.
   if ((imageBase64.length * 3) / 4 < 5000) return res.json({ success: false, reason: 'frame_too_small', questionIdx, timestampMs })
-  const client = rek()
-  if (!client) return res.status(400).json({ success: false, error: 'Rekognition is not configured on the server' })
   try {
-    const out = await client.send(new DetectFacesCommand({ Image: { Bytes: Buffer.from(imageBase64, 'base64') }, Attributes: ['ALL'] }))
-    res.json({ success: true, faceDetails: out.FaceDetails ?? [], questionIdx, timestampMs })
+    const r = await detectFaces(imageBase64)
+    if (!r.success) return res.status(400).json({ success: false, error: r.error })
+    res.json({ success: true, faceDetails: r.faceDetails, questionIdx, timestampMs })
   } catch (err) {
     const e = err as { name?: string; message?: string }
     console.error('[avatar] Rekognition error:', e?.name, e?.message)
