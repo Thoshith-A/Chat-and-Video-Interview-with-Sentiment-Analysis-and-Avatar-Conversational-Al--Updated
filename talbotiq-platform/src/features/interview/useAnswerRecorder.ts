@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RekognitionService, aggregateFacialData } from '@/services/rekognitionService'
 import type { FacialSessionSummary } from '@/types/rekognition.types'
+import { getIdTokenOrNull } from '@/lib/firebase'
 
 /**
- * Owns ONE camera+mic stream for the whole Video Interview and records the
- * current answer with MediaRecorder. One shared stream (not one per question)
- * so the camera LED comes on once and mobile webviews don't juggle two streams.
- * The same stream can be tapped for facial-frame capture (Task 7).
+ * Owns ONE camera+mic stream for the whole Video Interview. Each answer is
+ * transcribed LIVE off the shared stream's audio track via the Deepgram relay
+ * (no blob recording, no video upload — see Task 2 of the live-transcript
+ * rework). The same stream can also be tapped for facial-frame capture (Task 7).
  */
 export function useAnswerRecorder() {
   const streamRef = useRef<MediaStream | null>(null)
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
   const [ready, setReady] = useState(false)
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const rekogRef = useRef<RekognitionService | null>(null)
+
+  const wsRef = useRef<WebSocket | null>(null)
+  const audioRecRef = useRef<MediaRecorder | null>(null)
+  const transcriptRef = useRef('')            // accumulated finals for the current answer
+  const [liveTranscript, setLiveTranscript] = useState('')
+  const [transcriptConnected, setTranscriptConnected] = useState(false)
 
   const acquire = useCallback(async () => {
     if (streamRef.current) return streamRef.current
@@ -30,35 +35,62 @@ export function useAnswerRecorder() {
     }
   }, [])
 
-  const startRecording = useCallback(() => {
+  const startTranscribing = useCallback(() => {
     const stream = streamRef.current
-    if (!stream || recorderRef.current) return
-    const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' : 'video/webm'
-    const rec = new MediaRecorder(stream, { mimeType: mime })
-    chunksRef.current = []
-    rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data) }
-    rec.start()
-    recorderRef.current = rec
-    setRecording(true)
+    if (!stream || wsRef.current) return
+    transcriptRef.current = ''
+    setLiveTranscript('')
+    setRecording(true)                         // drives the aesthetic REC dot
+    void (async () => {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+      const token = await getIdTokenOrNull()
+      const ws = new WebSocket(`${proto}://${location.host}/api/interview/deepgram${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+      wsRef.current = ws
+      ws.onopen = () => {
+        setTranscriptConnected(true)
+        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
+        const audioStream = new MediaStream(stream.getAudioTracks())
+        const rec = new MediaRecorder(audioStream, { mimeType: mime })
+        audioRecRef.current = rec
+        rec.ondataavailable = (e) => { if (e.data.size && ws.readyState === WebSocket.OPEN) ws.send(e.data) }
+        rec.start(250)
+      }
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data)
+          if (msg.type !== 'Results') return
+          const text = (msg.channel?.alternatives?.[0]?.transcript ?? '').trim()
+          if (!text) return
+          if (msg.is_final || msg.speech_final) {
+            transcriptRef.current = (transcriptRef.current + ' ' + text).trim()
+            setLiveTranscript(transcriptRef.current)
+          }
+        } catch { /* ignore malformed */ }
+      }
+      ws.onerror = () => setTranscriptConnected(false)
+      ws.onclose = () => setTranscriptConnected(false)
+    })()
   }, [])
 
-  /** Stop and resolve the recorded clip (waits for the final dataavailable). */
-  const stopRecording = useCallback((): Promise<Blob> => {
+  const stopTranscribing = useCallback((): Promise<string> => {
+    setRecording(false)
+    const rec = audioRecRef.current
+    const ws = wsRef.current
+    const finish = () => { try { ws?.close() } catch { /* noop */ }; wsRef.current = null; audioRecRef.current = null; return transcriptRef.current.trim() }
     return new Promise((resolve) => {
-      const rec = recorderRef.current
-      if (!rec) { resolve(new Blob([], { type: 'video/webm' })); return }
-      rec.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'video/webm' })
-        recorderRef.current = null
-        setRecording(false)
-        resolve(blob)
-      }
-      rec.stop()
+      if (!rec) { resolve(finish()); return }
+      // Flush the final chunk, allow a short grace for Deepgram's last Results, then resolve.
+      rec.onstop = () => setTimeout(() => resolve(finish()), 600)
+      try { rec.stop() } catch { resolve(finish()) }
     })
   }, [])
 
   // Release the camera on unmount (once — the whole interview shares this stream).
   useEffect(() => () => { streamRef.current?.getTracks().forEach((t) => t.stop()) }, [])
+
+  // Close the transcription socket/recorder on unmount too, so an abandoned
+  // interview doesn't leak an open WebSocket or a running MediaRecorder.
+  useEffect(() => () => { try { audioRecRef.current?.stop() } catch { /* noop */ }; wsRef.current?.close(); wsRef.current = null }, [])
 
   // Release the Rekognition capture on unmount too, so an abandoned interview
   // doesn't leak its setInterval + hidden video/canvas elements.
@@ -95,7 +127,8 @@ export function useAnswerRecorder() {
   }, [])
 
   return {
-    ready, recording, error, acquire, startRecording, stopRecording, attachPreview, streamRef,
+    ready, recording, error, acquire, attachPreview, streamRef,
+    startTranscribing, stopTranscribing, liveTranscript, transcriptConnected,
     startFacial, setFacialQuestion, stopFacial,
   }
 }
