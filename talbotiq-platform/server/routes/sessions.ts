@@ -11,10 +11,10 @@ import { scoreSession } from '../services/scoring'
 import { computeSpeechMetrics, analyzeSentiment } from '../services/signals'
 import { extractResumeText } from '../services/resume'
 import { generateQuestions, geminiEnabled } from '../services/gemini'
-import { transcribeVideoUrl } from '../services/transcription'
 import { detectFaces } from '../services/rekognition'
 import { createCandidateConversation, endCandidateConversation, fetchConversationTranscript } from '../services/tavusServer'
 import { materializeInviteSession, syncInviteResult } from '../services/inviteBridge'
+import { buildVideoTranscript } from '../services/videoTranscript'
 import {
   beginConversation, submitChatAnswer, computeChatbotState,
   advanceChatbotTiming, skipThinking, currentInterviewerTurn, turnTiming,
@@ -108,33 +108,18 @@ function settle(session: InterviewSession, template: InterviewTemplate) {
 
 const scoringInFlight = new Set<string>()
 
-/** In-flight video-answer transcriptions per session. Video scoring waits for
- *  these so answers submitted just before the deadline are still transcribed. */
-const pendingTranscriptions = new Map<string, Promise<void>[]>()
-function trackTranscription(sessionId: string, p: Promise<unknown>) {
-  const arr = pendingTranscriptions.get(sessionId) ?? []
-  arr.push(p.then(() => undefined, () => undefined))
-  pendingTranscriptions.set(sessionId, arr)
-}
-
 function maybeScore(session: InterviewSession, template: InterviewTemplate) {
   if (session.status !== 'completed') return
   if (db.reports.has(session.id) || scoringInFlight.has(session.id)) return
   scoringInFlight.add(session.id)
-  // Video answers transcribe asynchronously; wait for them so scoring reads the
-  // real transcripts (not empty answerText) — mirrors the avatar recovery deferral.
-  const ready = session.track === 'video'
-    ? Promise.allSettled(pendingTranscriptions.get(session.id) ?? [])
-    : Promise.resolve([])
-  ready
-    .then(() => scoreSession(session, template))
+  scoreSession(session, template)
     .then((report) => {
       db.reports.set(session.id, report)
       db.scheduleSave()
       syncInviteResult(session, report) // bulk-invite: push score back to Firestore (no-op otherwise)
     })
     .catch((err) => console.error('[scoring] failed for', session.id, err))
-    .finally(() => { scoringInFlight.delete(session.id); pendingTranscriptions.delete(session.id) })
+    .finally(() => scoringInFlight.delete(session.id))
 }
 
 /* ─── candidate lifecycle ───────────────────────────────────────────────── */
@@ -588,18 +573,13 @@ sessionsRouter.post('/:id/answers', ah(async (req, res) => {
   const now = new Date().toISOString()
   q.answerText =
     typeof req.body?.answerText === 'string' ? req.body.answerText : q.draft ?? ''
-  if (req.body?.videoUrl) q.videoUrl = req.body.videoUrl
-  // Video track: transcribe OFF the submit critical path so /answers returns fast
-  // (the client must beat the auto-submit deadline). Scoring waits for these below.
-  if (session.track === 'video' && q.videoUrl && !q.answerText?.trim()) {
-    const questionId = q.id
-    const url = q.videoUrl
-    trackTranscription(session.id, transcribeVideoUrl(url)
-      .then((text) => {
-        const cur = db.sessions.get(session.id)?.questions.find((x) => x.id === questionId)
-        if (cur && !cur.answerText?.trim() && text.trim()) { cur.answerText = text; db.scheduleSave() }
-      })
-      .catch((err) => console.error('[transcribe] failed for', session.id, questionId, err)))
+  // Video track: the live transcript IS the answer (no video, no upload). Mirror it
+  // into session.transcript as (question, answer) turns so scoring/results run the
+  // same conversation path as Voice.
+  if (session.track === 'video') {
+    session.mode = session.mode ?? 'conversational'
+    session.transcript = session.transcript ?? []
+    session.transcript.push(...buildVideoTranscript(q, session.currentIndex, now))
   }
   q.submittedAt = now
   q.autoSubmitted = false
@@ -883,7 +863,7 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
   // empty, fall back to the PLANNED question script so the report still shows
   // what the interview asked instead of an empty accordion.
   const isConversation =
-    session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice'
+    session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice' || session.track === 'video'
   const groups = isConversation ? primaryQuestionGroups(session) : []
   const questions = isConversation
     ? groups.length > 0
