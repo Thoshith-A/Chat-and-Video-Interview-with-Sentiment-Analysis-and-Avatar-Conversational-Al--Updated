@@ -14,7 +14,7 @@ interface Props {
   busy: boolean
   rec: ReturnType<typeof useAnswerRecorder>
   onSkipPrep: () => void
-  onSubmitText: (answerText: string) => Promise<void>
+  onSubmitText: (answerText: string) => Promise<boolean>
   onIntegrity?: (type: string) => void
 }
 
@@ -58,7 +58,8 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
     setUploading(true)                         // reuse as a brief "submitting" state
     try {
       const transcript = await rec.stopTranscribing()
-      await onSubmitText(transcript)
+      const ok = await onSubmitText(transcript)
+      if (!ok) setSubmitFailed(true)
     } catch (err) {
       console.error('[video] submit failed', err)
       setSubmitFailed(true)
@@ -79,8 +80,8 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
     }
   }
 
-  // Client-side pre-emptive submit ~3s before the server deadline so the clip is
-  // uploaded before the engine's own empty auto-submit can advance the question.
+  // Client-side pre-emptive submit ~3s before the server deadline so the transcript
+  // is submitted before the engine's own empty auto-submit advances the question.
   useEffect(() => {
     if (isAnswer && secondsLeft <= 3 && !submittingRef.current) void doSubmit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,7 +129,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
         )}
         {!isAnswer && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-sm text-white/90">
-            <span className="max-w-xs px-4">Read the question and get ready. Recording starts automatically when the answer timer begins.</span>
+            <span className="max-w-xs px-4">Read the question and get ready. Answer aloud — the timer starts your response.</span>
           </div>
         )}
         {uploading && (
@@ -140,7 +141,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
 
       {submitFailed && (
         <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> Your answer may not have uploaded in time. If the interview advanced, that question could be missing its recording.
+          <AlertTriangle size={15} /> Your answer may not have been submitted. If the interview advanced, that question could be missing its transcript.
         </div>
       )}
       {rec.error && (
@@ -150,7 +151,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
       )}
       {warning && !uploading && (
         <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> {secondsLeft}s left — recording stops and your answer uploads automatically.
+          <AlertTriangle size={15} /> {secondsLeft}s left — your answer submits automatically.
         </div>
       )}
 
@@ -186,7 +187,7 @@ interface VideoInterviewProps {
   secondsLeft: number
   busy: boolean
   onSkipPrep: () => void
-  onSubmitText: (answerText: string) => Promise<void>
+  onSubmitText: (answerText: string) => Promise<boolean>
   onIntegrity?: (type: string) => void
 }
 

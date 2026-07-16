@@ -21,6 +21,10 @@ export function useAnswerRecorder() {
   const transcriptRef = useRef('')            // accumulated finals for the current answer
   const [liveTranscript, setLiveTranscript] = useState('')
   const [transcriptConnected, setTranscriptConnected] = useState(false)
+  // Bumped on every stop/unmount so a startTranscribing() setup that's still
+  // awaiting the token/socket when a stop or unmount races it can detect it's
+  // been superseded and back off instead of leaving an orphaned socket.
+  const transcribeGenRef = useRef(0)
 
   const acquire = useCallback(async () => {
     if (streamRef.current) return streamRef.current
@@ -38,15 +42,19 @@ export function useAnswerRecorder() {
   const startTranscribing = useCallback(() => {
     const stream = streamRef.current
     if (!stream || wsRef.current) return
+    const gen = ++transcribeGenRef.current
     transcriptRef.current = ''
     setLiveTranscript('')
     setRecording(true)                         // drives the aesthetic REC dot
     void (async () => {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
       const token = await getIdTokenOrNull()
+      if (gen !== transcribeGenRef.current) return                 // superseded during token fetch
       const ws = new WebSocket(`${proto}://${location.host}/api/interview/deepgram${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+      if (gen !== transcribeGenRef.current) { try { ws.close() } catch { /* noop */ } return }
       wsRef.current = ws
       ws.onopen = () => {
+        if (gen !== transcribeGenRef.current) { try { ws.close() } catch { /* noop */ } return }
         setTranscriptConnected(true)
         const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm'
         const audioStream = new MediaStream(stream.getAudioTracks())
@@ -73,14 +81,16 @@ export function useAnswerRecorder() {
   }, [])
 
   const stopTranscribing = useCallback((): Promise<string> => {
+    transcribeGenRef.current++                 // invalidate any in-flight startTranscribing setup
     setRecording(false)
     const rec = audioRecRef.current
     const ws = wsRef.current
     const finish = () => { try { ws?.close() } catch { /* noop */ }; wsRef.current = null; audioRecRef.current = null; return transcriptRef.current.trim() }
     return new Promise((resolve) => {
       if (!rec) { resolve(finish()); return }
-      // Flush the final chunk, allow a short grace for Deepgram's last Results, then resolve.
-      rec.onstop = () => setTimeout(() => resolve(finish()), 600)
+      // Flush the final chunk, allow a short grace for a full relay round-trip
+      // (browser → relay → Deepgram → relay → browser) for the last Results, then resolve.
+      rec.onstop = () => setTimeout(() => resolve(finish()), 1200)
       try { rec.stop() } catch { resolve(finish()) }
     })
   }, [])
@@ -89,8 +99,15 @@ export function useAnswerRecorder() {
   useEffect(() => () => { streamRef.current?.getTracks().forEach((t) => t.stop()) }, [])
 
   // Close the transcription socket/recorder on unmount too, so an abandoned
-  // interview doesn't leak an open WebSocket or a running MediaRecorder.
-  useEffect(() => () => { try { audioRecRef.current?.stop() } catch { /* noop */ }; wsRef.current?.close(); wsRef.current = null }, [])
+  // interview doesn't leak an open WebSocket or a running MediaRecorder. Also
+  // bump the generation so a startTranscribing() setup racing unmount can't
+  // reopen a socket after we've torn down.
+  useEffect(() => () => {
+    transcribeGenRef.current++
+    try { audioRecRef.current?.stop() } catch { /* noop */ }
+    wsRef.current?.close()
+    wsRef.current = null
+  }, [])
 
   // Release the Rekognition capture on unmount too, so an abandoned interview
   // doesn't leak its setInterval + hidden video/canvas elements.
