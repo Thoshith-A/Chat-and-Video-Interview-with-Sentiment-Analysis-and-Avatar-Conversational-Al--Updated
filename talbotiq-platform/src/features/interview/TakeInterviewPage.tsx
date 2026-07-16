@@ -14,7 +14,7 @@ import { QuestionStage } from './screens/QuestionStage'
 import { ChatbotStage } from './screens/ChatbotStage'
 import { AvatarStage } from './screens/AvatarStage'
 import { VoiceStage } from './screens/VoiceStage'
-import { VideoStage } from './screens/VideoStage'
+import { VideoInterview } from './screens/VideoStage'
 import { Completion } from './screens/Completion'
 import type { BrandingConfig } from '@shared/types'
 
@@ -101,34 +101,36 @@ export default function TakeInterviewPage() {
   }
 
   if (s.status === 'in_progress') {
+    if (s.track === 'video') {
+      return (
+        <InterviewShell branding={branding} progress={s.progress} live>
+          <VideoInterview
+            sessionId={sessionId}
+            state={s}
+            remaining={clock.remaining}
+            secondsLeft={clock.secondsLeft}
+            busy={clock.busy}
+            onSkipPrep={clock.skipPrep}
+            onSubmitVideo={clock.submitVideo}
+            onIntegrity={integrity.post}
+          />
+        </InterviewShell>
+      )
+    }
     return (
       <InterviewShell branding={branding} progress={s.progress} live>
         <AnimatePresence mode="wait">
-          {s.track === 'video' ? (
-            <VideoStage
-              key={s.question?.id ?? 'q'}
-              sessionId={sessionId}
-              state={s}
-              remaining={clock.remaining}
-              secondsLeft={clock.secondsLeft}
-              busy={clock.busy}
-              onSkipPrep={clock.skipPrep}
-              onSubmitVideo={(url) => clock.submit('', url)}
-              onIntegrity={integrity.post}
-            />
-          ) : (
-            <QuestionStage
-              key={s.question?.id ?? 'q'}
-              state={s}
-              remaining={clock.remaining}
-              secondsLeft={clock.secondsLeft}
-              busy={clock.busy}
-              onSkipPrep={clock.skipPrep}
-              onSubmit={clock.submit}
-              onSaveDraft={clock.saveDraft}
-              onIntegrity={integrity.post}
-            />
-          )}
+          <QuestionStage
+            key={s.question?.id ?? 'q'}
+            state={s}
+            remaining={clock.remaining}
+            secondsLeft={clock.secondsLeft}
+            busy={clock.busy}
+            onSkipPrep={clock.skipPrep}
+            onSubmit={clock.submit}
+            onSaveDraft={clock.saveDraft}
+            onIntegrity={integrity.post}
+          />
         </AnimatePresence>
       </InterviewShell>
     )

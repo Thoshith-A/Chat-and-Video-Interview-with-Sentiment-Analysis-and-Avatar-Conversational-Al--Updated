@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion, useReducedMotion } from 'framer-motion'
+import { motion, useReducedMotion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle, Circle, Send, FastForward, Loader2, Camera } from 'lucide-react'
 import { CircularCountdown } from '../components/CircularCountdown'
 import { useAnswerRecorder } from '../useAnswerRecorder'
@@ -12,8 +12,9 @@ interface Props {
   remaining: number
   secondsLeft: number
   busy: boolean
+  rec: ReturnType<typeof useAnswerRecorder>
   onSkipPrep: () => void
-  onSubmitVideo: (videoUrl: string) => Promise<void>
+  onSubmitVideo: (videoUrl: string) => Promise<boolean>
   onIntegrity?: (type: string) => void
 }
 
@@ -24,22 +25,23 @@ interface Props {
  * which stops recording, uploads the clip to Firebase Storage, and submits the
  * download URL. The server transcribes + scores it (Tasks 4/1).
  */
-export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, onSkipPrep, onSubmitVideo, onIntegrity }: Props) {
+export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec, onSkipPrep, onSubmitVideo, onIntegrity }: Props) {
   const reduce = useReducedMotion()
   const { phase, timing, question, branding } = state
-  const rec = useAnswerRecorder()
   const videoEl = useRef<HTMLVideoElement>(null)
   const [uploading, setUploading] = useState(false)
+  const [submitFailed, setSubmitFailed] = useState(false)
   const submittingRef = useRef(false)
   const isAnswer = phase === 'answer'
   const warning = isAnswer && secondsLeft <= timing.warningThresholdSeconds
 
   // Acquire the camera once, attach the live preview.
-  useEffect(() => { void rec.acquire().catch(() => onIntegrity?.('camera_denied')) }, [rec, onIntegrity])
-  useEffect(() => { if (rec.ready && videoEl.current) rec.attachPreview(videoEl.current) }, [rec, rec.ready])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void rec.acquire().catch(() => onIntegrity?.('camera_denied')) }, [])            // acquire once
+  useEffect(() => { if (rec.ready && videoEl.current) rec.attachPreview(videoEl.current) }, [rec.ready])
 
   // Start recording when the answer phase opens.
-  useEffect(() => { if (isAnswer && rec.ready && !rec.recording) rec.startRecording() }, [isAnswer, rec, rec.ready, rec.recording])
+  useEffect(() => { if (isAnswer && rec.ready && !rec.recording) rec.startRecording() }, [isAnswer, rec.ready, rec.recording])
 
   const doSubmit = async () => {
     if (submittingRef.current || !question) return
@@ -48,7 +50,11 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, onS
     try {
       const blob = await rec.stopRecording()
       const url = await uploadAnswerVideo(sessionId, question.id, blob)
-      await onSubmitVideo(url)
+      const ok = await onSubmitVideo(url)
+      if (!ok) {
+        setSubmitFailed(true)
+        console.error('[video] answer submit failed (deadline/network) for', question.id)
+      }
     } catch (err) {
       console.error('[video] submit failed', err)
     } finally {
@@ -116,6 +122,11 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, onS
         )}
       </div>
 
+      {submitFailed && (
+        <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
+          <AlertTriangle size={15} /> Your answer may not have uploaded in time. If the interview advanced, that question could be missing its recording.
+        </div>
+      )}
       {rec.error && (
         <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
           <AlertTriangle size={15} /> {rec.error}
@@ -123,7 +134,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, onS
       )}
       {warning && !uploading && (
         <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> {secondsLeft}s left — your answer submits automatically at zero.
+          <AlertTriangle size={15} /> {secondsLeft}s left — recording stops and your answer uploads automatically.
         </div>
       )}
 
@@ -149,5 +160,27 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, onS
         </div>
       </div>
     </motion.div>
+  )
+}
+
+interface VideoInterviewProps {
+  sessionId: string
+  state: CandidateSessionState
+  remaining: number
+  secondsLeft: number
+  busy: boolean
+  onSkipPrep: () => void
+  onSubmitVideo: (videoUrl: string) => Promise<boolean>
+  onIntegrity?: (type: string) => void
+}
+
+/** Stable owner of the camera stream for the whole video interview. VideoStage
+ *  remounts per question (for the slide transition); the stream persists here. */
+export function VideoInterview(props: VideoInterviewProps) {
+  const rec = useAnswerRecorder()
+  return (
+    <AnimatePresence mode="wait">
+      <VideoStage key={props.state.question?.id ?? 'q'} rec={rec} {...props} />
+    </AnimatePresence>
   )
 }

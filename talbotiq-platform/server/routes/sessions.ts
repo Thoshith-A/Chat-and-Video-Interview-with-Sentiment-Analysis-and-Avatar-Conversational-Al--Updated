@@ -106,19 +106,34 @@ function settle(session: InterviewSession, template: InterviewTemplate) {
 }
 
 const scoringInFlight = new Set<string>()
+
+/** In-flight video-answer transcriptions per session. Video scoring waits for
+ *  these so answers submitted just before the deadline are still transcribed. */
+const pendingTranscriptions = new Map<string, Promise<void>[]>()
+function trackTranscription(sessionId: string, p: Promise<unknown>) {
+  const arr = pendingTranscriptions.get(sessionId) ?? []
+  arr.push(p.then(() => undefined, () => undefined))
+  pendingTranscriptions.set(sessionId, arr)
+}
+
 function maybeScore(session: InterviewSession, template: InterviewTemplate) {
   if (session.status !== 'completed') return
   if (db.reports.has(session.id) || scoringInFlight.has(session.id)) return
   scoringInFlight.add(session.id)
-  // Fire-and-forget: the candidate's completion screen never waits on scoring.
-  scoreSession(session, template)
+  // Video answers transcribe asynchronously; wait for them so scoring reads the
+  // real transcripts (not empty answerText) — mirrors the avatar recovery deferral.
+  const ready = session.track === 'video'
+    ? Promise.allSettled(pendingTranscriptions.get(session.id) ?? [])
+    : Promise.resolve([])
+  ready
+    .then(() => scoreSession(session, template))
     .then((report) => {
       db.reports.set(session.id, report)
       db.scheduleSave()
       syncInviteResult(session, report) // bulk-invite: push score back to Firestore (no-op otherwise)
     })
     .catch((err) => console.error('[scoring] failed for', session.id, err))
-    .finally(() => scoringInFlight.delete(session.id))
+    .finally(() => { scoringInFlight.delete(session.id); pendingTranscriptions.delete(session.id) })
 }
 
 /* ─── candidate lifecycle ───────────────────────────────────────────────── */
@@ -573,11 +588,17 @@ sessionsRouter.post('/:id/answers', ah(async (req, res) => {
   q.answerText =
     typeof req.body?.answerText === 'string' ? req.body.answerText : q.draft ?? ''
   if (req.body?.videoUrl) q.videoUrl = req.body.videoUrl
-  // Video Interview: no typed text — transcribe the recorded clip (Deepgram,
-  // key server-side) so the existing per-question Gemini scoring has content.
+  // Video track: transcribe OFF the submit critical path so /answers returns fast
+  // (the client must beat the auto-submit deadline). Scoring waits for these below.
   if (session.track === 'video' && q.videoUrl && !q.answerText?.trim()) {
-    try { q.answerText = await transcribeVideoUrl(q.videoUrl) }
-    catch (err) { console.error('[transcribe] failed for', session.id, q.id, err) }
+    const questionId = q.id
+    const url = q.videoUrl
+    trackTranscription(session.id, transcribeVideoUrl(url)
+      .then((text) => {
+        const cur = db.sessions.get(session.id)?.questions.find((x) => x.id === questionId)
+        if (cur && !cur.answerText?.trim() && text.trim()) { cur.answerText = text; db.scheduleSave() }
+      })
+      .catch((err) => console.error('[transcribe] failed for', session.id, questionId, err)))
   }
   q.submittedAt = now
   q.autoSubmitted = false

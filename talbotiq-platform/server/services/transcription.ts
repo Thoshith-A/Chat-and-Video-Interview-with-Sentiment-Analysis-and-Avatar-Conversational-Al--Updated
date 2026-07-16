@@ -17,14 +17,23 @@ export function parseDeepgramTranscript(json: unknown): string {
 export async function transcribeVideoUrl(url: string): Promise<string> {
   const key = (process.env.DEEPGRAM_API_KEY ?? '').trim()
   if (!key || !url) return ''
-  const media = await fetch(url)
-  if (!media.ok) throw new Error(`could not fetch clip (${media.status})`)
-  const bytes = Buffer.from(await media.arrayBuffer())
-  const res = await fetch(DG_URL, {
-    method: 'POST',
-    headers: { Authorization: `Token ${key}`, 'Content-Type': media.headers.get('content-type') || 'video/webm' },
-    body: bytes,
-  })
-  if (!res.ok) throw new Error(`deepgram ${res.status}`)
-  return parseDeepgramTranscript(await res.json())
+  // A hung fetch/Deepgram round-trip must never block scoring forever — scoring
+  // waits on these transcriptions (see maybeScore), so bound them hard.
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 30_000)
+  try {
+    const media = await fetch(url, { signal: ctrl.signal })
+    if (!media.ok) throw new Error(`could not fetch clip (${media.status})`)
+    const bytes = Buffer.from(await media.arrayBuffer())
+    const res = await fetch(DG_URL, {
+      method: 'POST',
+      headers: { Authorization: `Token ${key}`, 'Content-Type': media.headers.get('content-type') || 'video/webm' },
+      body: bytes,
+      signal: ctrl.signal,
+    })
+    if (!res.ok) throw new Error(`deepgram ${res.status}`)
+    return parseDeepgramTranscript(await res.json())
+  } finally {
+    clearTimeout(timer)
+  }
 }
