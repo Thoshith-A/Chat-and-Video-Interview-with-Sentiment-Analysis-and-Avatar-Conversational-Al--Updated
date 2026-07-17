@@ -20,6 +20,7 @@ export default defineConfig({
       // WS paths (must precede the generic /api http proxy).
       '/api/voice': { target: 'ws://localhost:8787', ws: true },
       '/api/avatar/deepgram': { target: 'ws://localhost:8787', ws: true },
+      '/api/interview/deepgram': { target: 'ws://localhost:8787', ws: true }, // Video Interview live transcription
       '/api': 'http://localhost:8787',
     },
   },
