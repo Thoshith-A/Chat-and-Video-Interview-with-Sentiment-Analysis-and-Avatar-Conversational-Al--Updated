@@ -298,6 +298,10 @@ export interface InterviewSession {
   // Two-way Interview: URL of the call recording (once uploaded), transcribed
   // on /twoway/complete to produce the scoring transcript. Additive.
   recordingUrl?: string
+  // Two-way Interview: recruiter's manual rating/notes, set via /twoway/review.
+  // The session is the source of truth (never lost, even before a report
+  // exists) — mirrored onto ResultReport.manualReview for display. Additive.
+  manualReview?: { rating: number; notes: string; by?: string; at: string }
   // Video Interview: AWS Rekognition facial summary captured on the candidate
   // device and uploaded on completion. Opaque JSON (client owns the shape).
   facialSummary?: Record<string, unknown>

@@ -520,6 +520,8 @@ sessionsRouter.post('/:id/twoway/host', requireRecruiter, ah(async (req, res) =>
   const { session } = load(req)
   assertOwner(session, requireAuth(req))
   if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+  if (session.status === 'completed' || session.status === 'expired')
+    throw new HttpError(409, 'This interview has already ended')
 
   const roomName = session.liveRoomName ?? `room-${session.id}`
   const room = await ensureRoom(roomName)
@@ -539,6 +541,8 @@ sessionsRouter.post('/:id/twoway/host', requireRecruiter, ah(async (req, res) =>
 sessionsRouter.post('/:id/twoway/join', ah(async (req, res) => {
   const { session } = load(req) // load() enforces participant access
   if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+  if (session.status === 'completed' || session.status === 'expired')
+    throw new HttpError(409, 'This interview has already ended')
   if (!session.liveRoomName) throw new HttpError(409, 'The interviewer has not started this interview yet.')
 
   const room = await ensureRoom(session.liveRoomName)
@@ -553,6 +557,14 @@ sessionsRouter.post('/:id/twoway/join', ah(async (req, res) => {
 // End the live call → complete the session → (best-effort) tear down the
 // Daily room → if a recording URL was uploaded, transcribe it into the
 // conversational transcript and score. Transcription never blocks completion.
+//
+// Both parties hit this route independently: the candidate calls it with NO
+// recordingUrl, the recruiter calls it once the recording has uploaded, WITH
+// one. Whichever arrives first must not permanently win — the recording is
+// processed exactly once (guarded by `!session.recordingUrl`), and if it lands
+// AFTER a placeholder `notEvaluated` report was already cached (from the other
+// party's earlier empty call), that placeholder is dropped so scoring re-runs
+// on the real transcript.
 sessionsRouter.post('/:id/twoway/complete', ah(async (req, res) => {
   const { session, template } = load(req)
   if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
@@ -565,11 +577,15 @@ sessionsRouter.post('/:id/twoway/complete', ah(async (req, res) => {
   if (session.liveRoomName) void deleteRoom(session.liveRoomName)
   db.scheduleSave()
 
-  if (recordingUrl) {
+  if (typeof recordingUrl === 'string' && recordingUrl && !session.recordingUrl) {
+    // Set recordingUrl FIRST — this is the idempotency guard. If transcription
+    // below throws, a retry with the same recordingUrl still won't reprocess
+    // (no duplicate transcript turns), consistent with "process once, best-effort".
+    session.recordingUrl = recordingUrl
+    session.mode ??= 'conversational'
+    session.transcript ??= []
     try {
       const text = await transcribeVideoUrl(recordingUrl)
-      session.mode = session.mode ?? 'conversational'
-      session.transcript = session.transcript ?? []
       session.transcript.push(
         {
           id: randomUUID(), role: 'interviewer', turnType: 'question', questionIndex: 0,
@@ -580,18 +596,25 @@ sessionsRouter.post('/:id/twoway/complete', ah(async (req, res) => {
           content: text, createdAt: new Date().toISOString(),
         },
       )
-      session.recordingUrl = recordingUrl
-      db.scheduleSave()
     } catch (err) {
       console.error('[twoway] transcription failed for', session.id, err)
     }
+    db.scheduleSave()
+
+    // A placeholder report cached by the OTHER party's earlier (recording-less)
+    // completion call is now stale — drop it so scoring re-runs on the real content.
+    const existing = db.reports.get(session.id)
+    if (session.recordingUrl && existing?.notEvaluated) db.reports.delete(session.id)
   }
   maybeScore(session, template)
   res.json({ ok: true })
 }))
 
 // Recruiter's manual rating/notes — a dual path alongside the AI scorecard,
-// since a two-way interview is recruiter-scored more than model-scored.
+// since a two-way interview is recruiter-scored more than model-scored. The
+// SESSION is the source of truth (survives even if no report has landed yet —
+// e.g. scoring is still pending, or the interview was never evaluated); the
+// report copy is just an immediate-display convenience for the current view.
 sessionsRouter.post('/:id/twoway/review', requireRecruiter, ah((req, res) => {
   const { session } = load(req)
   assertOwner(session, requireAuth(req))
@@ -599,9 +622,14 @@ sessionsRouter.post('/:id/twoway/review', requireRecruiter, ah((req, res) => {
 
   const rating = Math.max(0, Math.min(5, Number(req.body?.rating) || 0))
   const notes = String(req.body?.notes ?? '').slice(0, 4000)
+  const manualReview = { rating, notes, by: requireAuth(req).email, at: new Date().toISOString() }
+
+  session.manualReview = manualReview
+  db.scheduleSave()
+
   const report = db.reports.get(session.id)
   if (report) {
-    report.manualReview = { rating, notes, by: requireAuth(req).email, at: new Date().toISOString() }
+    report.manualReview = manualReview
     db.reports.set(session.id, report)
     db.scheduleSave()
   }
@@ -1028,9 +1056,19 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
     ...(session.facialSummary ? { facial: session.facialSummary } : {}),
   }
 
+  // The session is the source of truth for the recruiter's manual review (it's
+  // never lost, even if written before scoring produced a report — see
+  // /twoway/review). Surface it onto the report once one exists, so it
+  // displays even when the review predates the report landing.
+  const report = view.report
+  if (report && session.manualReview) {
+    report.manualReview = session.manualReview
+    db.reports.set(session.id, report)
+    db.scheduleSave()
+  }
+
   // Backfill the text sentiment read for conversation reports scored before this
   // feature existed, so older sessions show it too (computed once, then cached).
-  const report = view.report
   if (isConversation && report && !report.sentiment && !report.notEvaluated && geminiEnabled()) {
     const sentiment = await analyzeSentiment(session).catch(() => null)
     if (sentiment) {
