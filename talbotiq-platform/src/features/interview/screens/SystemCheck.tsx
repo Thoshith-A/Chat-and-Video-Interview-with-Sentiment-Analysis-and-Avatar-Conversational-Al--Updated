@@ -20,8 +20,8 @@ export function SystemCheck({ branding, track, onBegin, busy }: Props) {
     return <VideoIntro branding={branding} onBegin={onBegin} busy={busy} />
   }
 
-  if (track === 'video_avatar') {
-    return <VideoSystemCheck branding={branding} onBegin={onBegin} busy={busy} />
+  if (track === 'video_avatar' || track === 'two_way') {
+    return <VideoSystemCheck branding={branding} track={track} onBegin={onBegin} busy={busy} />
   }
 
   const checks = [

@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Camera, Mic, CheckCircle2, AlertTriangle } from 'lucide-react'
-import type { BrandingConfig } from '@shared/types'
+import type { BrandingConfig, TrackType } from '@shared/types'
 
 interface Props {
   branding: BrandingConfig
+  /** Tailors the copy below — a live human interviewer (two_way) vs. the AI avatar. */
+  track?: TrackType
   onBegin: () => void
   busy?: boolean
 }
 
-/** Camera + mic permission and preview for the Video Avatar track. */
-export function VideoSystemCheck({ branding, onBegin, busy }: Props) {
+/** Camera + mic permission and preview for the Video Avatar and Two-way tracks. */
+export function VideoSystemCheck({ branding, track, onBegin, busy }: Props) {
   const reduce = useReducedMotion()
+  const isTwoWay = track === 'two_way'
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [status, setStatus] = useState<'idle' | 'granted' | 'denied'>('idle')
@@ -39,7 +42,9 @@ export function VideoSystemCheck({ branding, onBegin, busy }: Props) {
     >
       <h1 className="text-2xl font-bold tracking-tight text-neutral-900">Camera &amp; microphone check</h1>
       <p className="mt-2 text-sm text-neutral-500">
-        The AI avatar will ask each question aloud. We need access to your camera and mic to record your answers.
+        {isTwoWay
+          ? 'You’ll join a live video call with your interviewer. We need access to your camera and mic to connect you.'
+          : 'The AI avatar will ask each question aloud. We need access to your camera and mic to record your answers.'}
       </p>
 
       <div className="mt-6 aspect-video w-full overflow-hidden rounded-xl border border-border bg-neutral-900">
