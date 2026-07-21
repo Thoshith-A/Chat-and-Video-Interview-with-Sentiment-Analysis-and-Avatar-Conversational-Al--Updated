@@ -15,6 +15,8 @@ import { detectFaces } from '../services/rekognition'
 import { createCandidateConversation, endCandidateConversation, fetchConversationTranscript } from '../services/tavusServer'
 import { materializeInviteSession, syncInviteResult } from '../services/inviteBridge'
 import { buildVideoTranscript } from '../services/videoTranscript'
+import { ensureRoom, mintToken, deleteRoom } from '../services/dailyServer'
+import { transcribeVideoUrl } from '../services/transcription'
 import {
   beginConversation, submitChatAnswer, computeChatbotState,
   advanceChatbotTiming, skipThinking, currentInterviewerTurn, turnTiming,
@@ -29,6 +31,7 @@ import type {
   SessionReportView,
   CandidateAssignedSession,
   AvatarStartResponse,
+  TwoWayJoinResponse,
   Turn,
 } from '../../shared/types'
 
@@ -499,6 +502,108 @@ sessionsRouter.post('/:id/avatar/complete', ah((req, res) => {
     void recoverAvatarTranscript(session.id, conversationId)
   } else {
     maybeScore(session, template)
+  }
+  res.json({ ok: true })
+}))
+
+/* ─── Two-way Interview (Daily) — live recruiter↔candidate video call ──────
+ * No avatar, no scripted transcript capture — the recruiter conducts the
+ * interview live; a single (interviewer, candidate) transcript pair is
+ * synthesised from the call recording on completion so it scores like any
+ * other conversation track. */
+
+// Recruiter starts (or resumes) the live call as the room owner. Creates the
+// Daily room deterministically (`room-{sessionId}`) so both `join` calls
+// converge on the same room, and mints an owner meeting token (cloud
+// recording enabled) so the candidate's later knock can be admitted.
+sessionsRouter.post('/:id/twoway/host', requireRecruiter, ah(async (req, res) => {
+  const { session } = load(req)
+  assertOwner(session, requireAuth(req))
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+
+  const roomName = session.liveRoomName ?? `room-${session.id}`
+  const room = await ensureRoom(roomName)
+  session.liveRoomName = roomName
+  if (session.status === 'created' || session.status === 'system_check') {
+    session.status = 'in_progress'
+    session.startedAt ??= new Date().toISOString()
+  }
+  db.scheduleSave()
+
+  const token = await mintToken({ roomName, isOwner: true, userName: 'Interviewer' })
+  res.json({ roomUrl: room.url, token, isOwner: true } satisfies TwoWayJoinResponse)
+}))
+
+// Candidate joins the live call (non-owner — knocks, waits for the recruiter
+// to admit). Fails with 409 until the recruiter has started the room.
+sessionsRouter.post('/:id/twoway/join', ah(async (req, res) => {
+  const { session } = load(req) // load() enforces participant access
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+  if (!session.liveRoomName) throw new HttpError(409, 'The interviewer has not started this interview yet.')
+
+  const room = await ensureRoom(session.liveRoomName)
+  const token = await mintToken({
+    roomName: session.liveRoomName,
+    isOwner: false,
+    userName: session.candidate.name || 'Candidate',
+  })
+  res.json({ roomUrl: room.url, token, isOwner: false } satisfies TwoWayJoinResponse)
+}))
+
+// End the live call → complete the session → (best-effort) tear down the
+// Daily room → if a recording URL was uploaded, transcribe it into the
+// conversational transcript and score. Transcription never blocks completion.
+sessionsRouter.post('/:id/twoway/complete', ah(async (req, res) => {
+  const { session, template } = load(req)
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+
+  const recordingUrl = typeof req.body?.recordingUrl === 'string' ? req.body.recordingUrl : ''
+  if (session.status !== 'completed') {
+    session.status = 'completed'
+    session.completedAt = new Date().toISOString()
+  }
+  if (session.liveRoomName) void deleteRoom(session.liveRoomName)
+  db.scheduleSave()
+
+  if (recordingUrl) {
+    try {
+      const text = await transcribeVideoUrl(recordingUrl)
+      session.mode = session.mode ?? 'conversational'
+      session.transcript = session.transcript ?? []
+      session.transcript.push(
+        {
+          id: randomUUID(), role: 'interviewer', turnType: 'question', questionIndex: 0,
+          content: 'Live two-way interview', createdAt: new Date().toISOString(),
+        },
+        {
+          id: randomUUID(), role: 'candidate', questionIndex: 0,
+          content: text, createdAt: new Date().toISOString(),
+        },
+      )
+      session.recordingUrl = recordingUrl
+      db.scheduleSave()
+    } catch (err) {
+      console.error('[twoway] transcription failed for', session.id, err)
+    }
+  }
+  maybeScore(session, template)
+  res.json({ ok: true })
+}))
+
+// Recruiter's manual rating/notes — a dual path alongside the AI scorecard,
+// since a two-way interview is recruiter-scored more than model-scored.
+sessionsRouter.post('/:id/twoway/review', requireRecruiter, ah((req, res) => {
+  const { session } = load(req)
+  assertOwner(session, requireAuth(req))
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+
+  const rating = Math.max(0, Math.min(5, Number(req.body?.rating) || 0))
+  const notes = String(req.body?.notes ?? '').slice(0, 4000)
+  const report = db.reports.get(session.id)
+  if (report) {
+    report.manualReview = { rating, notes, by: requireAuth(req).email, at: new Date().toISOString() }
+    db.reports.set(session.id, report)
+    db.scheduleSave()
   }
   res.json({ ok: true })
 }))

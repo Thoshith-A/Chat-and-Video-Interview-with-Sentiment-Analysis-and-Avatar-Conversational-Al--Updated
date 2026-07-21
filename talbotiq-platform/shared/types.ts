@@ -295,6 +295,9 @@ export interface InterviewSession {
   // Two-way Interview: name of the live Daily room this session's recruiter↔
   // candidate call takes place in (server-created; joined by both parties).
   liveRoomName?: string
+  // Two-way Interview: URL of the call recording (once uploaded), transcribed
+  // on /twoway/complete to produce the scoring transcript. Additive.
+  recordingUrl?: string
   // Video Interview: AWS Rekognition facial summary captured on the candidate
   // device and uploaded on completion. Opaque JSON (client owns the shape).
   facialSummary?: Record<string, unknown>

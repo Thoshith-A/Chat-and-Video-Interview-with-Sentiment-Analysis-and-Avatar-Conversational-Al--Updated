@@ -26,6 +26,7 @@ import type {
   AvatarInterviewSettings,
   AvatarSettingsStatus,
   AvatarStartResponse,
+  TwoWayJoinResponse,
 } from '@shared/types'
 
 const BASE = '/api'
@@ -179,6 +180,19 @@ export const sessionsApi = {
     http<{ ok: boolean }>(`/sessions/${id}/avatar/transcript`, { method: 'POST', body: JSON.stringify(body) }),
   avatarComplete: (id: string) =>
     http<{ ok: boolean }>(`/sessions/${id}/avatar/complete`, { method: 'POST' }),
+  // Two-way Interview (Daily): recruiter hosts (owner token, admits candidates),
+  // candidate joins (non-owner, knocks). Both resolve to a room URL + token.
+  twowayHost: (id: string) =>
+    http<TwoWayJoinResponse>(`/sessions/${id}/twoway/host`, { method: 'POST' }),
+  twowayJoin: (id: string) =>
+    http<TwoWayJoinResponse>(`/sessions/${id}/twoway/join`, { method: 'POST' }),
+  twowayComplete: (id: string, recordingUrl?: string) =>
+    http<{ ok: boolean }>(`/sessions/${id}/twoway/complete`, {
+      method: 'POST',
+      body: JSON.stringify({ recordingUrl }),
+    }),
+  twowayReview: (id: string, body: { rating: number; notes: string }) =>
+    http<{ ok: boolean }>(`/sessions/${id}/twoway/review`, { method: 'POST', body: JSON.stringify(body) }),
 }
 
 /* ─── Chatbot (conversational) track ────────────────────────────────────── */
