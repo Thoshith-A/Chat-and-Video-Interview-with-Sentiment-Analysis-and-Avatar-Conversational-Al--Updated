@@ -43,7 +43,13 @@ export function DailyVideoTile({ participant, muted = false, label }: Props) {
     el.srcObject = audioTrack ? new MediaStream([audioTrack]) : null
   }, [audioTrack, isLocal])
 
-  const camOff = participant.tracks.video.state !== 'playable' && !videoTrack
+  // Daily's persistentTrack often survives a camera toggle-off (the track
+  // object sticks around even though it's not producing frames), so gating
+  // on "no track" as well as state kept this stuck showing stale video
+  // instead of the placeholder. 'sendable'/'loading' aren't off — only these
+  // three states mean the camera itself isn't producing playable video.
+  const videoState = participant.tracks.video.state
+  const camOff = videoState === 'off' || videoState === 'blocked' || videoState === 'interrupted'
   const micMuted = !audioTrack || participant.tracks.audio.state === 'off'
   const name = label ?? (participant.user_name || (isLocal ? 'You' : 'Guest'))
 
