@@ -32,9 +32,9 @@ invitesRouter.post('/extract', upload.single('file'), ah(async (req, res) => {
  *    modes onto it (so the Flutter app never chokes) and keep the precise track
  *    in an additive `mode` field the web candidate flow reads. ────────────── */
 export const typeForMode = (mode: TrackType): 'video' | 'chat' =>
-  (mode === 'video_avatar' || mode === 'video' ? 'video' : 'chat')
+  (mode === 'video_avatar' || mode === 'video' || mode === 'two_way' ? 'video' : 'chat')
 export const MODE_LABEL: Record<string, string> = {
-  chatbot: 'Chatbot', voice: 'Voice', video_avatar: 'Video Avatar', chat: 'Timed Q&A', video: 'Video Interview',
+  chatbot: 'Chatbot', voice: 'Voice', video_avatar: 'Video Avatar', chat: 'Timed Q&A', video: 'Video Interview', two_way: 'Two-way Interview',
 }
 
 function inviteEmail(role: string, fromName: string, link: string, candidateEmail: string) {

@@ -6,7 +6,7 @@
 
 /* ─── Core config ───────────────────────────────────────────────────────── */
 
-export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice' | 'video'
+export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice' | 'video' | 'two_way'
 export type QuestionSource = 'adaptive' | 'fixed'
 
 /* ─── Identity & access control (IAM) ───────────────────────────────────────
@@ -292,6 +292,9 @@ export interface InterviewSession {
   // Video-avatar track: id of the live Tavus conversation created for this
   // session (server-side), so the server can end it on completion.
   tavusConversationId?: string
+  // Two-way Interview: name of the live Daily room this session's recruiter↔
+  // candidate call takes place in (server-created; joined by both parties).
+  liveRoomName?: string
   // Video Interview: AWS Rekognition facial summary captured on the candidate
   // device and uploaded on completion. Opaque JSON (client owns the shape).
   facialSummary?: Record<string, unknown>
@@ -348,6 +351,9 @@ export interface ResultReport {
   notEvaluated?: boolean
   /** Text-based communication/sentiment read (conversation tracks). */
   sentiment?: SentimentSignals
+  /** Recruiter's manual rating/notes (two-way live interviews are recruiter-
+   *  scored, not model-scored) — additive overlay on top of any auto report. */
+  manualReview?: { rating: number; notes: string; by?: string; at: string }
 }
 
 /* ─── Client-safe DTOs (what the candidate browser is allowed to receive) ── */
@@ -569,6 +575,15 @@ export interface AvatarSettingsStatus {
 export interface AvatarStartResponse {
   conversationUrl: string
   totalQuestions: number
+}
+
+/* ─── Two-way Interview (live recruiter↔candidate, Daily) ───────────────── */
+
+/** POST /sessions/:id/two-way/join response — room + per-caller access token. */
+export interface TwoWayJoinResponse {
+  roomUrl: string
+  token: string
+  isOwner: boolean
 }
 
 /* ─── Chatbot track — client-safe DTOs & requests ───────────────────────── */

@@ -28,6 +28,7 @@ const TRACK_LABEL: Record<string, string> = {
   voice: 'Voice',
   video_avatar: 'Video Avatar',
   video: 'Video Interview',
+  two_way: 'Two-way Interview',
 }
 
 const scoreColor = (s: number) => (s >= 75 ? '#16a34a' : s >= 55 ? '#d97706' : '#dc2626')

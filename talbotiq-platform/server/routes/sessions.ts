@@ -199,7 +199,7 @@ sessionsRouter.post('/:id/track', ah((req, res) => {
   if (session.status !== 'created' && session.status !== 'system_check')
     throw new HttpError(409, 'Track can only be chosen before the interview begins')
   const track = req.body?.track
-  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice' && track !== 'video')
+  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice' && track !== 'video' && track !== 'two_way')
     throw new HttpError(400, 'Invalid track')
   session.track = track
   db.scheduleSave()
@@ -831,7 +831,7 @@ sessionsRouter.get('/mine', ah(async (req, res) => {
       if (seen.has(doc.id)) continue
       const d = doc.data() as Record<string, unknown>
       const mode = d.mode as string | undefined
-      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat' || mode === 'video')
+      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat' || mode === 'video' || mode === 'two_way')
         ? mode
         : d.type === 'video' ? 'video_avatar' as const : 'chat' as const
       const created = (d.createdAt as { toDate?: () => Date } | undefined)?.toDate?.()?.toISOString() ?? new Date().toISOString()
@@ -863,7 +863,7 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
   // empty, fall back to the PLANNED question script so the report still shows
   // what the interview asked instead of an empty accordion.
   const isConversation =
-    session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice' || session.track === 'video'
+    session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice' || session.track === 'video' || session.track === 'two_way'
   const groups = isConversation ? primaryQuestionGroups(session) : []
   const questions = isConversation
     ? groups.length > 0
