@@ -45,15 +45,18 @@ export function buildRoomProperties(nowSec: number): Record<string, unknown> {
 
 /** Idempotent: create the room if absent, else return the existing one. */
 export async function ensureRoom(roomName: string): Promise<{ name: string; url: string }> {
-  try {
-    return await daily(`/rooms/${roomName}`, { method: 'GET' })
-  } catch {
-    const now = Math.floor(Date.now() / 1000)
-    return await daily('/rooms', {
-      method: 'POST',
-      body: JSON.stringify({ name: roomName, privacy: 'private', properties: buildRoomProperties(now) }),
-    })
+  const res = await fetch(`${DAILY_BASE}/rooms/${roomName}`, { headers: { Authorization: `Bearer ${key()}` } })
+  if (res.ok) return res.json() as Promise<{ name: string; url: string }>
+  if (res.status !== 404) {
+    const err = (await res.json().catch(() => null)) as { info?: string; error?: string } | null
+    throw new HttpError(502, err?.info ?? err?.error ?? `Daily error (HTTP ${res.status})`)
   }
+  // 404 → room doesn't exist yet → create it (idempotent)
+  const now = Math.floor(Date.now() / 1000)
+  return daily('/rooms', {
+    method: 'POST',
+    body: JSON.stringify({ name: roomName, privacy: 'private', properties: buildRoomProperties(now) }),
+  })
 }
 
 /** Meeting-token properties — owner (recruiter) gets cloud recording; candidate does not. */
