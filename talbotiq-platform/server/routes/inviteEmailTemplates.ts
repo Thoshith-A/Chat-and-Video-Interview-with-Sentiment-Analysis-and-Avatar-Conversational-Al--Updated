@@ -13,13 +13,17 @@ import { randomUUID } from 'node:crypto'
 import { db } from '../store/db'
 import { ah, HttpError } from '../util/ah'
 import { requireAuth } from '../middleware/auth'
-import { defaultInviteEmailTemplate } from '../../shared/inviteEmail'
-import type { AuthContext, InviteEmailTemplate } from '../../shared/types'
+import { defaultTemplateFor, kindOf } from '../../shared/inviteEmail'
+import type { AuthContext, EmailKind, InviteEmailTemplate } from '../../shared/types'
 
 export const inviteEmailTemplatesRouter = Router()
 
 /** Owner check — admins (recruiter + admin overlay) may see every template. */
 const owns = (t: InviteEmailTemplate, auth: AuthContext) => auth.admin || t.recruiterId === auth.uid
+
+const EMAIL_KINDS: EmailKind[] = ['invite', 'advance', 'selected', 'rejection']
+const parseKind = (v: unknown): EmailKind =>
+  (EMAIL_KINDS as string[]).includes(String(v)) ? (v as EmailKind) : 'invite'
 
 /** Load a template the caller owns, or 404 (no existence leak). */
 function loadOwned(id: string, auth: AuthContext): InviteEmailTemplate {
@@ -31,8 +35,10 @@ function loadOwned(id: string, auth: AuthContext): InviteEmailTemplate {
 /** Sanitise + coerce an incoming template body into stored shape (server owns id/owner/timestamps). */
 function normalize(body: unknown): Omit<InviteEmailTemplate, 'id' | 'recruiterId' | 'createdAt' | 'updatedAt'> {
   const b = (body ?? {}) as Record<string, any>
-  const d = defaultInviteEmailTemplate()
+  const kind = parseKind(b.kind)
+  const d = defaultTemplateFor(kind)
   return {
+    kind,
     name: (typeof b.name === 'string' && b.name.trim()) || d.name,
     isDefault: Boolean(b.isDefault),
     sender: {
@@ -43,7 +49,7 @@ function normalize(body: unknown): Omit<InviteEmailTemplate, 'id' | 'recruiterId
     subject: typeof b.subject === 'string' ? b.subject : d.subject,
     bodyHtml: typeof b.bodyHtml === 'string' ? b.bodyHtml : d.bodyHtml,
     cta: {
-      text: (typeof b.cta?.text === 'string' && b.cta.text.trim()) || d.cta.text,
+      text: typeof b.cta?.text === 'string' ? b.cta.text : d.cta.text,
       color: (typeof b.cta?.color === 'string' && b.cta.color.trim()) || d.cta.color,
     },
     branding: {
@@ -56,26 +62,28 @@ function normalize(body: unknown): Omit<InviteEmailTemplate, 'id' | 'recruiterId
   }
 }
 
-/** Seed one owned default for a recruiter who has none yet. */
-function seedDefault(auth: AuthContext): InviteEmailTemplate {
+/** Seed one owned default for a recruiter who has none yet, for the given kind. */
+function seedDefault(auth: AuthContext, kind: EmailKind = 'invite'): InviteEmailTemplate {
   const now = new Date().toISOString()
   const tpl: InviteEmailTemplate = {
     id: randomUUID(),
     recruiterId: auth.uid,
     createdAt: now,
     updatedAt: now,
-    ...defaultInviteEmailTemplate(),
+    ...defaultTemplateFor(kind),
   }
   db.inviteEmailTemplates.set(tpl.id, tpl)
   db.scheduleSave()
   return tpl
 }
 
-// List (owner-filtered). Auto-seeds a default the first time a recruiter has none.
+// List (owner-filtered, kind-filtered). Auto-seeds a default the first time a recruiter has none of that kind.
+// No `kind` query param → defaults to 'invite', matching pre-kind-support behaviour exactly.
 inviteEmailTemplatesRouter.get('/', ah((req, res) => {
   const auth = requireAuth(req)
-  let mine = [...db.inviteEmailTemplates.values()].filter((t) => owns(t, auth))
-  if (mine.length === 0) mine = [seedDefault(auth)]
+  const kind = parseKind(req.query.kind)
+  let mine = [...db.inviteEmailTemplates.values()].filter((t) => owns(t, auth) && kindOf(t) === kind)
+  if (mine.length === 0) mine = [seedDefault(auth, kind)]
   res.json(mine.sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name)))
 }))
 

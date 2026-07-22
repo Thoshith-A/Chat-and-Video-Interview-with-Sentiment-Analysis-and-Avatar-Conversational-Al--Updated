@@ -5,7 +5,8 @@
  */
 import { db } from '../store/db'
 import { __test } from './inviteEmailTemplates'
-import type { AuthContext, InviteEmailTemplate } from '../../shared/types'
+import { kindOf } from '../../shared/inviteEmail'
+import type { AuthContext, InviteEmailTemplate, EmailKind } from '../../shared/types'
 
 const { owns, normalize, loadOwned, seedDefault } = __test
 
@@ -77,6 +78,26 @@ console.log('\n=== seedDefault ===')
   assert('seed marked default', seeded.isDefault === true)
   assert('seed passes into store', db.inviteEmailTemplates.size === before + 1)
   db.inviteEmailTemplates.delete(seeded.id)
+}
+
+{
+  const { normalize, seedDefault } = __test
+  // normalize defaults kind to 'invite' and preserves a valid kind
+  assert('normalize defaults kind invite', (normalize({}) as any).kind === 'invite')
+  assert('normalize keeps advance kind', (normalize({ kind: 'advance' }) as any).kind === 'advance')
+  assert('normalize rejects bogus kind', (normalize({ kind: 'bogus' }) as any).kind === 'invite')
+
+  // seedDefault(kind) creates a template of that kind
+  const adv = seedDefault(alice, 'advance' as EmailKind)
+  assert('seed advance owned by caller', adv.recruiterId === alice.uid)
+  assert('seed advance kind', kindOf(adv) === 'advance')
+  assert('seed advance requires link token', adv.bodyHtml.includes('{{interview_link}}'))
+  db.inviteEmailTemplates.delete(adv.id)
+
+  const sel = seedDefault(alice, 'selected' as EmailKind)
+  assert('seed selected kind', kindOf(sel) === 'selected')
+  assert('seed selected has no link token', !sel.bodyHtml.includes('{{interview_link}}'))
+  db.inviteEmailTemplates.delete(sel.id)
 }
 
 console.log(
