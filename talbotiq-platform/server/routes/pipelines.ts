@@ -265,50 +265,65 @@ pipelinesRouter.post('/:id/advance', ah(async (req, res) => {
   const nowIso = new Date().toISOString()
   const results: AdvanceResult['results'] = []
 
+  // Each candidate is independent: a failure (ownership/eligibility/send) for one
+  // must not discard the mutations + emails + docs already committed for earlier
+  // candidates in this batch. So every candidate's work is isolated in its own
+  // try/catch — errors become a per-candidate row in `results` instead of an
+  // aborted request, and we always persist + respond 200 with whatever we have.
   for (const pcId of ids) {
-    const c = db.pipelineCandidates.get(pcId)
-    if (!c || c.pipelineId !== pipeline.id || (c.recruiterId !== auth.uid && !auth.admin)) throw new HttpError(404, 'Candidate not found')
-    const curInterviewId = c.perRound.find((p) => p.roundIndex === c.currentRoundIndex)?.interviewId
-    const report = curInterviewId ? db.reports.get(curInterviewId) : undefined
-    const scored = !!report && typeof report.overallScore === 'number' && report.notEvaluated !== true
-    assertAdvanceable(c, target, pipeline.rounds.length, scored)
+    let email = ''
+    try {
+      const c = db.pipelineCandidates.get(pcId)
+      if (!c || c.pipelineId !== pipeline.id || (c.recruiterId !== auth.uid && !auth.admin)) throw new HttpError(404, 'Candidate not found')
+      email = c.candidateEmail
+      const curInterviewId = c.perRound.find((p) => p.roundIndex === c.currentRoundIndex)?.interviewId
+      const report = curInterviewId ? db.reports.get(curInterviewId) : undefined
+      const scored = !!report && typeof report.overallScore === 'number' && report.notEvaluated !== true
+      assertAdvanceable(c, target, pipeline.rounds.length, scored)
 
-    if (target >= pipeline.rounds.length) {
-      // Final selection — no new interviews doc, terminal email only.
-      c.status = 'selected'; c.updatedAt = nowIso
-      c.history.push({ at: nowIso, byUid: auth.uid, action: 'selected', fromRound: c.currentRoundIndex, basis })
-      let sent = false, error: string | undefined
-      if (sendEmails) {
-        const r = await sendTerminalEmail(c.candidateEmail, emailTpl, 'selected', {
-          candidate_name: c.candidateEmail.split('@')[0], role: c.role,
-          recruiter_name: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ',
-          score: String(report?.overallScore ?? ''),
-        })
-        sent = r.sent; error = r.error
+      if (target >= pipeline.rounds.length) {
+        // Final selection — no new interviews doc, terminal email only.
+        c.status = 'selected'; c.updatedAt = nowIso
+        c.history.push({ at: nowIso, byUid: auth.uid, action: 'selected', fromRound: c.currentRoundIndex, basis })
+        let sent = false, error: string | undefined
+        if (sendEmails) {
+          const r = await sendTerminalEmail(c.candidateEmail, emailTpl, 'selected', {
+            candidate_name: c.candidateEmail.split('@')[0], role: c.role,
+            recruiter_name: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ',
+            score: String(report?.overallScore ?? ''),
+          })
+          sent = r.sent; error = r.error
+        }
+        c.history[c.history.length - 1].emailResult = sent ? 'accepted' : sendEmails ? 'failed' : 'skipped'
+        results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: 'selected', sent, error })
+      } else {
+        const round = pipeline.rounds[target]
+        const questions = round.source === 'set' && round.questionSetId
+          ? (db.questionSets.get(round.questionSetId)?.questions.map((q) => q.text) ?? [])
+          : []
+        const ctx: SendCtx = {
+          testId: randomUUID(), recruiterId: auth.uid, recruiterEmail: auth.email, recruiterName: null, nowIso,
+          mode: round.mode, questions, source: round.source, config: round.config, questionSetId: round.questionSetId,
+          pipeline: { pipelineId: pipeline.id, roundIndex: target, pipelineCandidateId: pcId },
+          origin, fromName: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ', deadline: emailTpl?.deadlineText || '',
+        }
+        const row = await createAndSendInterview(
+          ctx, { email: c.candidateEmail, role: c.role }, emailTpl, sendEmails,
+          { emailKind: 'advance', roundName: round.name, previousRoundName: pipeline.rounds[c.currentRoundIndex]?.name, score: String(report?.overallScore ?? '') },
+        )
+        c.perRound.push({ roundIndex: target, interviewId: row.id, invitedAt: nowIso })
+        c.history.push({ at: nowIso, byUid: auth.uid, action: 'advanced', fromRound: c.currentRoundIndex, toRound: target, basis, emailResult: row.sent ? 'accepted' : sendEmails ? 'failed' : 'skipped' })
+        c.currentRoundIndex = target; c.status = 'in_round'; c.updatedAt = nowIso
+        results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: target, sent: row.sent, error: row.error })
       }
-      c.history[c.history.length - 1].emailResult = sent ? 'accepted' : sendEmails ? 'failed' : 'skipped'
-      results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: 'selected', sent, error })
-    } else {
-      const round = pipeline.rounds[target]
-      const questions = round.source === 'set' && round.questionSetId
-        ? (db.questionSets.get(round.questionSetId)?.questions.map((q) => q.text) ?? [])
-        : []
-      const ctx: SendCtx = {
-        testId: randomUUID(), recruiterId: auth.uid, recruiterEmail: auth.email, recruiterName: null, nowIso,
-        mode: round.mode, questions, source: round.source, config: round.config, questionSetId: round.questionSetId,
-        pipeline: { pipelineId: pipeline.id, roundIndex: target, pipelineCandidateId: pcId },
-        origin, fromName: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ', deadline: emailTpl?.deadlineText || '',
-      }
-      const row = await createAndSendInterview(
-        ctx, { email: c.candidateEmail, role: c.role }, emailTpl, sendEmails,
-        { emailKind: 'advance', roundName: round.name, previousRoundName: pipeline.rounds[c.currentRoundIndex]?.name, score: String(report?.overallScore ?? '') },
-      )
-      c.perRound.push({ roundIndex: target, interviewId: row.id, invitedAt: nowIso })
-      c.history.push({ at: nowIso, byUid: auth.uid, action: 'advanced', fromRound: c.currentRoundIndex, toRound: target, basis, emailResult: row.sent ? 'accepted' : sendEmails ? 'failed' : 'skipped' })
-      c.currentRoundIndex = target; c.status = 'in_round'; c.updatedAt = nowIso
-      results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: target, sent: row.sent, error: row.error })
+      db.pipelineCandidates.set(c.id, c)
+    } catch (e) {
+      results.push({
+        pipelineCandidateId: pcId, email,
+        toRound: target >= pipeline.rounds.length ? 'selected' : target,
+        error: e instanceof Error ? e.message : String(e),
+      })
     }
-    db.pipelineCandidates.set(c.id, c)
   }
   db.scheduleSave()
   res.status(200).json({ pipelineId: pipeline.id, results } as AdvanceResult)
@@ -328,24 +343,36 @@ pipelinesRouter.post('/:id/not-advancing', ah(async (req, res) => {
   const emailTpl = sendRejection ? resolveEmailTemplate(auth, body, 'rejection') : null
   const nowIso = new Date().toISOString()
   const results: AdvanceResult['results'] = []
+  // See /advance: each candidate's mutation + email is isolated in its own
+  // try/catch so one candidate's failure can't discard already-committed work
+  // (status changes, emails) for earlier candidates in the same batch.
   for (const pcId of ids) {
-    const c = db.pipelineCandidates.get(pcId)
-    if (!c || c.pipelineId !== pipeline.id || (c.recruiterId !== auth.uid && !auth.admin)) throw new HttpError(404, 'Candidate not found')
-    c.status = 'not_advancing'; c.updatedAt = nowIso
-    let sent = false, error: string | undefined
-    if (sendRejection) {
-      const r = await sendTerminalEmail(c.candidateEmail, emailTpl, 'rejection', {
-        candidate_name: c.candidateEmail.split('@')[0], role: c.role,
-        recruiter_name: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ',
+    let email = ''
+    try {
+      const c = db.pipelineCandidates.get(pcId)
+      if (!c || c.pipelineId !== pipeline.id || (c.recruiterId !== auth.uid && !auth.admin)) throw new HttpError(404, 'Candidate not found')
+      email = c.candidateEmail
+      c.status = 'not_advancing'; c.updatedAt = nowIso
+      let sent = false, error: string | undefined
+      if (sendRejection) {
+        const r = await sendTerminalEmail(c.candidateEmail, emailTpl, 'rejection', {
+          candidate_name: c.candidateEmail.split('@')[0], role: c.role,
+          recruiter_name: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ',
+        })
+        sent = r.sent; error = r.error
+      }
+      c.history.push({
+        at: nowIso, byUid: auth.uid, action: 'not_advancing', fromRound: c.currentRoundIndex,
+        basis: sendRejection ? 'rejection email' : 'no email', emailResult: sendRejection ? (sent ? 'accepted' : 'failed') : 'skipped',
       })
-      sent = r.sent; error = r.error
+      db.pipelineCandidates.set(c.id, c)
+      results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: 'not_advancing', sent, error })
+    } catch (e) {
+      results.push({
+        pipelineCandidateId: pcId, email, toRound: 'not_advancing',
+        error: e instanceof Error ? e.message : String(e),
+      })
     }
-    c.history.push({
-      at: nowIso, byUid: auth.uid, action: 'not_advancing', fromRound: c.currentRoundIndex,
-      basis: sendRejection ? 'rejection email' : 'no email', emailResult: sendRejection ? (sent ? 'accepted' : 'failed') : 'skipped',
-    })
-    db.pipelineCandidates.set(c.id, c)
-    results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: 'selected', sent, error }) // toRound unused for rejection
   }
   db.scheduleSave()
   res.status(200).json({ pipelineId: pipeline.id, results } as AdvanceResult)

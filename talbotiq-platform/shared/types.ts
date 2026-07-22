@@ -257,7 +257,7 @@ export interface MoveBackRequest {
 }
 export interface AdvanceResult {
   pipelineId: string
-  results: { pipelineCandidateId: string; email: string; toRound: number | 'selected'; sent?: boolean; error?: string }[]
+  results: { pipelineCandidateId: string; email: string; toRound: number | 'selected' | 'not_advancing'; sent?: boolean; error?: string }[]
 }
 
 export interface BrandingConfig {
