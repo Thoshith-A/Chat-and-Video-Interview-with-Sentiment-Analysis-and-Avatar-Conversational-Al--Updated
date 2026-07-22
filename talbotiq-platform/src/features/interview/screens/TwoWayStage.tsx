@@ -44,8 +44,11 @@ export function TwoWayStage({ sessionId, branding }: Props) {
   const [completed, setCompleted] = useState(false)
 
   const completingRef = useRef(false)
-  const cancelledRef = useRef(false)
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks whether the interviewer's tile has ever shown up on this join
+  // cycle, so a momentary drop (remote goes null again while still `joined`)
+  // reads as "reconnecting" rather than the pre-admit "waiting to be let in"
+  // copy below.
+  const hadRemoteRef = useRef(false)
 
   const finish = useCallback(async () => {
     if (completingRef.current) return
@@ -58,22 +61,31 @@ export function TwoWayStage({ sessionId, branding }: Props) {
   }, [sessionId])
 
   // Acquire the room + a knocking token, then hand off to Daily.
+  //
+  // `cancelled` is a per-invocation local (captured in this effect's closure),
+  // NOT a shared ref — under StrictMode's dev-only mount→cleanup→remount, a
+  // shared ref reset at the top of the effect body would be clobbered by the
+  // second invocation, un-cancelling the first invocation's in-flight
+  // `twowayJoin` promise and orphaning its retry timer (same pattern as
+  // AvatarStage's effect 1 above).
   useEffect(() => {
-    cancelledRef.current = false
+    let cancelled = false
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
     setJoinError(null)
     setWaitingForHost(true)
+    hadRemoteRef.current = false
 
     const attemptJoin = async () => {
       try {
         const { roomUrl, token } = await sessionsApi.twowayJoin(sessionId)
-        if (cancelledRef.current) return
+        if (cancelled) return
         setWaitingForHost(false)
         await dc.join(roomUrl, token)
       } catch (e) {
-        if (cancelledRef.current) return
+        if (cancelled) return
         const notStarted = e instanceof ApiError && e.status === 409 && /has not started/i.test(e.message)
         if (notStarted) {
-          retryTimerRef.current = setTimeout(attemptJoin, RETRY_MS)
+          retryTimer = setTimeout(() => { if (!cancelled) void attemptJoin() }, RETRY_MS)
         } else {
           setJoinError(e instanceof Error ? e.message : 'Could not join the interview')
         }
@@ -82,8 +94,8 @@ export function TwoWayStage({ sessionId, branding }: Props) {
     void attemptJoin()
 
     return () => {
-      cancelledRef.current = true
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
+      cancelled = true
+      clearTimeout(retryTimer)
     }
     // dc.join has a stable identity for the lifetime of this hook instance.
   }, [sessionId, attempt, dc.join])
@@ -101,6 +113,7 @@ export function TwoWayStage({ sessionId, branding }: Props) {
   }, [dc.leave])
 
   const remote = dc.participants[0] ?? null
+  if (remote) hadRemoteRef.current = true
 
   /* ── finished ── */
   if (completed) {
@@ -188,7 +201,9 @@ export function TwoWayStage({ sessionId, branding }: Props) {
           <p className="text-lg font-semibold text-white">
             {waitingForHost
               ? 'Waiting for the interviewer to start the interview…'
-              : 'Waiting for the interviewer to admit you…'}
+              : dc.callState === 'joined' && hadRemoteRef.current
+                ? 'Reconnecting…' // was live; the interviewer's tile just dropped momentarily
+                : 'Waiting for the interviewer to admit you…'}
           </p>
           <p className="max-w-sm text-sm text-neutral-400">
             Your camera and mic are ready — you’ll be connected the moment the interviewer lets you in.
