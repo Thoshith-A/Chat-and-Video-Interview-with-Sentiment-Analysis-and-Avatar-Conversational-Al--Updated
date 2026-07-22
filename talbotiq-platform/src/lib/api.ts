@@ -36,6 +36,10 @@ import type {
   PipelineInviteRequest,
   PipelineInviteResult,
   PipelineBoard,
+  AdvanceRequest,
+  NotAdvancingRequest,
+  MoveBackRequest,
+  AdvanceResult,
 } from '@shared/types'
 
 const BASE = '/api'
@@ -280,6 +284,12 @@ export const pipelinesApi = {
   inviteRound1: (id: string, body: PipelineInviteRequest) =>
     http<PipelineInviteResult>(`/pipelines/${id}/invite`, { method: 'POST', body: JSON.stringify(body) }),
   board: (id: string) => http<PipelineBoard>(`/pipelines/${id}/board`),
+  advance: (id: string, body: AdvanceRequest) =>
+    http<AdvanceResult>(`/pipelines/${id}/advance`, { method: 'POST', body: JSON.stringify(body) }),
+  notAdvancing: (id: string, body: NotAdvancingRequest) =>
+    http<AdvanceResult>(`/pipelines/${id}/not-advancing`, { method: 'POST', body: JSON.stringify(body) }),
+  moveBack: (id: string, body: MoveBackRequest) =>
+    http<{ ok: boolean }>(`/pipelines/${id}/move-back`, { method: 'POST', body: JSON.stringify(body) }),
 }
 
 /* ─── Analytics (aggregate dashboard) ───────────────────────────────────── */
