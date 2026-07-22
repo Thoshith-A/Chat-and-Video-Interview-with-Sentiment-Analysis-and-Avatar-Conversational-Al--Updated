@@ -154,6 +154,12 @@ export interface Pipeline {
   updatedAt: string
 }
 
+export interface CreatePipelineRequest {
+  role: string
+  name?: string
+  rounds: RoundDef[]
+}
+
 export type PipelineCandidateStatus = 'in_round' | 'advanced' | 'selected' | 'not_advancing'
 
 export interface RoundProgress {

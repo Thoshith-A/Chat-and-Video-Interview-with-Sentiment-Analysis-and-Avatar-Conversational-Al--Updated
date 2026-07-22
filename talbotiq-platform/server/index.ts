@@ -10,6 +10,7 @@ import { voicesRouter } from './routes/voices'
 import { analyticsRouter } from './routes/analytics'
 import { invitesRouter } from './routes/invites'
 import { inviteEmailTemplatesRouter } from './routes/inviteEmailTemplates'
+import { pipelinesRouter } from './routes/pipelines'
 import { brevoWebhookRouter } from './routes/brevoWebhook'
 import { avatarRouter } from './routes/avatar'
 import { authRouter } from './routes/auth'
@@ -56,6 +57,7 @@ app.use('/api/analytics', authenticate, requireRecruiter, analyticsRouter)
 app.use('/api/invites/brevo-webhook', brevoWebhookRouter)
 app.use('/api/invites', authenticate, requireRecruiter, invitesRouter)
 app.use('/api/invite-email-templates', authenticate, requireRecruiter, inviteEmailTemplatesRouter)
+app.use('/api/pipelines', authenticate, requireRecruiter, pipelinesRouter)
 // Mounted BEFORE /api/avatar so it wins for this path: it carries its own auth
 // that also accepts ?token= (video tags can't send the Authorization header).
 app.use('/api/avatar/face-cache', faceCacheRouter)
