@@ -22,6 +22,7 @@ import QuestionSetsPage from '@/features/recruiter/QuestionSetsPage'
 import SessionsPage from '@/features/recruiter/SessionsPage'
 import InviteWizard from '@/features/recruiter/InviteWizard'
 import ReportPage from '@/features/recruiter/ReportPage'
+import LiveInterviewPage from '@/features/recruiter/LiveInterviewPage'
 import TakeInterviewPage from '@/features/interview/TakeInterviewPage'
 import MimicGuide from '@/features/guide/MimicGuide'
 import { IntroFaceSync } from '@/features/intro/IntroFaceSync'
@@ -64,6 +65,10 @@ export default function App() {
 
             {/* Recruiter-only — the full recruiter app */}
             <Route element={<RequireRecruiter />}>
+              {/* Live Two-way Interview host room — full-bleed dark call UI
+                  (mirrors the candidate's TwoWayStage), so it deliberately
+                  sits OUTSIDE RecruiterShell (no Nav chrome on a live call). */}
+              <Route path="/live/:id" element={<LiveInterviewPage />} />
               <Route element={<RecruiterShell />}>
                 <Route path="/setup" element={<SetupPage />} />
                 {/* Face-fit pre-flight runs first, then hands off to the
