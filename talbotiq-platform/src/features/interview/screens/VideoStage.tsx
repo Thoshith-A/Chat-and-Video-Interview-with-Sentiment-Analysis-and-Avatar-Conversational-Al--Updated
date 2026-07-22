@@ -3,7 +3,6 @@ import { motion, useReducedMotion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle, Circle, Send, FastForward, Loader2, Camera } from 'lucide-react'
 import { CircularCountdown } from '../components/CircularCountdown'
 import { useAnswerRecorder } from '../useAnswerRecorder'
-import { uploadAnswerVideo } from '@/lib/storage'
 import { sessionsApi } from '@/lib/api'
 import type { CandidateSessionState } from '@shared/types'
 
@@ -15,18 +14,19 @@ interface Props {
   busy: boolean
   rec: ReturnType<typeof useAnswerRecorder>
   onSkipPrep: () => void
-  onSubmitVideo: (videoUrl: string) => Promise<boolean>
+  onSubmitText: (answerText: string) => Promise<boolean>
   onIntegrity?: (type: string) => void
 }
 
 /**
  * Video Interview answer screen. Runs on the shared timed engine: 30s prep
- * (camera preview live) → answer phase auto-starts recording → the candidate
- * submits (or a small client buffer before the server deadline auto-submits),
- * which stops recording, uploads the clip to Firebase Storage, and submits the
- * download URL. The server transcribes + scores it (Tasks 4/1).
+ * (camera preview live) → answer phase auto-starts live transcription off the
+ * shared stream's audio track (Deepgram relay) → the candidate submits (or a
+ * small client buffer before the server deadline auto-submits), which stops
+ * transcribing and submits the accumulated transcript as the answer text. No
+ * video is recorded/uploaded.
  */
-export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec, onSkipPrep, onSubmitVideo, onIntegrity }: Props) {
+export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec, onSkipPrep, onSubmitText, onIntegrity }: Props) {
   const reduce = useReducedMotion()
   const { phase, timing, question, branding } = state
   const videoEl = useRef<HTMLVideoElement>(null)
@@ -43,8 +43,8 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
   useEffect(() => { void rec.acquire().catch(() => onIntegrity?.('camera_denied')) }, [])            // acquire once
   useEffect(() => { if (rec.ready && videoEl.current) rec.attachPreview(videoEl.current) }, [rec.ready])
 
-  // Start recording when the answer phase opens.
-  useEffect(() => { if (isAnswer && rec.ready && !rec.recording) rec.startRecording() }, [isAnswer, rec.ready, rec.recording])
+  // Start live transcription when the answer phase opens.
+  useEffect(() => { if (isAnswer && rec.ready && !rec.recording) rec.startTranscribing() }, [isAnswer, rec.ready, rec.recording])
 
   // Facial capture (Task 7): start once the camera is ready (startFacial is
   // idempotent, so this is safe across VideoStage remounts per question), and
@@ -55,15 +55,11 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
   const doSubmit = async () => {
     if (submittingRef.current || !question) return
     submittingRef.current = true
-    setUploading(true)
+    setUploading(true)                         // reuse as a brief "submitting" state
     try {
-      const blob = await rec.stopRecording()
-      const url = await uploadAnswerVideo(sessionId, question.id, blob)
-      const ok = await onSubmitVideo(url)
-      if (!ok) {
-        setSubmitFailed(true)
-        console.error('[video] answer submit failed (deadline/network) for', question.id)
-      }
+      const transcript = await rec.stopTranscribing()
+      const ok = await onSubmitText(transcript)
+      if (!ok) setSubmitFailed(true)
     } catch (err) {
       console.error('[video] submit failed', err)
       setSubmitFailed(true)
@@ -84,8 +80,8 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
     }
   }
 
-  // Client-side pre-emptive submit ~3s before the server deadline so the clip is
-  // uploaded before the engine's own empty auto-submit can advance the question.
+  // Client-side pre-emptive submit ~3s before the server deadline so the transcript
+  // is submitted before the engine's own empty auto-submit advances the question.
   useEffect(() => {
     if (isAnswer && secondsLeft <= 3 && !submittingRef.current) void doSubmit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -133,19 +129,19 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
         )}
         {!isAnswer && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-sm text-white/90">
-            <span className="max-w-xs px-4">Read the question and get ready. Recording starts automatically when the answer timer begins.</span>
+            <span className="max-w-xs px-4">Read the question and get ready. Answer aloud — the timer starts your response.</span>
           </div>
         )}
         {uploading && (
           <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 text-sm font-medium text-white">
-            <Loader2 size={18} className="animate-spin" /> Uploading your answer…
+            <Loader2 size={18} className="animate-spin" /> Saving your answer…
           </div>
         )}
       </div>
 
       {submitFailed && (
         <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> Your answer may not have uploaded in time. If the interview advanced, that question could be missing its recording.
+          <AlertTriangle size={15} /> Your answer may not have been submitted. If the interview advanced, that question could be missing its transcript.
         </div>
       )}
       {rec.error && (
@@ -155,7 +151,7 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
       )}
       {warning && !uploading && (
         <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> {secondsLeft}s left — recording stops and your answer uploads automatically.
+          <AlertTriangle size={15} /> {secondsLeft}s left — your answer submits automatically.
         </div>
       )}
 
@@ -191,7 +187,7 @@ interface VideoInterviewProps {
   secondsLeft: number
   busy: boolean
   onSkipPrep: () => void
-  onSubmitVideo: (videoUrl: string) => Promise<boolean>
+  onSubmitText: (answerText: string) => Promise<boolean>
   onIntegrity?: (type: string) => void
 }
 

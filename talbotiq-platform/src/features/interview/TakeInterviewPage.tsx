@@ -14,6 +14,7 @@ import { QuestionStage } from './screens/QuestionStage'
 import { ChatbotStage } from './screens/ChatbotStage'
 import { AvatarStage } from './screens/AvatarStage'
 import { VoiceStage } from './screens/VoiceStage'
+import { TwoWayStage } from './screens/TwoWayStage'
 import { VideoInterview } from './screens/VideoStage'
 import { Completion } from './screens/Completion'
 import type { BrandingConfig } from '@shared/types'
@@ -99,6 +100,16 @@ export default function TakeInterviewPage() {
   if (s.track === 'voice' && (chatbotStarted || s.status === 'in_progress')) {
     return <VoiceStage sessionId={sessionId} branding={branding} />
   }
+  // Two-way track is a live recruiter↔candidate Daily call (own full-screen
+  // room, not the timed engine) — reconnects (status already in_progress)
+  // skip straight back into the lobby/room.
+  if (s.track === 'two_way' && (chatbotStarted || s.status === 'in_progress')) {
+    // No onIntegrity here: TwoWayStage has no paste/copy fields or camera
+    // pre-flight of its own to report on, and tab-switch/fullscreen detection
+    // already runs unconditionally in the useIntegrityMonitor hook above
+    // (keyed only on `active`, not on which stage is rendered).
+    return <TwoWayStage sessionId={sessionId} branding={branding} />
+  }
 
   if (s.status === 'in_progress') {
     if (s.track === 'video') {
@@ -111,7 +122,7 @@ export default function TakeInterviewPage() {
             secondsLeft={clock.secondsLeft}
             busy={clock.busy}
             onSkipPrep={clock.skipPrep}
-            onSubmitVideo={clock.submitVideo}
+            onSubmitText={clock.submitText}
             onIntegrity={integrity.post}
           />
         </InterviewShell>
@@ -138,7 +149,7 @@ export default function TakeInterviewPage() {
 
   // status: created | system_check → pre-interview screens.
   // The chatbot/voice track's format is fixed by the template, so skip "choose format".
-  const conversational = s.track === 'chatbot' || s.track === 'video_avatar' || s.track === 'voice'
+  const conversational = s.track === 'chatbot' || s.track === 'video_avatar' || s.track === 'voice' || s.track === 'two_way'
   // Video Interview's format is fixed by the invite too — skip "choose format",
   // but it runs on the timed engine (not the conversational full-screen engines).
   const fixedFormat = conversational || s.track === 'video'

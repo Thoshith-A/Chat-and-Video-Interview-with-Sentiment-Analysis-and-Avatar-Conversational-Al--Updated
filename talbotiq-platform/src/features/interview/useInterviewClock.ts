@@ -109,18 +109,18 @@ export function useInterviewClock(sessionId: string) {
     return action(() => sessionsApi.submitAnswer(sessionId, { questionId: qid, answerText, ...(videoUrl ? { videoUrl } : {}) }))
   }
 
-  // Video Interview: unlike `submit` (which goes through `action` and swallows
-  // errors), this reports whether the submit actually landed so the caller can
-  // surface a failed/late submit instead of silently advancing.
-  const submitVideo = async (videoUrl: string): Promise<boolean> => {
+  // Non-swallowing submit for the Video Interview: unlike `action()`, this
+  // reports success/failure so the caller can surface a failed/late submit
+  // (a stale-question 409, or a network error) instead of silently advancing.
+  const submitText = async (answerText: string): Promise<boolean> => {
     const qid = state?.question?.id
     if (!qid) return false
     setBusy(true)
     try {
-      apply(await sessionsApi.submitAnswer(sessionId, { questionId: qid, answerText: '', videoUrl }))
+      apply(await sessionsApi.submitAnswer(sessionId, { questionId: qid, answerText }))
       return true
     } catch {
-      refresh() // 409 = server already auto-advanced (deadline beat us); resync
+      refresh()   // 409/network — resync; report failure so the UI can surface it
       return false
     } finally {
       setBusy(false)
@@ -153,7 +153,7 @@ export function useInterviewClock(sessionId: string) {
     begin,
     skipPrep,
     submit,
-    submitVideo,
+    submitText,
     saveDraft,
     completeNow,
     refresh,

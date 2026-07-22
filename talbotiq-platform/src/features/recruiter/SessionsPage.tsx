@@ -136,7 +136,7 @@ export default function SessionsPage() {
                   </td>
                   <td className="px-5 py-3 text-neutral-600">{s.templateName}</td>
                   <td className="px-5 py-3 text-neutral-600">
-                    {s.track === 'video_avatar' ? 'Video Avatar' : s.track === 'voice' ? 'Voice' : s.track === 'chatbot' ? 'Chatbot' : s.track === 'video' ? 'Video Interview' : 'Chat'}
+                    {s.track === 'video_avatar' ? 'Video Avatar' : s.track === 'voice' ? 'Voice' : s.track === 'chatbot' ? 'Chatbot' : s.track === 'video' ? 'Video Interview' : s.track === 'two_way' ? 'Two-way Interview' : 'Chat'}
                   </td>
                   <td className="px-5 py-3">
                     <Badge variant={statusVariant[s.status] ?? 'neutral'}>{s.status.replace('_', ' ')}</Badge>
@@ -155,6 +155,14 @@ export default function SessionsPage() {
                       >
                         Copy link
                       </button>
+                      {s.track === 'two_way' && s.status !== 'completed' && s.status !== 'expired' && (
+                        <Link
+                          to={`/live/${s.id}`}
+                          className="text-xs font-semibold text-primary-700 hover:underline"
+                        >
+                          Join live interview →
+                        </Link>
+                      )}
                       {s.status === 'completed' && (
                         <Link
                           to={`/sessions/${s.id}/report`}

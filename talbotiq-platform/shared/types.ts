@@ -6,7 +6,7 @@
 
 /* ─── Core config ───────────────────────────────────────────────────────── */
 
-export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice' | 'video'
+export type TrackType = 'chat' | 'chatbot' | 'video_avatar' | 'voice' | 'video' | 'two_way'
 export type QuestionSource = 'adaptive' | 'fixed'
 
 /* ─── Identity & access control (IAM) ───────────────────────────────────────
@@ -292,6 +292,16 @@ export interface InterviewSession {
   // Video-avatar track: id of the live Tavus conversation created for this
   // session (server-side), so the server can end it on completion.
   tavusConversationId?: string
+  // Two-way Interview: name of the live Daily room this session's recruiter↔
+  // candidate call takes place in (server-created; joined by both parties).
+  liveRoomName?: string
+  // Two-way Interview: URL of the call recording (once uploaded), transcribed
+  // on /twoway/complete to produce the scoring transcript. Additive.
+  recordingUrl?: string
+  // Two-way Interview: recruiter's manual rating/notes, set via /twoway/review.
+  // The session is the source of truth (never lost, even before a report
+  // exists) — mirrored onto ResultReport.manualReview for display. Additive.
+  manualReview?: { rating: number; notes: string; by?: string; at: string }
   // Video Interview: AWS Rekognition facial summary captured on the candidate
   // device and uploaded on completion. Opaque JSON (client owns the shape).
   facialSummary?: Record<string, unknown>
@@ -348,6 +358,9 @@ export interface ResultReport {
   notEvaluated?: boolean
   /** Text-based communication/sentiment read (conversation tracks). */
   sentiment?: SentimentSignals
+  /** Recruiter's manual rating/notes (two-way live interviews are recruiter-
+   *  scored, not model-scored) — additive overlay on top of any auto report. */
+  manualReview?: { rating: number; notes: string; by?: string; at: string }
 }
 
 /* ─── Client-safe DTOs (what the candidate browser is allowed to receive) ── */
@@ -460,6 +473,11 @@ export interface SessionReportView {
     tabSwitchCount: number
     /** Full conversation transcript (chatbot / voice / video_avatar tracks). */
     transcript?: SessionReportTurn[]
+    /** Two-way Interview: URL of the call recording, for report playback. Additive. */
+    recordingUrl?: string
+    /** Two-way Interview: recruiter's manual rating/notes (session is the source of
+     *  truth — see /twoway/review — so this is present even before a report exists). */
+    manualReview?: { rating: number; notes: string; by?: string; at: string }
   }
   rubric: KpiRubric
   report: ResultReport | null
@@ -571,6 +589,15 @@ export interface AvatarStartResponse {
   totalQuestions: number
 }
 
+/* ─── Two-way Interview (live recruiter↔candidate, Daily) ───────────────── */
+
+/** POST /sessions/:id/two-way/join response — room + per-caller access token. */
+export interface TwoWayJoinResponse {
+  roomUrl: string
+  token: string
+  isOwner: boolean
+}
+
 /* ─── Chatbot track — client-safe DTOs & requests ───────────────────────── */
 
 export interface ChatbotPublicTiming {
@@ -655,7 +682,9 @@ export interface ExtractCandidatesResult {
 export interface CreateInvitesRequest {
   mode: TrackType                                   // Chatbot / Voice / Video Avatar / Timed Q&A
   role: string                                      // batch candidate role (Step 1)
-  source: 'tailor' | 'set'
+  // Omitted only for 'two_way' — a live recruiter-led call has no scripted
+  // question source to configure (no résumé-tailored or saved-set questions).
+  source?: 'tailor' | 'set'
   config?: {                                        // tailor-per-résumé generation params (§2)
     style: QuestionStyle
     techCount: number

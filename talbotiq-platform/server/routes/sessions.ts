@@ -11,10 +11,12 @@ import { scoreSession } from '../services/scoring'
 import { computeSpeechMetrics, analyzeSentiment } from '../services/signals'
 import { extractResumeText } from '../services/resume'
 import { generateQuestions, geminiEnabled } from '../services/gemini'
-import { transcribeVideoUrl } from '../services/transcription'
 import { detectFaces } from '../services/rekognition'
 import { createCandidateConversation, endCandidateConversation, fetchConversationTranscript } from '../services/tavusServer'
 import { materializeInviteSession, syncInviteResult } from '../services/inviteBridge'
+import { buildVideoTranscript } from '../services/videoTranscript'
+import { ensureRoom, mintToken, deleteRoom } from '../services/dailyServer'
+import { transcribeVideoUrl } from '../services/transcription'
 import {
   beginConversation, submitChatAnswer, computeChatbotState,
   advanceChatbotTiming, skipThinking, currentInterviewerTurn, turnTiming,
@@ -29,6 +31,7 @@ import type {
   SessionReportView,
   CandidateAssignedSession,
   AvatarStartResponse,
+  TwoWayJoinResponse,
   Turn,
 } from '../../shared/types'
 
@@ -108,33 +111,18 @@ function settle(session: InterviewSession, template: InterviewTemplate) {
 
 const scoringInFlight = new Set<string>()
 
-/** In-flight video-answer transcriptions per session. Video scoring waits for
- *  these so answers submitted just before the deadline are still transcribed. */
-const pendingTranscriptions = new Map<string, Promise<void>[]>()
-function trackTranscription(sessionId: string, p: Promise<unknown>) {
-  const arr = pendingTranscriptions.get(sessionId) ?? []
-  arr.push(p.then(() => undefined, () => undefined))
-  pendingTranscriptions.set(sessionId, arr)
-}
-
 function maybeScore(session: InterviewSession, template: InterviewTemplate) {
   if (session.status !== 'completed') return
   if (db.reports.has(session.id) || scoringInFlight.has(session.id)) return
   scoringInFlight.add(session.id)
-  // Video answers transcribe asynchronously; wait for them so scoring reads the
-  // real transcripts (not empty answerText) — mirrors the avatar recovery deferral.
-  const ready = session.track === 'video'
-    ? Promise.allSettled(pendingTranscriptions.get(session.id) ?? [])
-    : Promise.resolve([])
-  ready
-    .then(() => scoreSession(session, template))
+  scoreSession(session, template)
     .then((report) => {
       db.reports.set(session.id, report)
       db.scheduleSave()
       syncInviteResult(session, report) // bulk-invite: push score back to Firestore (no-op otherwise)
     })
     .catch((err) => console.error('[scoring] failed for', session.id, err))
-    .finally(() => { scoringInFlight.delete(session.id); pendingTranscriptions.delete(session.id) })
+    .finally(() => scoringInFlight.delete(session.id))
 }
 
 /* ─── candidate lifecycle ───────────────────────────────────────────────── */
@@ -214,7 +202,7 @@ sessionsRouter.post('/:id/track', ah((req, res) => {
   if (session.status !== 'created' && session.status !== 'system_check')
     throw new HttpError(409, 'Track can only be chosen before the interview begins')
   const track = req.body?.track
-  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice' && track !== 'video')
+  if (track !== 'chat' && track !== 'chatbot' && track !== 'video_avatar' && track !== 'voice' && track !== 'video' && track !== 'two_way')
     throw new HttpError(400, 'Invalid track')
   session.track = track
   db.scheduleSave()
@@ -518,6 +506,191 @@ sessionsRouter.post('/:id/avatar/complete', ah((req, res) => {
   res.json({ ok: true })
 }))
 
+/* ─── Two-way Interview (Daily) — live recruiter↔candidate video call ──────
+ * No avatar, no scripted transcript capture — the recruiter conducts the
+ * interview live; a single (interviewer, candidate) transcript pair is
+ * synthesised from the call recording on completion so it scores like any
+ * other conversation track. */
+
+// Recruiter starts (or resumes) the live call as the room owner. Creates the
+// Daily room deterministically (`room-{sessionId}`) so both `join` calls
+// converge on the same room, and mints an owner meeting token (cloud
+// recording enabled) so the candidate's later knock can be admitted.
+sessionsRouter.post('/:id/twoway/host', requireRecruiter, ah(async (req, res) => {
+  const auth = requireAuth(req)
+  // A bulk-invited two_way session doesn't exist in the LOCAL store until the
+  // candidate opens their /take/:id link at least once (materializeInviteSession
+  // creates it then — see docs/TWO_WAY_INTERVIEW.md) — until that happens there's
+  // nothing here for the recruiter to host yet. Surface that plainly instead of
+  // load()'s generic "Session not found", but only once we've confirmed THIS
+  // recruiter actually owns the underlying Firestore invite (never leak that some
+  // OTHER recruiter's invite exists at this id).
+  if (!db.sessions.has(req.params.id)) {
+    try {
+      const { adminFirestore } = await import('../services/firebaseAdmin')
+      const snap = await adminFirestore().collection('interviews').doc(req.params.id).get()
+      if (snap.exists && snap.get('recruiterId') === auth.uid) {
+        throw new HttpError(409, 'The candidate must open their interview link before you can join.')
+      }
+    } catch (err) {
+      if (err instanceof HttpError) throw err
+      // Firestore lookup is best-effort (outage / not configured) — fall through
+      // to load()'s generic 404 below rather than blocking on it.
+    }
+  }
+  const { session } = load(req)
+  assertOwner(session, auth)
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+  if (session.status === 'completed' || session.status === 'expired')
+    throw new HttpError(409, 'This interview has already ended')
+
+  const roomName = session.liveRoomName ?? `room-${session.id}`
+  const room = await ensureRoom(roomName)
+  session.liveRoomName = roomName
+  if (session.status === 'created' || session.status === 'system_check') {
+    session.status = 'in_progress'
+    session.startedAt ??= new Date().toISOString()
+  }
+  db.scheduleSave()
+
+  const token = await mintToken({ roomName, isOwner: true, userName: 'Interviewer' })
+  res.json({ roomUrl: room.url, token, isOwner: true } satisfies TwoWayJoinResponse)
+}))
+
+// Candidate joins the live call (non-owner — knocks, waits for the recruiter
+// to admit). Fails with 409 until the recruiter has started the room.
+sessionsRouter.post('/:id/twoway/join', ah(async (req, res) => {
+  const { session } = load(req) // load() enforces participant access
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+  if (session.status === 'completed' || session.status === 'expired')
+    throw new HttpError(409, 'This interview has already ended')
+  if (!session.liveRoomName) throw new HttpError(409, 'The interviewer has not started this interview yet.')
+
+  const room = await ensureRoom(session.liveRoomName)
+  const token = await mintToken({
+    roomName: session.liveRoomName,
+    isOwner: false,
+    userName: session.candidate.name || 'Candidate',
+  })
+  res.json({ roomUrl: room.url, token, isOwner: false } satisfies TwoWayJoinResponse)
+}))
+
+// A client-supplied recording URL is fetched server-side (transcribeVideoUrl
+// does a raw `fetch(url)`) and persisted onto the session, so it must be
+// validated before either happens: it MUST be a Firebase Storage download URL
+// scoped to THIS session's own object path. This closes a blind SSRF (an
+// arbitrary host, or an internal/metadata endpoint, fetched by the server on
+// the caller's behalf) and stops a cross-session URL from being attached.
+function isValidSessionRecordingUrl(url: string, sessionId: string): boolean {
+  let u: URL
+  try { u = new URL(url) } catch { return false }
+  const allowedHosts = new Set(['firebasestorage.googleapis.com', 'storage.googleapis.com'])
+  if (u.protocol !== 'https:' || !allowedHosts.has(u.hostname)) return false
+  let decodedPath: string
+  try { decodedPath = decodeURIComponent(u.pathname) } catch { return false }
+  return decodedPath.includes(`interviews/${sessionId}/`)
+}
+
+// End the live call → complete the session → (owner-only, best-effort) tear
+// down the Daily room → if a recording URL was uploaded, transcribe it into
+// the conversational transcript and score. Transcription never blocks completion.
+//
+// Both parties hit this route independently: the candidate calls it with NO
+// recordingUrl, the recruiter calls it once the recording has uploaded, WITH
+// one. Whichever arrives first must not permanently win — the recording is
+// processed exactly once (guarded by `!session.recordingUrl`), and if it lands
+// AFTER a placeholder `notEvaluated` report was already cached (from the other
+// party's earlier empty call), that placeholder is dropped so scoring re-runs
+// on the real transcript.
+//
+// SECURITY: a `recordingUrl` is only ever honored from the OWNING recruiter's
+// call — load() lets the candidate reach this route too (they must be able to
+// complete their own side), but a candidate-supplied recordingUrl is a blind
+// SSRF vector (see isValidSessionRecordingUrl above) AND, since recordingUrl is
+// set-once, would let a candidate permanently preempt the recruiter's real
+// recording just by completing first with a bogus URL. Candidate `complete`
+// therefore carries no recording, by construction. Likewise `deleteRoom` only
+// runs on the owner's complete — a candidate ending first must not tear the
+// Daily room out from under a recruiter who may still be recording/uploading;
+// the room self-expires (`exp`) regardless.
+sessionsRouter.post('/:id/twoway/complete', ah(async (req, res) => {
+  const { session, template } = load(req)
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+
+  const auth = requireAuth(req)
+  const isOwner = ownsSession(session, auth)
+
+  const rawRecordingUrl = typeof req.body?.recordingUrl === 'string' ? req.body.recordingUrl : ''
+  const recordingUrl = isOwner && rawRecordingUrl && isValidSessionRecordingUrl(rawRecordingUrl, session.id)
+    ? rawRecordingUrl
+    : ''
+
+  if (session.status !== 'completed') {
+    session.status = 'completed'
+    session.completedAt = new Date().toISOString()
+  }
+  if (isOwner && session.liveRoomName) void deleteRoom(session.liveRoomName)
+  db.scheduleSave()
+
+  if (recordingUrl && !session.recordingUrl) {
+    // Set recordingUrl FIRST — this is the idempotency guard. If transcription
+    // below throws, a retry with the same recordingUrl still won't reprocess
+    // (no duplicate transcript turns), consistent with "process once, best-effort".
+    session.recordingUrl = recordingUrl
+    session.mode ??= 'conversational'
+    session.transcript ??= []
+    try {
+      const text = await transcribeVideoUrl(recordingUrl)
+      session.transcript.push(
+        {
+          id: randomUUID(), role: 'interviewer', turnType: 'question', questionIndex: 0,
+          content: 'Live two-way interview', createdAt: new Date().toISOString(),
+        },
+        {
+          id: randomUUID(), role: 'candidate', questionIndex: 0,
+          content: text, createdAt: new Date().toISOString(),
+        },
+      )
+    } catch (err) {
+      console.error('[twoway] transcription failed for', session.id, err)
+    }
+    db.scheduleSave()
+
+    // A placeholder report cached by the OTHER party's earlier (recording-less)
+    // completion call is now stale — drop it so scoring re-runs on the real content.
+    const existing = db.reports.get(session.id)
+    if (session.recordingUrl && existing?.notEvaluated) db.reports.delete(session.id)
+  }
+  maybeScore(session, template)
+  res.json({ ok: true })
+}))
+
+// Recruiter's manual rating/notes — a dual path alongside the AI scorecard,
+// since a two-way interview is recruiter-scored more than model-scored. The
+// SESSION is the source of truth (survives even if no report has landed yet —
+// e.g. scoring is still pending, or the interview was never evaluated); the
+// report copy is just an immediate-display convenience for the current view.
+sessionsRouter.post('/:id/twoway/review', requireRecruiter, ah((req, res) => {
+  const { session } = load(req)
+  assertOwner(session, requireAuth(req))
+  if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
+
+  const rating = Math.max(0, Math.min(5, Number(req.body?.rating) || 0))
+  const notes = String(req.body?.notes ?? '').slice(0, 4000)
+  const manualReview = { rating, notes, by: requireAuth(req).email, at: new Date().toISOString() }
+
+  session.manualReview = manualReview
+  db.scheduleSave()
+
+  const report = db.reports.get(session.id)
+  if (report) {
+    report.manualReview = manualReview
+    db.reports.set(session.id, report)
+    db.scheduleSave()
+  }
+  res.json({ ok: true })
+}))
+
 // "I'm ready, begin" — starts question 0's preparation phase.
 sessionsRouter.post('/:id/begin', ah(async (req, res) => {
   const { session, template } = load(req)
@@ -588,18 +761,13 @@ sessionsRouter.post('/:id/answers', ah(async (req, res) => {
   const now = new Date().toISOString()
   q.answerText =
     typeof req.body?.answerText === 'string' ? req.body.answerText : q.draft ?? ''
-  if (req.body?.videoUrl) q.videoUrl = req.body.videoUrl
-  // Video track: transcribe OFF the submit critical path so /answers returns fast
-  // (the client must beat the auto-submit deadline). Scoring waits for these below.
-  if (session.track === 'video' && q.videoUrl && !q.answerText?.trim()) {
-    const questionId = q.id
-    const url = q.videoUrl
-    trackTranscription(session.id, transcribeVideoUrl(url)
-      .then((text) => {
-        const cur = db.sessions.get(session.id)?.questions.find((x) => x.id === questionId)
-        if (cur && !cur.answerText?.trim() && text.trim()) { cur.answerText = text; db.scheduleSave() }
-      })
-      .catch((err) => console.error('[transcribe] failed for', session.id, questionId, err)))
+  // Video track: the live transcript IS the answer (no video, no upload). Mirror it
+  // into session.transcript as (question, answer) turns so scoring/results run the
+  // same conversation path as Voice.
+  if (session.track === 'video') {
+    session.mode = session.mode ?? 'conversational'
+    session.transcript = session.transcript ?? []
+    session.transcript.push(...buildVideoTranscript(q, session.currentIndex, now))
   }
   q.submittedAt = now
   q.autoSubmitted = false
@@ -851,7 +1019,7 @@ sessionsRouter.get('/mine', ah(async (req, res) => {
       if (seen.has(doc.id)) continue
       const d = doc.data() as Record<string, unknown>
       const mode = d.mode as string | undefined
-      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat' || mode === 'video')
+      const track = (mode === 'chatbot' || mode === 'voice' || mode === 'video_avatar' || mode === 'chat' || mode === 'video' || mode === 'two_way')
         ? mode
         : d.type === 'video' ? 'video_avatar' as const : 'chat' as const
       const created = (d.createdAt as { toDate?: () => Date } | undefined)?.toDate?.()?.toISOString() ?? new Date().toISOString()
@@ -883,7 +1051,7 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
   // empty, fall back to the PLANNED question script so the report still shows
   // what the interview asked instead of an empty accordion.
   const isConversation =
-    session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice'
+    session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'voice' || session.track === 'video' || session.track === 'two_way'
   const groups = isConversation ? primaryQuestionGroups(session) : []
   const questions = isConversation
     ? groups.length > 0
@@ -934,6 +1102,13 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
             })),
           }
         : {}),
+      // Two-way Interview: call recording URL, for report playback.
+      ...(session.recordingUrl ? { recordingUrl: session.recordingUrl } : {}),
+      // Two-way Interview: the recruiter's manual rating/notes. Surfaced from the
+      // SESSION (the source of truth — see /twoway/review) rather than only via
+      // `report.manualReview`, so the recruiter can rate before AI scoring lands
+      // (report is still null while scoring is in flight).
+      ...(session.manualReview ? { manualReview: session.manualReview } : {}),
     },
     rubric: template.rubric,
     report: db.reports.get(session.id) ?? null,
@@ -943,9 +1118,19 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
     ...(session.facialSummary ? { facial: session.facialSummary } : {}),
   }
 
+  // The session is the source of truth for the recruiter's manual review (it's
+  // never lost, even if written before scoring produced a report — see
+  // /twoway/review). Surface it onto the report once one exists, so it
+  // displays even when the review predates the report landing.
+  const report = view.report
+  if (report && session.manualReview) {
+    report.manualReview = session.manualReview
+    db.reports.set(session.id, report)
+    db.scheduleSave()
+  }
+
   // Backfill the text sentiment read for conversation reports scored before this
   // feature existed, so older sessions show it too (computed once, then cached).
-  const report = view.report
   if (isConversation && report && !report.sentiment && !report.notEvaluated && geminiEnabled()) {
     const sentiment = await analyzeSentiment(session).catch(() => null)
     if (sentiment) {

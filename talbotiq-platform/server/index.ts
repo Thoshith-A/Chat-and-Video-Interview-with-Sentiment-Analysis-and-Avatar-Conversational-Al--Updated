@@ -16,7 +16,7 @@ import { helpRouter } from './routes/help'
 import { authenticate, requireRecruiter } from './middleware/auth'
 import { authConfigured } from './services/firebaseAdmin'
 import { attachVoiceWebSocket } from './services/voice'
-import { attachDeepgramRelay } from './services/deepgramRelay'
+import { attachDeepgramRelay, attachCandidateDeepgramRelay } from './services/deepgramRelay'
 import { HttpError } from './util/ah'
 
 db.init()
@@ -90,3 +90,7 @@ attachVoiceWebSocket(server)
 
 // AI Avatar Screening: Deepgram Nova-3 live-transcription relay at /api/avatar/deepgram.
 attachDeepgramRelay(server)
+
+// Video Interview: candidate-authorized Deepgram live-transcription relay at
+// /api/interview/deepgram (same relay, open to any authenticated role).
+attachCandidateDeepgramRelay(server)

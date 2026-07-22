@@ -11,7 +11,7 @@ import type { AnalyticsFilters, TrackType } from '@shared/types'
 const TOOLTIP = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, color: '#0f172a', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }
 const ACCENT = '#0d5c3a'
 const TRACK_LABEL: Record<TrackType, string> = {
-  chat: 'Timed Q&A', chatbot: 'Chatbot', voice: 'Voice', video_avatar: 'Video Avatar', video: 'Video Interview',
+  chat: 'Timed Q&A', chatbot: 'Chatbot', voice: 'Voice', video_avatar: 'Video Avatar', video: 'Video Interview', two_way: 'Two-way Interview',
 }
 const REC_LABEL: Record<string, string> = {
   strong_yes: 'Strong Yes', yes: 'Yes', maybe: 'Maybe', no: 'No', unknown: 'Unscored',

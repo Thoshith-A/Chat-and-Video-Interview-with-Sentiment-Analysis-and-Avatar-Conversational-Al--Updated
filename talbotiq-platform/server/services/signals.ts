@@ -45,7 +45,7 @@ function avgResponseSeconds(session: InterviewSession): number | undefined {
 /** Pure, transcript-derived delivery metrics. Returns null when the candidate
  *  said/typed nothing (nothing meaningful to measure). */
 export function computeSpeechMetrics(session: InterviewSession): SpeechMetrics | null {
-  const spoken = session.track === 'voice' || session.track === 'video_avatar'
+  const spoken = session.track === 'voice' || session.track === 'video_avatar' || session.track === 'video' || session.track === 'two_way'
   const answers = candidateAnswers(session)
   if (answers.length === 0) return null
 

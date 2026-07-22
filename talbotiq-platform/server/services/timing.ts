@@ -44,9 +44,9 @@ export function tick(
   template: InterviewTemplate,
   nowMs: number = Date.now(),
 ): boolean {
-  // The conversational tracks (chatbot + video_avatar) have their own engine —
-  // never apply the fixed-slot question timing to them (no questions[] array).
-  if (session.track === 'chatbot' || session.track === 'video_avatar') return false
+  // The conversational tracks (chatbot + video_avatar + two_way) have their own
+  // engine — never apply the fixed-slot question timing to them (no questions[] array).
+  if (session.track === 'chatbot' || session.track === 'video_avatar' || session.track === 'two_way') return false
   if (session.status !== 'in_progress') return false
   let mutated = false
 
