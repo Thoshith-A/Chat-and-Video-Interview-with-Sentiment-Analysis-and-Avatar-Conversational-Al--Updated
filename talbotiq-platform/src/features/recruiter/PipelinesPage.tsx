@@ -6,7 +6,7 @@ import { Card, Select, PageHeader, EmptyState, Skeleton } from '@/components/ui'
 import type { Pipeline } from '@shared/types'
 
 export default function PipelinesPage() {
-  const { data: pipelines, isLoading } = useQuery({ queryKey: ['pipelines'], queryFn: () => pipelinesApi.list() })
+  const { data: pipelines, isLoading, isError } = useQuery({ queryKey: ['pipelines'], queryFn: () => pipelinesApi.list() })
   const [role, setRole] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -62,6 +62,10 @@ export default function PipelinesPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[0, 1, 2].map((i) => <Skeleton key={i} className="h-24" />)}
         </div>
+      ) : isError ? (
+        <Card className="p-0">
+          <EmptyState icon="⚠️" title="Couldn’t load pipelines" description="Please retry." />
+        </Card>
       ) : filtered.length === 0 ? (
         <Card className="p-0">
           <EmptyState
