@@ -20,6 +20,7 @@ import TemplatesPage from '@/features/recruiter/TemplatesPage'
 import TemplateEditorPage from '@/features/recruiter/TemplateEditorPage'
 import QuestionSetsPage from '@/features/recruiter/QuestionSetsPage'
 import SessionsPage from '@/features/recruiter/SessionsPage'
+import PipelinesPage from '@/features/recruiter/PipelinesPage'
 import InviteWizard from '@/features/recruiter/InviteWizard'
 import ReportPage from '@/features/recruiter/ReportPage'
 import LiveInterviewPage from '@/features/recruiter/LiveInterviewPage'
@@ -90,6 +91,7 @@ export default function App() {
                 <Route path="/sessions" element={<SessionsPage />} />
                 <Route path="/sessions/new" element={<InviteWizard />} />
                 <Route path="/sessions/:id/report" element={<ReportPage />} />
+                <Route path="/pipelines" element={<PipelinesPage />} />
               </Route>
             </Route>
 

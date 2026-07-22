@@ -18,6 +18,7 @@ const LINKS = [
   { to: '/question-sets', label: 'Question Sets' },
   { to: '/interview',     label: 'Interview' },
   { to: '/results',       label: 'Results' },
+  { to: '/pipelines',     label: 'Pipelines' },
   { to: '/analytics',     label: 'Analytics' },
   { to: '/settings',      label: 'Settings' },
 ]
