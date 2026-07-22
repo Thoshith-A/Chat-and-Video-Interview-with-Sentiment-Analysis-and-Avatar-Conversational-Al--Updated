@@ -199,6 +199,9 @@ export default function InviteWizard() {
     (location.state as { mode?: Mode } | null)?.mode ?? '',
   )
   const [role, setRole] = useState('')
+  // Single interview (default, unchanged behavior) vs. an ordered set of rounds
+  // (multi) — round modes are chosen per-round in Step 2, not here.
+  const [setupType, setSetupType] = useState<'single' | 'multi'>('single')
   // Video Avatar requires an APPLIED avatar setup (configured once, applies to
   // every candidate in the batch) — gate the mode card on it.
   const avatarApplied = useQuery({ queryKey: ['avatar-settings'], queryFn: settingsApi.avatarStatus })
@@ -331,7 +334,9 @@ export default function InviteWizard() {
     }
   }
 
-  const step1Valid = !!mode && role.trim().length >= 2
+  const step1Valid = setupType === 'single'
+    ? !!mode && role.trim().length >= 2
+    : role.trim().length >= 2 // multi: mode is per-round (chosen in Step 2)
   const tailorTotal = cfg.style === 'mix' ? cfg.techCount + cfg.nonTechCount : cfg.style === 'technical' ? cfg.techCount : cfg.nonTechCount
   // Two-way Interview has no scripted question source to pick — it's a live
   // recruiter-led call, so Step 2 has nothing to require here.
@@ -422,6 +427,30 @@ export default function InviteWizard() {
       {!result && step === 1 && (
         <div className="space-y-6">
           <section>
+            <h2 className="mb-1 text-sm font-semibold text-neutral-800">Interview type</h2>
+            <p className="mb-3 text-xs text-neutral-400">One interview, or an ordered set of rounds.</p>
+            <div className="grid grid-cols-2 gap-3 max-w-md">
+              {(['single', 'multi'] as const).map((t) => {
+                const selected = setupType === t
+                return (
+                  <button key={t} type="button" onClick={() => setSetupType(t)}
+                    className={cn('flex flex-col gap-1 rounded-xl border-2 p-4 text-left transition-all',
+                      selected ? 'border-primary-700 bg-primary-50/50 shadow-primary-sm' : 'border-border bg-white hover:border-primary-300')}>
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-neutral-900">{t === 'single' ? 'Single Interview' : 'Multiple Rounds'}</span>
+                      {selected && <Check size={14} className="text-primary-700" />}
+                    </span>
+                    <span className="text-xs leading-relaxed text-neutral-500">
+                      {t === 'single' ? 'One interview per candidate (default).' : 'Screening → … → Final, with advancement.'}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {setupType === 'single' && (
+          <section>
             <h2 className="mb-1 text-sm font-semibold text-neutral-800">Interview mode</h2>
             <p className="mb-3 text-xs text-neutral-400">How the interview is conducted.</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -466,6 +495,7 @@ export default function InviteWizard() {
               })}
             </div>
           </section>
+          )}
 
           <section>
             <label htmlFor="role" className="mb-1 block text-sm font-semibold text-neutral-800">Candidate role</label>
