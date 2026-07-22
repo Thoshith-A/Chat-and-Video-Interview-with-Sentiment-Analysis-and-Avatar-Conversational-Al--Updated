@@ -107,6 +107,7 @@ export function buildBoard(
       currentRoundIndex: c.currentRoundIndex, status: c.status, roundStatus,
       score: scored ? (report!.overallScore as number) : null,
       advanceable: c.status === 'in_round' && scored,
+      history: c.history,
     }
     if (c.status === 'selected') selectedCol.cards.push(card)
     else if (c.status === 'not_advancing') notCol.cards.push(card)

@@ -76,7 +76,7 @@ db.pipelines.delete('pl-a')
   const now = '2026-07-22T00:00:00.000Z'
   const pipe = { id: 'pl-b', recruiterId: 'alice', role: 'Backend', type: 'multi' as const, rounds: goodRounds, createdAt: now, updatedAt: now }
   // c1: completed + scored in round 0 -> advanceable in round 0 column
-  const c1 = { id: 'c1', pipelineId: 'pl-b', recruiterId: 'alice', candidateEmail: 'a@x.com', candidateEmailLower: 'a@x.com', role: 'Backend', currentRoundIndex: 0, status: 'in_round' as const, perRound: [{ roundIndex: 0, interviewId: 'iv-c1', invitedAt: now }], history: [], createdAt: now, updatedAt: now }
+  const c1 = { id: 'c1', pipelineId: 'pl-b', recruiterId: 'alice', candidateEmail: 'a@x.com', candidateEmailLower: 'a@x.com', role: 'Backend', currentRoundIndex: 0, status: 'in_round' as const, perRound: [{ roundIndex: 0, interviewId: 'iv-c1', invitedAt: now }], history: [{ at: now, byUid: 'alice', action: 'invited' as const, toRound: 0, basis: 'round-1 invite' }], createdAt: now, updatedAt: now }
   // c2: invited only (no session/report) -> not advanceable
   const c2 = { ...c1, id: 'c2', candidateEmail: 'b@x.com', candidateEmailLower: 'b@x.com', perRound: [{ roundIndex: 0, interviewId: 'iv-c2', invitedAt: now }] }
   // c3: selected (terminal)
@@ -92,6 +92,7 @@ db.pipelines.delete('pl-a')
   const c1card = round0.cards.find((k) => k.pipelineCandidateId === 'c1')!
   assert('c1 scored 72', c1card.score === 72 && c1card.roundStatus === 'completed')
   assert('c1 advanceable', c1card.advanceable === true)
+  assert('c1 history carried onto card', c1card.history.length === 1 && c1card.history[0].action === 'invited')
   const c2card = round0.cards.find((k) => k.pipelineCandidateId === 'c2')!
   assert('c2 not scored -> null score, not advanceable', c2card.score === null && c2card.advanceable === false)
   assert('c3 in selected column, not advanceable', selectedCol.cards.some((k) => k.pipelineCandidateId === 'c3') && selectedCol.cards[0].advanceable === false)

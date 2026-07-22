@@ -210,6 +210,7 @@ export interface BoardCard {
   roundStatus: 'invited' | 'in_progress' | 'completed' | 'expired' | 'none'
   score: number | null
   advanceable: boolean
+  history: AuditEntry[]
 }
 export interface BoardColumn {
   key: string
