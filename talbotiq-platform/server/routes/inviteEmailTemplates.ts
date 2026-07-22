@@ -33,9 +33,12 @@ function loadOwned(id: string, auth: AuthContext): InviteEmailTemplate {
 }
 
 /** Sanitise + coerce an incoming template body into stored shape (server owns id/owner/timestamps). */
-function normalize(body: unknown): Omit<InviteEmailTemplate, 'id' | 'recruiterId' | 'createdAt' | 'updatedAt'> {
+function normalize(
+  body: unknown,
+  fallbackKind: EmailKind = 'invite',
+): Omit<InviteEmailTemplate, 'id' | 'recruiterId' | 'createdAt' | 'updatedAt'> {
   const b = (body ?? {}) as Record<string, any>
-  const kind = parseKind(b.kind)
+  const kind = parseKind(b.kind ?? fallbackKind)
   const d = defaultTemplateFor(kind)
   return {
     kind,
@@ -112,7 +115,7 @@ inviteEmailTemplatesRouter.put('/:id', ah((req, res) => {
   const existing = loadOwned(req.params.id, auth)
   const updated: InviteEmailTemplate = {
     ...existing,
-    ...normalize(req.body),
+    ...normalize(req.body, kindOf(existing)),
     id: existing.id,
     recruiterId: existing.recruiterId, // owner is immutable
     createdAt: existing.createdAt,

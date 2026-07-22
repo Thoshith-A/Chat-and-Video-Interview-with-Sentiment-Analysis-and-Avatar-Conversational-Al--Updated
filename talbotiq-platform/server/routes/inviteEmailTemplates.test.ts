@@ -98,6 +98,12 @@ console.log('\n=== seedDefault ===')
   assert('seed selected kind', kindOf(sel) === 'selected')
   assert('seed selected has no link token', !sel.bodyHtml.includes('{{interview_link}}'))
   db.inviteEmailTemplates.delete(sel.id)
+
+  // PUT-preserving-kind regression: normalize's fallbackKind must not let an absent
+  // body.kind silently downgrade a non-invite template to 'invite' on update.
+  assert('normalize fallbackKind used when body omits kind', (normalize({}, 'advance' as EmailKind) as any).kind === 'advance')
+  assert('normalize body kind wins over fallback', (normalize({ kind: 'selected' }, 'advance' as EmailKind) as any).kind === 'selected')
+  assert('normalize default fallback still invite', (normalize({}) as any).kind === 'invite')
 }
 
 console.log(
