@@ -12,16 +12,23 @@ import { DailyVideoTile } from '@/components/interview/DailyVideoTile'
  * room as OWNER (`sessionsApi.twowayHost`) — the candidate's `TwoWayStage`
  * (T5) knocks and waits until `admit(id)` here lets them in.
  *
- * Recording is client-side (`useDailyCall`'s `MediaRecorder` wrapper, not
- * Daily cloud recording — see that hook's docstring): the Record control here
- * just starts/stops the capture; the resulting Blob is uploaded to Firebase
- * Storage only once, in the End flow below, via the same
- * `uploadAnswerVideo` helper the (candidate-facing) Video Interview track
- * uses (questionId `'two-way'` namespaces the object under
- * `interviews/{sessionId}/`). If the recruiter manually stops the recording
- * before hitting End, that Blob is kept in `recordedBlobRef` so End still has
- * something to upload; if the recorder is still running at End, `stopRecording()`
- * there supplies the (final) Blob instead.
+ * Recording is client-side (`useDailyCall`'s single continuous `MediaRecorder`
+ * wrapper, not Daily cloud recording — see that hook's docstring): the Record
+ * control here just pauses/resumes the ONE recorder for the whole call, so no
+ * segment is ever dropped. The final Blob is only produced once — by
+ * `stopRecording()` in the finalize flow below — and uploaded to Firebase
+ * Storage via the same `uploadAnswerVideo` helper the (candidate-facing) Video
+ * Interview track uses (questionId `'two-way'` namespaces the object under
+ * `interviews/{sessionId}/`).
+ *
+ * The call can end two ways, both funnelled through `finalize()`:
+ *  - the recruiter clicks End (`handleEnd`) — confirms, then finalizes;
+ *  - the call ends EXTERNALLY (`dc.callState` reaches `'left'` without
+ *    `endingRef` already set) — e.g. the candidate completed first, or the
+ *    connection dropped. Without this, the recruiter would be stranded on the
+ *    "Starting the interview room…" spinner forever and lose any in-progress
+ *    recording; the effect below catches it and finalizes exactly the same
+ *    way, just without the confirm dialog.
  *
  * Dark full-screen room — no recruiter chrome (Nav) — mirroring the
  * AvatarStage/VoiceStage/TwoWayStage shell so the live call reads the same on
@@ -38,7 +45,7 @@ export default function LiveInterviewPage() {
   const [ending, setEnding] = useState(false) // "uploading…/finalizing…" overlay
 
   const endingRef = useRef(false) // single-fire guard — don't double-complete
-  const recordedBlobRef = useRef<Blob | null>(null) // last Blob from a manual stop, kept for End
+  const hasRecordedRef = useRef(false) // recording started at least once — for the "Uploading…" vs "Finalizing…" label below
 
   // Acquire the room as OWNER, then hand off to Daily. `cancelled` is a
   // per-invocation local (captured in this effect's closure), NOT a shared
@@ -66,29 +73,34 @@ export default function LiveInterviewPage() {
     // dc.join has a stable identity for the lifetime of this hook instance.
   }, [id, attempt, dc.join])
 
-  const handleToggleRecord = useCallback(async () => {
+  // Toggling Record pauses/resumes the ONE continuous recorder (see
+  // useDailyCall's docstring) — it's finalized exactly once, in finalize()
+  // below, so no segment is ever dropped across a pause/resume cycle.
+  const handleToggleRecord = useCallback(() => {
     if (recording) {
+      dc.pauseRecording()
       setRecording(false)
-      const blob = await dc.stopRecording()
-      if (blob) recordedBlobRef.current = blob
     } else {
       dc.startRecording()
+      hasRecordedRef.current = true
       setRecording(true)
     }
   }, [recording, dc])
 
-  const handleEnd = useCallback(async () => {
+  // Uploads the recording (if any), marks the session complete, and navigates
+  // to the report. Shared by the recruiter's own End (handleEnd) and the
+  // "call ended externally" recovery effect below — both must finalize the
+  // same way; only the confirm dialog differs.
+  const finalize = useCallback(async () => {
     if (!id || endingRef.current) return
-    if (!window.confirm('End the interview now? The recording will be uploaded and the session will be marked complete.')) return
     endingRef.current = true
     setEnding(true)
     setRecording(false)
 
     let blob: Blob | null = null
     try {
-      blob = await dc.stopRecording() // final segment, if still recording
+      blob = await dc.stopRecording() // finalizes the single continuous recorder, if any
     } catch { /* best-effort */ }
-    if (!blob) blob = recordedBlobRef.current // fall back to an earlier manual stop
 
     let recordingUrl: string | undefined
     if (blob) {
@@ -111,6 +123,22 @@ export default function LiveInterviewPage() {
     navigate(`/sessions/${id}/report`)
   }, [id, dc, navigate])
 
+  const handleEnd = useCallback(() => {
+    if (!id || endingRef.current) return
+    if (!window.confirm('End the interview now? The recording will be uploaded and the session will be marked complete.')) return
+    void finalize()
+  }, [id, finalize])
+
+  // The call ended EXTERNALLY — not via our own End above. Most likely the
+  // candidate completed/left first (a dropped connection or the room's own
+  // expiry can also land here). Without this, callState !== 'joined' falls
+  // through to the "Starting the interview room…" spinner below forever, and
+  // any in-progress recording would be lost. finalize() the same way as a
+  // manual End, just without the confirm dialog (the call is already gone).
+  useEffect(() => {
+    if (dc.callState === 'left' && !endingRef.current) void finalize()
+  }, [dc.callState, finalize])
+
   const candidate = dc.participants[0] ?? null
   const waiting = dc.waitingParticipants
 
@@ -131,6 +159,25 @@ export default function LiveInterviewPage() {
           className="mt-2 rounded-full bg-white/10 px-5 py-2 text-sm font-semibold text-white hover:bg-white/20"
         >
           Try again
+        </button>
+      </div>
+    )
+  }
+
+  /* ── the call ended — our own End, or externally (candidate ended first /
+        connection dropped) — finalize() above is uploading + completing +
+        about to navigate to the report. A brief interim state, with an
+        escape hatch in case finalize() is taking a while. ── */
+  if (dc.callState === 'left') {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-neutral-950 text-neutral-300">
+        <Loader2 size={26} className="animate-spin" />
+        <p className="text-sm">The interview has ended — finalizing…</p>
+        <button
+          onClick={() => navigate(`/sessions/${id}/report`)}
+          className="mt-2 rounded-full bg-white/10 px-5 py-2 text-sm font-semibold text-white hover:bg-white/20"
+        >
+          Go to report
         </button>
       </div>
     )
@@ -245,7 +292,7 @@ export default function LiveInterviewPage() {
       {ending && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950/90 text-neutral-200">
           <Loader2 size={26} className="animate-spin" />
-          <p className="text-sm">{recordedBlobRef.current || recording ? 'Uploading recording…' : 'Finalizing…'}</p>
+          <p className="text-sm">{hasRecordedRef.current ? 'Uploading recording…' : 'Finalizing…'}</p>
         </div>
       )}
     </div>

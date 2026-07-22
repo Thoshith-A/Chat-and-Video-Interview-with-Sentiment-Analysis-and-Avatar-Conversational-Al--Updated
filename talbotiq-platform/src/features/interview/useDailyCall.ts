@@ -17,6 +17,15 @@ export interface WaitingParticipant {
  * flow, and (recruiter-side) a client MediaRecorder capture of the call to
  * upload afterwards (T6/T7) — Daily's own cloud recording is not used.
  *
+ * Recording is a SINGLE continuous MediaRecorder for the whole call:
+ * `startRecording()` creates it once; a mid-call toggle-off calls
+ * `pauseRecording()` (keeps the same recorder + growing chunk buffer, just
+ * paused) and a later `startRecording()` `resume()`s the SAME recorder rather
+ * than starting a new one. Only `stopRecording()` (called once, at End)
+ * actually finalizes it and returns the Blob spanning every pause/resume
+ * segment — so toggling the Record button mid-call never drops an earlier
+ * segment (which start/stop-a-new-recorder-each-time would).
+ *
  * One call object per mount. `join()` creates it; `leave()` and unmount both
  * tear it down (idempotent — safe to call either more than once).
  *
@@ -88,6 +97,18 @@ export function useDailyCall() {
     if (stoppingRef.current) return stoppingRef.current
     const rec = recorderRef.current
     if (!rec) return Promise.resolve(null)
+
+    // The recorder may already have auto-stopped (its underlying tracks ended
+    // because the call itself ended before this was called — e.g. finalizing
+    // after the OTHER party ended the call first). `.stop()` on an already-
+    // inactive recorder throws; return the chunks captured up to that point
+    // instead of losing them to that error.
+    if (rec.state === 'inactive') {
+      const chunks = recordedChunksRef.current
+      recorderRef.current = null
+      recordedChunksRef.current = []
+      return Promise.resolve(chunks.length ? new Blob(chunks, { type: 'video/webm' }) : null)
+    }
 
     const promise = new Promise<Blob | null>((resolve) => {
       rec.onstop = () => {
@@ -255,9 +276,18 @@ export function useDailyCall() {
     } catch { /* best-effort — the waiting-participant-* events resync state */ }
   }, [])
 
+  // Starts the (single, continuous) recording — or, if one is already active,
+  // no-ops; if one exists but is PAUSED (a prior pauseRecording() toggle),
+  // resumes that SAME recorder instead of creating a new one, so the buffer
+  // accumulated so far is never discarded.
   const startRecording = useCallback(() => {
+    const existing = recorderRef.current
+    if (existing) {
+      if (existing.state === 'paused') { try { existing.resume() } catch { /* best-effort */ } }
+      return
+    }
     const co = callRef.current
-    if (!co || recorderRef.current) return
+    if (!co) return
     const all = co.participants()
     const remote = Object.values(all).find((p) => !p.local) ?? null
     const local = all.local
@@ -296,6 +326,16 @@ export function useDailyCall() {
     }
   }, [])
 
+  // Pauses the active recorder WITHOUT finalizing it — the chunk buffer stays
+  // put so a later startRecording() resumes the SAME recorder (no dropped
+  // segment). Use this for a mid-call Record toggle-off; use stopRecording()
+  // only when the recording is really over (End).
+  const pauseRecording = useCallback(() => {
+    const rec = recorderRef.current
+    if (!rec || rec.state !== 'recording') return
+    try { rec.pause() } catch { /* best-effort */ }
+  }, [])
+
   // Full teardown on unmount — leave/destroy the call object, let any
   // in-flight recorder stop resolve cleanly, and detach listeners. Safe even
   // if leave() was already called (teardown is idempotent). Fire-and-forget
@@ -313,6 +353,7 @@ export function useDailyCall() {
     muted,
     camOff,
     startRecording,
+    pauseRecording,
     stopRecording,
     waitingParticipants,
     admit,

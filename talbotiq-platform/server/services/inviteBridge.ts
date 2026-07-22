@@ -41,7 +41,12 @@ function synthTemplate(interviewId: string, data: Record<string, unknown>, now: 
   const role = (data.role as string) || 'this role'
   const track = trackForInvite(data)
   const screening = (data.screening as Record<string, unknown> | undefined) ?? {}
-  const source = (screening.source as string) === 'set' ? 'fixed' : 'adaptive'
+  // Two-way Interview has no scripted question source (the recruiter conducts a
+  // live call) — the invite carries no `screening.source` for it (see
+  // invites.ts), which would otherwise default to 'adaptive' below and wrongly
+  // gate the candidate on a résumé upload (awaitingResume) before they can reach
+  // the live room. Force 'fixed' (with an empty embedded question list) instead.
+  const source = track === 'two_way' ? 'fixed' : (screening.source as string) === 'set' ? 'fixed' : 'adaptive'
 
   const techCount = Number(screening.techCount ?? 3)
   const nonTechCount = Number(screening.nonTechCount ?? 2)

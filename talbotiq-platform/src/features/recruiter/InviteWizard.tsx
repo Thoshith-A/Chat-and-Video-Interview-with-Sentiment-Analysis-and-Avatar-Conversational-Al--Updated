@@ -215,7 +215,7 @@ export default function InviteWizard() {
   const [creating, setCreating] = useState(false)
   const [result, setResult] = useState<CreateInvitesResult | null>(null)
 
-  const sets = useQuery({ queryKey: ['question-sets'], queryFn: questionSetsApi.list, enabled: step === 2 })
+  const sets = useQuery({ queryKey: ['question-sets'], queryFn: questionSetsApi.list, enabled: step === 2 && mode !== 'two_way' })
 
   const validCount = candidates.filter((c) => emailOk(c.email)).length
 
@@ -258,14 +258,16 @@ export default function InviteWizard() {
   }
 
   const submit = async () => {
-    if (!mode || !source || validCount === 0) return
+    // Two-way Interview has no scripted question source (live recruiter-led
+    // call) — every other mode requires one.
+    if (!mode || (mode !== 'two_way' && !source) || validCount === 0) return
     setCreating(true)
     try {
       const valid = candidates.filter((c) => emailOk(c.email)).map((c) => ({ email: c.email.trim(), role: c.role.trim() || role }))
       const res = await invitesApi.create({
         mode: mode as Mode,
         role: role.trim(),
-        source,
+        ...(mode !== 'two_way' ? { source: source as Source } : {}),
         config: source === 'tailor' ? { style: cfg.style, techCount: cfg.techCount, nonTechCount: cfg.nonTechCount, difficulty: cfg.difficulty, domains: cfg.domains, model: cfg.model } : undefined,
         questionSetId: source === 'set' ? selectedSetId : undefined,
         candidates: valid,
@@ -282,7 +284,11 @@ export default function InviteWizard() {
 
   const step1Valid = !!mode && role.trim().length >= 2
   const tailorTotal = cfg.style === 'mix' ? cfg.techCount + cfg.nonTechCount : cfg.style === 'technical' ? cfg.techCount : cfg.nonTechCount
-  const step2Valid = source === 'tailor' ? tailorTotal >= 1 && tailorTotal <= 25 : source === 'set' ? !!selectedSetId : false
+  // Two-way Interview has no scripted question source to pick — it's a live
+  // recruiter-led call, so Step 2 has nothing to require here.
+  const step2Valid = mode === 'two_way'
+    ? true
+    : source === 'tailor' ? tailorTotal >= 1 && tailorTotal <= 25 : source === 'set' ? !!selectedSetId : false
 
   return (
     <div className="mx-auto max-w-[900px] px-6 py-8">
@@ -413,73 +419,85 @@ export default function InviteWizard() {
       {/* ── Step 2: question source ── */}
       {!result && step === 2 && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {/* Tailor */}
-            <button type="button" onClick={() => setSource('tailor')}
-              className={cn('flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all',
-                source === 'tailor' ? 'border-primary-700 bg-primary-50/50 shadow-primary-sm' : 'border-border bg-white hover:border-primary-300')}>
-              <span className="flex items-center gap-2">
-                <FileText size={18} className={source === 'tailor' ? 'text-primary-700' : 'text-neutral-500'} />
-                <span className="text-sm font-semibold text-neutral-900">Tailor questions to each résumé</span>
-                {source === 'tailor' && <Check size={14} className="text-primary-700" />}
-              </span>
-              <span className="text-xs leading-relaxed text-neutral-500">
-                Each candidate uploads their own résumé when they begin. We generate a unique set tailored to that person’s background and your settings — so every candidate gets bespoke questions.
-              </span>
-            </button>
+          {mode === 'two_way' ? (
+            <div className="rounded-xl border border-border bg-neutral-50 p-5 text-sm text-neutral-600">
+              <p className="font-semibold text-neutral-800">No scripted questions to configure</p>
+              <p className="mt-1 leading-relaxed">
+                Two-way Interview is a live recruiter-led video call — there’s no résumé-tailored or saved
+                question set to pick here. Continue to invite candidates.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {/* Tailor */}
+                <button type="button" onClick={() => setSource('tailor')}
+                  className={cn('flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all',
+                    source === 'tailor' ? 'border-primary-700 bg-primary-50/50 shadow-primary-sm' : 'border-border bg-white hover:border-primary-300')}>
+                  <span className="flex items-center gap-2">
+                    <FileText size={18} className={source === 'tailor' ? 'text-primary-700' : 'text-neutral-500'} />
+                    <span className="text-sm font-semibold text-neutral-900">Tailor questions to each résumé</span>
+                    {source === 'tailor' && <Check size={14} className="text-primary-700" />}
+                  </span>
+                  <span className="text-xs leading-relaxed text-neutral-500">
+                    Each candidate uploads their own résumé when they begin. We generate a unique set tailored to that person’s background and your settings — so every candidate gets bespoke questions.
+                  </span>
+                </button>
 
-            {/* Sets */}
-            <button type="button" onClick={() => setSource('set')}
-              className={cn('flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all',
-                source === 'set' ? 'border-primary-700 bg-primary-50/50 shadow-primary-sm' : 'border-border bg-white hover:border-primary-300')}>
-              <span className="flex items-center gap-2">
-                <Layers size={18} className={source === 'set' ? 'text-primary-700' : 'text-neutral-500'} />
-                <span className="text-sm font-semibold text-neutral-900">Your question sets</span>
-                {source === 'set' && <Check size={14} className="text-primary-700" />}
-              </span>
-              <span className="text-xs leading-relaxed text-neutral-500">
-                Reuse a question set you’ve saved. Build sets from a sample résumé or by configuring them manually — your sets are private to your account.
-              </span>
-            </button>
-          </div>
-
-          {/* Tailor config */}
-          {source === 'tailor' && <TailorConfigPanel role={role} cfg={cfg} setCfg={setCfg} />}
-
-          {/* Set picker */}
-          {source === 'set' && (
-            <div className="rounded-xl border border-border bg-white p-5">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-neutral-800">Choose a question set</p>
-                <button onClick={() => setGenOpen(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-700 hover:underline">
-                  <Plus size={13} /> Create new set
+                {/* Sets */}
+                <button type="button" onClick={() => setSource('set')}
+                  className={cn('flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all',
+                    source === 'set' ? 'border-primary-700 bg-primary-50/50 shadow-primary-sm' : 'border-border bg-white hover:border-primary-300')}>
+                  <span className="flex items-center gap-2">
+                    <Layers size={18} className={source === 'set' ? 'text-primary-700' : 'text-neutral-500'} />
+                    <span className="text-sm font-semibold text-neutral-900">Your question sets</span>
+                    {source === 'set' && <Check size={14} className="text-primary-700" />}
+                  </span>
+                  <span className="text-xs leading-relaxed text-neutral-500">
+                    Reuse a question set you’ve saved. Build sets from a sample résumé or by configuring them manually — your sets are private to your account.
+                  </span>
                 </button>
               </div>
-              {sets.isLoading ? (
-                <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-              ) : !sets.data?.length ? (
-                <p className="rounded-lg border border-dashed border-border bg-neutral-50 p-6 text-center text-sm text-neutral-400">
-                  No question sets yet. Click “Create new set” to build one from a sample résumé or manually.
-                </p>
-              ) : (
-                <div className="max-h-[40vh] space-y-2 overflow-y-auto">
-                  {sets.data.map((s: QuestionSet) => {
-                    const sel = selectedSetId === s.id
-                    return (
-                      <button key={s.id} type="button" onClick={() => setSelectedSetId(s.id)}
-                        className={cn('flex w-full items-center justify-between rounded-lg border px-3 py-2.5 text-left transition-all',
-                          sel ? 'border-primary-700 bg-primary-50' : 'border-border hover:border-primary-300 hover:bg-neutral-50')}>
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-neutral-800">{s.name}</span>
-                          <span className="block text-xs text-neutral-400">{s.questions.length} question{s.questions.length !== 1 ? 's' : ''}</span>
-                        </span>
-                        {sel && <Check size={16} className="flex-shrink-0 text-primary-700" />}
-                      </button>
-                    )
-                  })}
+
+              {/* Tailor config */}
+              {source === 'tailor' && <TailorConfigPanel role={role} cfg={cfg} setCfg={setCfg} />}
+
+              {/* Set picker */}
+              {source === 'set' && (
+                <div className="rounded-xl border border-border bg-white p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-sm font-semibold text-neutral-800">Choose a question set</p>
+                    <button onClick={() => setGenOpen(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-700 hover:underline">
+                      <Plus size={13} /> Create new set
+                    </button>
+                  </div>
+                  {sets.isLoading ? (
+                    <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+                  ) : !sets.data?.length ? (
+                    <p className="rounded-lg border border-dashed border-border bg-neutral-50 p-6 text-center text-sm text-neutral-400">
+                      No question sets yet. Click “Create new set” to build one from a sample résumé or manually.
+                    </p>
+                  ) : (
+                    <div className="max-h-[40vh] space-y-2 overflow-y-auto">
+                      {sets.data.map((s: QuestionSet) => {
+                        const sel = selectedSetId === s.id
+                        return (
+                          <button key={s.id} type="button" onClick={() => setSelectedSetId(s.id)}
+                            className={cn('flex w-full items-center justify-between rounded-lg border px-3 py-2.5 text-left transition-all',
+                              sel ? 'border-primary-700 bg-primary-50' : 'border-border hover:border-primary-300 hover:bg-neutral-50')}>
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-neutral-800">{s.name}</span>
+                              <span className="block text-xs text-neutral-400">{s.questions.length} question{s.questions.length !== 1 ? 's' : ''}</span>
+                            </span>
+                            {sel && <Check size={16} className="flex-shrink-0 text-primary-700" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
 
           <div className="flex justify-between gap-2 border-t border-border pt-5">
@@ -487,12 +505,14 @@ export default function InviteWizard() {
             <Button disabled={!step2Valid} onClick={() => setStep(3)}>Next: Candidates →</Button>
           </div>
 
-          <GenerateFromResumeModal
-            open={genOpen}
-            onClose={() => setGenOpen(false)}
-            defaultRole={role}
-            onSaved={(set) => { qc.invalidateQueries({ queryKey: ['question-sets'] }); setSelectedSetId(set.id); setGenOpen(false) }}
-          />
+          {mode !== 'two_way' && (
+            <GenerateFromResumeModal
+              open={genOpen}
+              onClose={() => setGenOpen(false)}
+              defaultRole={role}
+              onSaved={(set) => { qc.invalidateQueries({ queryKey: ['question-sets'] }); setSelectedSetId(set.id); setGenOpen(false) }}
+            />
+          )}
         </div>
       )}
 

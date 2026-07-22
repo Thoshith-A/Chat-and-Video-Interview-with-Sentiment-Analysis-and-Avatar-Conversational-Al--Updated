@@ -517,8 +517,29 @@ sessionsRouter.post('/:id/avatar/complete', ah((req, res) => {
 // converge on the same room, and mints an owner meeting token (cloud
 // recording enabled) so the candidate's later knock can be admitted.
 sessionsRouter.post('/:id/twoway/host', requireRecruiter, ah(async (req, res) => {
+  const auth = requireAuth(req)
+  // A bulk-invited two_way session doesn't exist in the LOCAL store until the
+  // candidate opens their /take/:id link at least once (materializeInviteSession
+  // creates it then — see docs/TWO_WAY_INTERVIEW.md) — until that happens there's
+  // nothing here for the recruiter to host yet. Surface that plainly instead of
+  // load()'s generic "Session not found", but only once we've confirmed THIS
+  // recruiter actually owns the underlying Firestore invite (never leak that some
+  // OTHER recruiter's invite exists at this id).
+  if (!db.sessions.has(req.params.id)) {
+    try {
+      const { adminFirestore } = await import('../services/firebaseAdmin')
+      const snap = await adminFirestore().collection('interviews').doc(req.params.id).get()
+      if (snap.exists && snap.get('recruiterId') === auth.uid) {
+        throw new HttpError(409, 'The candidate must open their interview link before you can join.')
+      }
+    } catch (err) {
+      if (err instanceof HttpError) throw err
+      // Firestore lookup is best-effort (outage / not configured) — fall through
+      // to load()'s generic 404 below rather than blocking on it.
+    }
+  }
   const { session } = load(req)
-  assertOwner(session, requireAuth(req))
+  assertOwner(session, auth)
   if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
   if (session.status === 'completed' || session.status === 'expired')
     throw new HttpError(409, 'This interview has already ended')
@@ -554,9 +575,25 @@ sessionsRouter.post('/:id/twoway/join', ah(async (req, res) => {
   res.json({ roomUrl: room.url, token, isOwner: false } satisfies TwoWayJoinResponse)
 }))
 
-// End the live call → complete the session → (best-effort) tear down the
-// Daily room → if a recording URL was uploaded, transcribe it into the
-// conversational transcript and score. Transcription never blocks completion.
+// A client-supplied recording URL is fetched server-side (transcribeVideoUrl
+// does a raw `fetch(url)`) and persisted onto the session, so it must be
+// validated before either happens: it MUST be a Firebase Storage download URL
+// scoped to THIS session's own object path. This closes a blind SSRF (an
+// arbitrary host, or an internal/metadata endpoint, fetched by the server on
+// the caller's behalf) and stops a cross-session URL from being attached.
+function isValidSessionRecordingUrl(url: string, sessionId: string): boolean {
+  let u: URL
+  try { u = new URL(url) } catch { return false }
+  const allowedHosts = new Set(['firebasestorage.googleapis.com', 'storage.googleapis.com'])
+  if (u.protocol !== 'https:' || !allowedHosts.has(u.hostname)) return false
+  let decodedPath: string
+  try { decodedPath = decodeURIComponent(u.pathname) } catch { return false }
+  return decodedPath.includes(`interviews/${sessionId}/`)
+}
+
+// End the live call → complete the session → (owner-only, best-effort) tear
+// down the Daily room → if a recording URL was uploaded, transcribe it into
+// the conversational transcript and score. Transcription never blocks completion.
 //
 // Both parties hit this route independently: the candidate calls it with NO
 // recordingUrl, the recruiter calls it once the recording has uploaded, WITH
@@ -565,19 +602,37 @@ sessionsRouter.post('/:id/twoway/join', ah(async (req, res) => {
 // AFTER a placeholder `notEvaluated` report was already cached (from the other
 // party's earlier empty call), that placeholder is dropped so scoring re-runs
 // on the real transcript.
+//
+// SECURITY: a `recordingUrl` is only ever honored from the OWNING recruiter's
+// call — load() lets the candidate reach this route too (they must be able to
+// complete their own side), but a candidate-supplied recordingUrl is a blind
+// SSRF vector (see isValidSessionRecordingUrl above) AND, since recordingUrl is
+// set-once, would let a candidate permanently preempt the recruiter's real
+// recording just by completing first with a bogus URL. Candidate `complete`
+// therefore carries no recording, by construction. Likewise `deleteRoom` only
+// runs on the owner's complete — a candidate ending first must not tear the
+// Daily room out from under a recruiter who may still be recording/uploading;
+// the room self-expires (`exp`) regardless.
 sessionsRouter.post('/:id/twoway/complete', ah(async (req, res) => {
   const { session, template } = load(req)
   if (session.track !== 'two_way') throw new HttpError(400, 'Not a two-way interview')
 
-  const recordingUrl = typeof req.body?.recordingUrl === 'string' ? req.body.recordingUrl : ''
+  const auth = requireAuth(req)
+  const isOwner = ownsSession(session, auth)
+
+  const rawRecordingUrl = typeof req.body?.recordingUrl === 'string' ? req.body.recordingUrl : ''
+  const recordingUrl = isOwner && rawRecordingUrl && isValidSessionRecordingUrl(rawRecordingUrl, session.id)
+    ? rawRecordingUrl
+    : ''
+
   if (session.status !== 'completed') {
     session.status = 'completed'
     session.completedAt = new Date().toISOString()
   }
-  if (session.liveRoomName) void deleteRoom(session.liveRoomName)
+  if (isOwner && session.liveRoomName) void deleteRoom(session.liveRoomName)
   db.scheduleSave()
 
-  if (typeof recordingUrl === 'string' && recordingUrl && !session.recordingUrl) {
+  if (recordingUrl && !session.recordingUrl) {
     // Set recordingUrl FIRST — this is the idempotency guard. If transcription
     // below throws, a retry with the same recordingUrl still won't reprocess
     // (no duplicate transcript turns), consistent with "process once, best-effort".
@@ -1049,6 +1104,11 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
         : {}),
       // Two-way Interview: call recording URL, for report playback.
       ...(session.recordingUrl ? { recordingUrl: session.recordingUrl } : {}),
+      // Two-way Interview: the recruiter's manual rating/notes. Surfaced from the
+      // SESSION (the source of truth — see /twoway/review) rather than only via
+      // `report.manualReview`, so the recruiter can rate before AI scoring lands
+      // (report is still null while scoring is in flight).
+      ...(session.manualReview ? { manualReview: session.manualReview } : {}),
     },
     rubric: template.rubric,
     report: db.reports.get(session.id) ?? null,

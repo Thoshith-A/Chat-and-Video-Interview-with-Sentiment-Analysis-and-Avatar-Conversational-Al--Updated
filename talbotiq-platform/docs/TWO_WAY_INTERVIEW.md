@@ -11,6 +11,15 @@ The **Two-way Interview** is a live, real-time video call between the recruiter 
 
 ## Flow
 
+**The candidate must open their interview link FIRST — the recruiter cannot
+"start the room" before that.** A bulk-invited `two_way` interview only exists
+as a Firestore `interviews/{id}` doc until the candidate opens it; that first
+`/take/:id` visit is what materializes the LOCAL session
+(`materializeInviteSession`) the recruiter's engine and Sessions list actually
+run on. Until it's materialized, it isn't in the recruiter's Sessions list at
+all, and `POST /twoway/host` has nothing to load — see "In-app UX" below for
+the message that surfaces if a recruiter tries anyway.
+
 ```
 ┌─ Recruiter ────────────────────────────────────────────────┐
 │ 1. InviteWizard → "Two-way Interview" mode card → invite   │
@@ -19,20 +28,27 @@ The **Two-way Interview** is a live, real-time video call between the recruiter 
 └──────────────────────────────────────────────────────────────┘
                             ↓
 ┌─ Candidate ────────────────────────────────────────────────┐
-│ 2. Opens /take/:id → camera/mic system check → joins the   │
-│    Daily room with a non-owner, KNOCKING token → waits in  │
-│    the lobby ("Waiting for the interviewer to admit you…") │
+│ 2. Opens /take/:id → camera/mic system check → lands in the │
+│    live-call screen, which auto-retries joining. This FIRST │
+│    visit materializes the local session (so it now shows up │
+│    in the recruiter's Sessions list). The join itself 409s   │
+│    ("has not started this interview yet") and keeps retrying │
+│    on an interval until step 3 below happens.                │
 └──────────────────────────────────────────────────────────────┘
                             ↓
 ┌─ Recruiter ────────────────────────────────────────────────┐
-│ 3. Opens /live/:id ("Join live interview" from Sessions) → │
-│    joins the same room as OWNER → sees the candidate       │
-│    knocking → clicks Admit                                 │
-│ 4. Live call: both parties see/hear each other over Daily  │
-│ 5. Recruiter clicks Record (client-side MediaRecorder,     │
-│    capturing the remote candidate + local recruiter audio) │
-│ 6. Recruiter clicks End → recording uploads to Firebase    │
-│    Storage → session marked completed                      │
+│ 3. Refreshes Sessions → the interview now appears → clicks   │
+│    "Join live interview" (/live/:id) → this call creates the │
+│    Daily room and joins it as OWNER — the candidate's next    │
+│    retry succeeds, they knock, and the recruiter sees them    │
+│    waiting → clicks Admit                                     │
+│ 4. Live call: both parties see/hear each other over Daily     │
+│ 5. Recruiter clicks Record (client-side MediaRecorder,        │
+│    capturing the remote candidate + local recruiter audio —   │
+│    a single continuous recorder for the whole call; toggling   │
+│    Record mid-call pauses/resumes it, never drops a segment)   │
+│ 6. Recruiter clicks End → recording uploads to Firebase        │
+│    Storage → session marked completed                          │
 └──────────────────────────────────────────────────────────────┘
                             ↓
 ┌─ Async Processing ─────────────────────────────────────────┐
@@ -49,9 +65,14 @@ The **Two-way Interview** is a live, real-time video call between the recruiter 
 │   strengths/improvements, recommendation)                    │
 │ • Speech metrics + sentiment (from the transcript)            │
 │ • Interviewer review: 0–5 stars + private notes, saved via    │
-│   POST /sessions/:id/twoway/review                            │
+│   POST /sessions/:id/twoway/review — visible as soon as the    │
+│   report exists OR before, while AI scoring is still pending   │
 └────────────────────────────────────────────────────────────┘
 ```
+
+If a recruiter tries "Join live interview" before the candidate has ever
+opened their link, `/twoway/host` responds `409` with "The candidate must open
+their interview link before you can join." instead of a bare 404.
 
 ## Daily setup
 
@@ -137,14 +158,16 @@ The Two-way Interview needs the device camera + microphone, same as the Video In
 ## Known considerations / follow-ups
 
 - **Daily tier.** Client-side `MediaRecorder` recording (the current default) works on any Daily plan. Daily **cloud recording** is a paid-tier upgrade that offloads compositing/reliability to Daily's servers — see "Daily setup" above for how to migrate to it later.
-- **Scheduling.** v1 is "join now": the recruiter starts the room and the candidate knocks whenever they open their link. A scheduled start time + reminder emails is a future enhancement.
+- **Scheduling.** v1 is "join now", and strictly candidate-first (see "Flow" above): the candidate must open their link at least once before the interview shows up for the recruiter to join, and the recruiter must then open `/live/:id` before the candidate's knock can succeed. A scheduled start time + reminder emails — and a way for the recruiter to open the room BEFORE the candidate ever visits (materializing the invite recruiter-side, listing unclaimed `two_way` invites) — is a documented follow-up, not implemented in v1.
 - **Transcript granularity.** v1 stores one (interviewer, candidate) transcript pair for the whole call. Deepgram diarization could split this into per-utterance turns later for a more granular per-question-style breakdown.
 - **No facial analysis on this track.** Facial/engagement analysis (AWS Rekognition) is Video Interview-only for now — out of scope for the live call to keep latency low.
 
 ## Debugging
 
 - **Room won't start / `503` on join:** `DAILY_API_KEY` is unset or invalid — check server logs and the `.env` value.
+- **Recruiter's Sessions list doesn't show the interview yet / "Join live interview" 404s or 409s "must open their interview link":** the candidate hasn't opened `/take/:id` yet — a bulk-invited `two_way` session only exists locally once that first visit materializes it (see "Flow" above). Ask the candidate to open their link, then refresh Sessions.
 - **Candidate stuck "waiting to be admitted":** confirm the recruiter has actually opened `/live/:id` and joined (the room only accepts knocks once the owner is present); check the Daily dashboard's room activity.
+- **Recruiter's page is stuck on "Starting the interview room…" after the candidate left:** should self-recover — `LiveInterviewPage` finalizes (uploads any recording + completes + navigates to the report) whenever the call ends for any reason, not just the recruiter's own End. If it doesn't, use the "Go to report" escape hatch shown once the call reads as ended.
 - **Recording missing on the report:** check browser console on the recruiter's `/live/:id` tab for `MediaRecorder`/upload errors — same failure modes as the Video Interview track's upload (Storage rules, network, codec support).
 - **No transcript/scorecard:** transcription is async (`transcribeVideoUrl`) — check server logs for `[twoway] transcription failed`; verify `DEEPGRAM_API_KEY`.
 - **Manual review not saving:** confirm the recruiter is the session owner (`assertOwner`) and the session's `track` is `two_way` — the `/twoway/review` route 400s otherwise.

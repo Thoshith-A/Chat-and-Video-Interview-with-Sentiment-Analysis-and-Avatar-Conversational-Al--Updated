@@ -5,7 +5,7 @@ import type { AnalyticsFilters, TrackType } from '../../shared/types'
 
 export const analyticsRouter = Router()
 
-const TRACKS: TrackType[] = ['chat', 'chatbot', 'video_avatar', 'voice', 'video']
+const TRACKS: TrackType[] = ['chat', 'chatbot', 'video_avatar', 'voice', 'video', 'two_way']
 const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
 
 // GET /api/analytics — real aggregates over stored ResultReports. All filters

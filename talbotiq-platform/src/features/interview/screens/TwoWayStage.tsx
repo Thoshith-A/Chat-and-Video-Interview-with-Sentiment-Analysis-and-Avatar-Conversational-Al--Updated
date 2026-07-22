@@ -10,7 +10,6 @@ import { Completion } from './Completion'
 interface Props {
   sessionId: string
   branding: BrandingConfig
-  onIntegrity?: (type: string) => void
 }
 
 const RETRY_MS = 4000

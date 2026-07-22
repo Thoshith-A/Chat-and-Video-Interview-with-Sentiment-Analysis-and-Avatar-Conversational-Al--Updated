@@ -191,13 +191,21 @@ export default function ReportPage() {
       />
 
       {!report ? (
-        <Card className="p-0">
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <Loader2 className="animate-spin text-primary-700" size={26} />
-            <p className="font-semibold text-neutral-700">Scoring in progress…</p>
-            <p className="text-sm text-neutral-400">This updates automatically when the analysis is ready.</p>
-          </div>
-        </Card>
+        <div className="space-y-6">
+          <Card className="p-0">
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <Loader2 className="animate-spin text-primary-700" size={26} />
+              <p className="font-semibold text-neutral-700">Scoring in progress…</p>
+              <p className="text-sm text-neutral-400">This updates automatically when the analysis is ready.</p>
+            </div>
+          </Card>
+          {/* Two-way Interview is recruiter-scored — the recruiter can rate the
+              call before the AI scorecard finishes (or even if it never does);
+              session.manualReview is the source of truth, independent of report. */}
+          {session.track === 'two_way' && (
+            <ManualReviewCard sessionId={session.id} manualReview={session.manualReview} />
+          )}
+        </div>
       ) : (
         <div ref={reportRef} className="space-y-6 bg-background">
           {report.notEvaluated && (

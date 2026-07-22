@@ -104,7 +104,11 @@ export default function TakeInterviewPage() {
   // room, not the timed engine) — reconnects (status already in_progress)
   // skip straight back into the lobby/room.
   if (s.track === 'two_way' && (chatbotStarted || s.status === 'in_progress')) {
-    return <TwoWayStage sessionId={sessionId} branding={branding} onIntegrity={integrity.post} />
+    // No onIntegrity here: TwoWayStage has no paste/copy fields or camera
+    // pre-flight of its own to report on, and tab-switch/fullscreen detection
+    // already runs unconditionally in the useIntegrityMonitor hook above
+    // (keyed only on `active`, not on which stage is rendered).
+    return <TwoWayStage sessionId={sessionId} branding={branding} />
   }
 
   if (s.status === 'in_progress') {

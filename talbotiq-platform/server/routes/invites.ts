@@ -71,7 +71,10 @@ invitesRouter.post('/', ah(async (req, res) => {
   const source = body?.source
   if (!mode || !MODE_LABEL[mode]) throw new HttpError(400, 'A valid interview mode is required')
   if (!role) throw new HttpError(400, 'A candidate role is required')
-  if (source !== 'tailor' && source !== 'set') throw new HttpError(400, 'source must be "tailor" or "set"')
+  // Two-way Interview is a live recruiter-led call — there's no scripted question
+  // source to choose (no tailor-per-résumé generation, no saved question set).
+  if (mode !== 'two_way' && source !== 'tailor' && source !== 'set')
+    throw new HttpError(400, 'source must be "tailor" or "set"')
 
   // Valid, de-duplicated candidates.
   const seen = new Set<string>()
@@ -130,7 +133,10 @@ invitesRouter.post('/', ah(async (req, res) => {
       mode,
       role: c.role,
       screening: {
-        source,
+        // Firestore rejects `undefined` field values — two_way invites carry no
+        // source at all (see the mode !== 'two_way' check above), so omit the key
+        // entirely rather than writing `source: undefined`.
+        ...(source ? { source } : {}),
         ...(source === 'tailor' && body.config ? {
           style: body.config.style,
           techCount: body.config.techCount,

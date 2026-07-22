@@ -475,6 +475,9 @@ export interface SessionReportView {
     transcript?: SessionReportTurn[]
     /** Two-way Interview: URL of the call recording, for report playback. Additive. */
     recordingUrl?: string
+    /** Two-way Interview: recruiter's manual rating/notes (session is the source of
+     *  truth — see /twoway/review — so this is present even before a report exists). */
+    manualReview?: { rating: number; notes: string; by?: string; at: string }
   }
   rubric: KpiRubric
   report: ResultReport | null
@@ -679,7 +682,9 @@ export interface ExtractCandidatesResult {
 export interface CreateInvitesRequest {
   mode: TrackType                                   // Chatbot / Voice / Video Avatar / Timed Q&A
   role: string                                      // batch candidate role (Step 1)
-  source: 'tailor' | 'set'
+  // Omitted only for 'two_way' — a live recruiter-led call has no scripted
+  // question source to configure (no résumé-tailored or saved-set questions).
+  source?: 'tailor' | 'set'
   config?: {                                        // tailor-per-résumé generation params (§2)
     style: QuestionStyle
     techCount: number
