@@ -139,15 +139,26 @@ export function AdvanceModal({
       ) : results ? (
         <div className="space-y-4">
           <div className="text-sm font-semibold text-neutral-700">Results</div>
-          <div className="max-h-64 space-y-1.5 overflow-auto rounded-lg border border-border p-2 text-sm">
+          {results.some((r) => r.error) && (
+            // The candidates WERE moved server-side; only email delivery failed.
+            // Say so explicitly so a mail-server rejection doesn't look like the
+            // whole action failed (and can't be un-done by mistake).
+            <p className="text-xs text-neutral-500">
+              Candidates were moved successfully. Some emails didn’t send — the reason is shown per recipient (this is a mail-server/Brevo delivery issue, not the advancement).
+            </p>
+          )}
+          <div className="max-h-64 space-y-2 overflow-auto rounded-lg border border-border p-2 text-sm">
             {results.map((r) => (
-              <div key={r.pipelineCandidateId} className="flex items-center justify-between gap-3">
-                <span className="truncate text-neutral-700">{r.email}</span>
-                {r.error
-                  ? <Badge variant="danger">Failed</Badge>
-                  : r.sent
-                    ? <Badge variant="success">Sent</Badge>
-                    : <Badge variant="neutral">Moved</Badge>}
+              <div key={r.pipelineCandidateId} className="flex flex-col gap-0.5 border-b border-border/60 pb-2 last:border-0 last:pb-0">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-neutral-700">{r.email}</span>
+                  {r.sent
+                    ? <Badge variant="success">Email sent</Badge>
+                    : r.error
+                      ? <Badge variant="warning">Moved · email failed</Badge>
+                      : <Badge variant="neutral">Moved</Badge>}
+                </div>
+                {r.error && <div className="break-words text-xs text-neutral-400">{r.error}</div>}
               </div>
             ))}
           </div>
