@@ -8,6 +8,7 @@
  * the web-only additive fields (mode/role/screening) and, for pipelines, an additive
  * `pipeline` ref. `type` is Flutter's 'video'|'chat' bucket.
  */
+import { FieldValue } from 'firebase-admin/firestore'
 import { adminFirestore } from './firebaseAdmin'
 import { buildInviteEmailHtml } from './inviteEmailRender'
 import { sendMail } from './email'
@@ -62,8 +63,8 @@ export function buildInterviewDocFields(ctx: InterviewDocCtx, c: RoundCandidate)
     maxAttempts: 1,
     attemptsUsed: 0,
     resultPublished: false,
-    createdAt: ctx.nowIso,
-    updatedAt: ctx.nowIso,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
     // ── web-only additive (Flutter ignores unknown keys) ──
     mode: ctx.mode,
     role: c.role,
@@ -120,9 +121,12 @@ export async function createAndSendInterview(
     html = `<p>Hi,</p><p>You've been invited to an interview for ${vars.role}. Open your interview: <a href="${link}">${link}</a></p><p>Sign in with ${c.email}.</p>`
   }
 
-  const headers = emailTpl ? { 'X-Mailin-custom': JSON.stringify({ interviewId: ref.id }) } : undefined
+  const headers = { 'X-Mailin-custom': JSON.stringify({ interviewId: ref.id }) }
   const from = emailTpl?.sender?.verifiedSenderEmail
-    ? `${emailTpl.sender.fromName} <${emailTpl.sender.verifiedSenderEmail}>` : undefined
+    ? ((emailTpl.sender.fromName || '').trim()
+        ? `${(emailTpl.sender.fromName || '').trim()} <${emailTpl.sender.verifiedSenderEmail}>`
+        : emailTpl.sender.verifiedSenderEmail)
+    : undefined
   const replyTo = emailTpl?.sender?.replyTo || undefined
   try {
     const r = await sendMail({ to: c.email, subject, html, from, replyTo, headers })

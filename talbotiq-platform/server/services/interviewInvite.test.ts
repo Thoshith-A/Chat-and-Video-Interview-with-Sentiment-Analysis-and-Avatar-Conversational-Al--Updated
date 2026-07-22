@@ -48,5 +48,8 @@ assert('screening set questionSetId', (dp.screening as any).questionSetId === 'q
 assert('screening set has no tailor fields', (dp.screening as any).techCount === undefined)
 assert('pipeline ref present', (dp.pipeline as any)?.pipelineId === 'pl-1' && (dp.pipeline as any)?.roundIndex === 2)
 
+assert('createdAt is a server-timestamp sentinel not the ISO string', typeof (d as any).createdAt === 'object' && (d as any).createdAt !== null && (d as any).createdAt !== baseCtx.nowIso)
+assert('updatedAt is a server-timestamp sentinel not the ISO string', typeof (d as any).updatedAt === 'object' && (d as any).updatedAt !== null && (d as any).updatedAt !== baseCtx.nowIso)
+
 console.log(`\n${failures === 0 ? '✅ ALL INTERVIEW-INVITE TESTS PASSED' : `❌ ${failures} ASSERTION(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
