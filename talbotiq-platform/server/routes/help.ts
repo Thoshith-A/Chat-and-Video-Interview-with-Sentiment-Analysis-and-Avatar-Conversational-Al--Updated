@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '../middleware/auth'
 import { runMimicGuide } from '../services/mimicGuide'
 import { streamGuideSpeech } from '../services/mimicGuideTts'
+import { runAutopilotAgent } from '../services/autopilotAgent'
 import { HttpError } from '../util/ah'
 import type { GuideRole } from '../services/mimicGuidePrompt'
 
@@ -42,6 +43,37 @@ helpRouter.post('/chat', async (req, res) => {
   } catch (error) {
     console.error('[mimic-guide] chat error', error)
     res.json({ reply: GENERIC_ERROR })
+  }
+})
+
+// Mimic Guide Autopilot agent turn: decides ONE next action (or asks a
+// clarifying question) given the recruiter/candidate's screen context and the
+// registered actions available there. Same auth as /chat; the actions
+// themselves are RBAC-gated both client- and server-side when they execute.
+const ParamSpecSchema = z.object({
+  name: z.string(), type: z.enum(['string', 'number', 'boolean', 'enum']),
+  enum: z.array(z.string()).optional(), required: z.boolean().optional(), description: z.string().optional(),
+})
+const AgentSchema = z.object({
+  messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) })).min(1).max(30),
+  context: z.object({
+    route: z.string().max(200),
+    availableActions: z.array(z.object({
+      name: z.string(), description: z.string(), screen: z.string(), sideEffect: z.boolean(), params: z.array(ParamSpecSchema),
+    })).max(100),
+    state: z.record(z.string(), z.unknown()).default({}),
+  }),
+})
+
+helpRouter.post('/agent', async (req, res) => {
+  try {
+    const parsed = AgentSchema.parse(req.body)
+    requireAuth(req) // recruiter or candidate — same as /chat; actions themselves are RBAC-gated client+server
+    const decision = await runAutopilotAgent(parsed)
+    res.json(decision)
+  } catch (error) {
+    console.error('[autopilot] /agent error', error)
+    res.json({ say: 'Something went wrong. Please try again.', awaitingUser: true })
   }
 })
 
