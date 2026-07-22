@@ -40,7 +40,7 @@ export function InviteEmailStep({
   const { user, firebaseUser } = useAuth()
   const recruiterName = user?.displayName || firebaseUser?.displayName || firebaseUser?.email || 'A recruiter'
 
-  const templates = useQuery({ queryKey: QK, queryFn: inviteEmailTemplatesApi.list })
+  const templates = useQuery({ queryKey: QK, queryFn: () => inviteEmailTemplatesApi.list() })
   const senders = useQuery({ queryKey: ['invite-senders'], queryFn: invitesApi.senders })
   const [selectedId, setSelectedId] = useState('')
   const [busy, setBusy] = useState(false)

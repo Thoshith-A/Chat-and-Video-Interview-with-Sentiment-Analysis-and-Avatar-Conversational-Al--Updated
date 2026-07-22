@@ -35,6 +35,7 @@ import type {
   CreatePipelineRequest,
   PipelineInviteRequest,
   PipelineInviteResult,
+  PipelineBoard,
 } from '@shared/types'
 
 const BASE = '/api'
@@ -257,7 +258,8 @@ export const invitesApi = {
 
 /* ─── Invite-email templates (owned per recruiter) ──────────────────────── */
 export const inviteEmailTemplatesApi = {
-  list: () => http<InviteEmailTemplate[]>('/invite-email-templates'),
+  list: (kind?: string) =>
+    http<InviteEmailTemplate[]>(`/invite-email-templates${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`),
   get: (id: string) => http<InviteEmailTemplate>(`/invite-email-templates/${id}`),
   create: (body: Partial<InviteEmailTemplate>) =>
     http<InviteEmailTemplate>('/invite-email-templates', { method: 'POST', body: JSON.stringify(body) }),
@@ -277,6 +279,7 @@ export const pipelinesApi = {
   remove: (id: string) => http<void>(`/pipelines/${id}`, { method: 'DELETE' }),
   inviteRound1: (id: string, body: PipelineInviteRequest) =>
     http<PipelineInviteResult>(`/pipelines/${id}/invite`, { method: 'POST', body: JSON.stringify(body) }),
+  board: (id: string) => http<PipelineBoard>(`/pipelines/${id}/board`),
 }
 
 /* ─── Analytics (aggregate dashboard) ───────────────────────────────────── */
@@ -302,4 +305,20 @@ export const voicesApi = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+}
+
+/** Build a CSV from rows and trigger a browser download. Values are quote-escaped. */
+export function downloadCsv(filename: string, header: string[], rows: (string | number)[][]) {
+  const esc = (v: string | number) => {
+    const s = String(v ?? '')
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
