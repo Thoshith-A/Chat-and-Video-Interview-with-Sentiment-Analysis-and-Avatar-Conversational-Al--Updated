@@ -31,6 +31,10 @@ import type {
   InviteSendersResult,
   TestInviteEmailRequest,
   TestInviteEmailResult,
+  Pipeline,
+  CreatePipelineRequest,
+  PipelineInviteRequest,
+  PipelineInviteResult,
 } from '@shared/types'
 
 const BASE = '/api'
@@ -262,6 +266,17 @@ export const inviteEmailTemplatesApi = {
   duplicate: (id: string) =>
     http<InviteEmailTemplate>(`/invite-email-templates/${id}/duplicate`, { method: 'POST' }),
   remove: (id: string) => http<void>(`/invite-email-templates/${id}`, { method: 'DELETE' }),
+}
+
+/* ─── Pipelines (multi-round interview flows, owned per recruiter) ──────── */
+export const pipelinesApi = {
+  list: (role?: string) => http<Pipeline[]>(`/pipelines${role ? `?role=${encodeURIComponent(role)}` : ''}`),
+  get: (id: string) => http<Pipeline>(`/pipelines/${id}`),
+  create: (body: CreatePipelineRequest) => http<Pipeline>('/pipelines', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: CreatePipelineRequest) => http<Pipeline>(`/pipelines/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  remove: (id: string) => http<void>(`/pipelines/${id}`, { method: 'DELETE' }),
+  inviteRound1: (id: string, body: PipelineInviteRequest) =>
+    http<PipelineInviteResult>(`/pipelines/${id}/invite`, { method: 'POST', body: JSON.stringify(body) }),
 }
 
 /* ─── Analytics (aggregate dashboard) ───────────────────────────────────── */
