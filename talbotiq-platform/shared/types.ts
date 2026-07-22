@@ -201,6 +201,20 @@ export interface InterviewPipelineRef {
   pipelineCandidateId: string
 }
 
+export interface PipelineInviteRequest {
+  candidates: { email: string; role: string }[]
+  emailConfig?: Partial<InviteEmailTemplate>
+  emailTemplateId?: string
+  origin?: string
+  sendEmails?: boolean
+}
+export interface PipelineInviteResult {
+  pipelineId: string
+  created: { id: string; email: string; link: string; sent?: boolean; status?: InviteSendStatusValue; error?: string }[]
+  emailed: number
+  dryRun: boolean
+}
+
 export interface BrandingConfig {
   companyName: string
   logoUrl?: string

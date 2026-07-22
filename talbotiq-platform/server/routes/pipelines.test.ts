@@ -7,7 +7,7 @@ import { db } from '../store/db'
 import { __test } from './pipelines'
 import type { AuthContext, RoundDef } from '../../shared/types'
 
-const { owns, normalize, loadOwned } = __test
+const { owns, normalize, loadOwned, buildPipelineCandidate } = __test
 let failures = 0
 function assert(label: string, cond: boolean, extra = '') {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? ' — ' + extra : ''}`)
@@ -55,6 +55,20 @@ assert('loadOwned returns for owner', loadOwned('pl-a', alice).id === 'pl-a')
 throws('loadOwned 404 cross-owner', () => loadOwned('pl-a', bob), 404)
 throws('loadOwned 404 missing', () => loadOwned('nope', alice), 404)
 db.pipelines.delete('pl-a')
+
+// buildPipelineCandidate: pure Round-1 candidate builder
+{
+  const { buildPipelineCandidate } = __test
+  const now = '2026-07-22T00:00:00.000Z'
+  const pipe = { id: 'pl-x', recruiterId: 'alice', role: 'Backend', type: 'multi' as const, rounds: goodRounds, createdAt: now, updatedAt: now }
+  const pc = buildPipelineCandidate(pipe, 'alice', { email: 'Ada@x.com', role: 'Backend' }, 'iv-1', now)
+  assert('pc pipelineId', pc.pipelineId === 'pl-x')
+  assert('pc recruiterId owner', pc.recruiterId === 'alice')
+  assert('pc emailLower', pc.candidateEmailLower === 'ada@x.com')
+  assert('pc starts round 0', pc.currentRoundIndex === 0 && pc.status === 'in_round')
+  assert('pc perRound[0] interviewId', pc.perRound[0].interviewId === 'iv-1' && pc.perRound[0].roundIndex === 0)
+  assert('pc history invited', pc.history[0].action === 'invited' && pc.history[0].toRound === 0)
+}
 
 console.log(`\n${failures === 0 ? '✅ ALL PIPELINE-ROUTE TESTS PASSED' : `❌ ${failures} ASSERTION(S) FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)
