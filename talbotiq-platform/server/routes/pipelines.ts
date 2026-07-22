@@ -396,7 +396,14 @@ pipelinesRouter.post('/:id/move-back', ah(async (req, res) => {
   // Only allowed while the current (advanced-into) round is not yet completed.
   if (cur && db.reports.get(cur.interviewId)) throw new HttpError(400, 'Current round already completed; cannot move back')
   const nowIso = new Date().toISOString()
-  if (cur) { await adminFirestore().collection('interviews').doc(cur.interviewId).delete().catch(() => {}) }
+  if (cur) {
+    await adminFirestore().collection('interviews').doc(cur.interviewId).delete().catch(() => {})
+    // Also drop any local session/report the candidate may have materialized by
+    // opening the (now-deleted) next-round link, so the dead link can't be resumed
+    // and no orphan report lingers for the reverted round.
+    db.sessions.delete(cur.interviewId)
+    db.reports.delete(cur.interviewId)
+  }
   c.perRound = c.perRound.filter((p) => p.roundIndex !== c.currentRoundIndex)
   const from = c.currentRoundIndex
   c.currentRoundIndex = from - 1; c.status = 'in_round'; c.updatedAt = nowIso
