@@ -4,13 +4,24 @@ import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors,
-  useDraggable, useDroppable, closestCenter, type DragEndEvent, type DragStartEvent,
+  useDraggable, useDroppable, pointerWithin, rectIntersection,
+  type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
 import { ArrowLeft, AlertTriangle, GripVertical, Download, History as HistoryIcon, Undo2 } from 'lucide-react'
 import { pipelinesApi, downloadCsv } from '@/lib/api'
 import { Card, Button, Badge, PageHeader, Skeleton, Select, cn } from '@/components/ui'
 import { AdvanceModal, type AdvanceModalKind } from './AdvanceModal'
 import type { BoardCard, BoardColumn, RoundDef, AuditEntry } from '@shared/types'
+
+/** Pointer-first collision detection. `closestCenter` measured column-center to
+ *  card-center, so dropping onto a SHORT/EMPTY column (Selected, Not-advancing)
+ *  kept resolving to the taller source column and the drop silently no-op'd.
+ *  `pointerWithin` registers the drop wherever the pointer actually is; the
+ *  `rectIntersection` fallback covers keyboard drags / gaps between columns. */
+const boardCollision: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args)
+  return pointerHits.length > 0 ? pointerHits : rectIntersection(args)
+}
 
 /** Per-round status shown on a card. Mirrors `buildBoard`'s `roundStatus`
  *  derivation in server/routes/pipelines.ts (join of report + session state). */
@@ -175,7 +186,9 @@ function DroppableColumn({ col, children }: { col: BoardColumn; children: React.
     <div
       ref={setNodeRef}
       className={cn(
-        'flex w-72 shrink-0 flex-col rounded-2xl bg-neutral-50 p-3 transition-colors',
+        // min-h keeps EMPTY columns (Selected / Not-advancing) a large, reliable
+        // drop target — otherwise a short empty column is nearly impossible to hit.
+        'flex min-h-[16rem] w-72 shrink-0 flex-col rounded-2xl bg-neutral-50 p-3 transition-colors',
         isOver && 'bg-primary-50 ring-2 ring-primary-300',
       )}
     >
@@ -217,9 +230,9 @@ function Column({
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="flex-1 space-y-2">
         {col.cards.length === 0
-          ? <div className="px-1 py-6 text-center text-xs text-neutral-300">Empty</div>
+          ? <div className="flex h-full min-h-[6rem] items-center justify-center rounded-xl border border-dashed border-neutral-200 px-1 text-center text-xs text-neutral-300">Drop here</div>
           : col.cards.map((c) => (
             <Cardlet
               key={c.pipelineCandidateId}
@@ -381,7 +394,7 @@ export default function PipelineBoardPage() {
         description={`${roundsLen} round${roundsLen === 1 ? '' : 's'} · candidate progression · drag an advanceable card, or use Advance / the quick-advance bar`}
       />
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex gap-3 overflow-x-auto pb-4">
           {board.columns.map((col) => (
             <Column
