@@ -7,7 +7,7 @@ import { db } from '../store/db'
 import { __test } from './pipelines'
 import type { AuthContext, RoundDef } from '../../shared/types'
 
-const { owns, normalize, loadOwned, buildPipelineCandidate } = __test
+const { owns, normalize, loadOwned, buildPipelineCandidate, buildBoard } = __test
 let failures = 0
 function assert(label: string, cond: boolean, extra = '') {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? ' — ' + extra : ''}`)
@@ -68,6 +68,33 @@ db.pipelines.delete('pl-a')
   assert('pc starts round 0', pc.currentRoundIndex === 0 && pc.status === 'in_round')
   assert('pc perRound[0] interviewId', pc.perRound[0].interviewId === 'iv-1' && pc.perRound[0].roundIndex === 0)
   assert('pc history invited', pc.history[0].action === 'invited' && pc.history[0].toRound === 0)
+}
+
+// buildBoard: pure candidate/round/report/session join for the results board
+{
+  const { buildBoard } = __test
+  const now = '2026-07-22T00:00:00.000Z'
+  const pipe = { id: 'pl-b', recruiterId: 'alice', role: 'Backend', type: 'multi' as const, rounds: goodRounds, createdAt: now, updatedAt: now }
+  // c1: completed + scored in round 0 -> advanceable in round 0 column
+  const c1 = { id: 'c1', pipelineId: 'pl-b', recruiterId: 'alice', candidateEmail: 'a@x.com', candidateEmailLower: 'a@x.com', role: 'Backend', currentRoundIndex: 0, status: 'in_round' as const, perRound: [{ roundIndex: 0, interviewId: 'iv-c1', invitedAt: now }], history: [], createdAt: now, updatedAt: now }
+  // c2: invited only (no session/report) -> not advanceable
+  const c2 = { ...c1, id: 'c2', candidateEmail: 'b@x.com', candidateEmailLower: 'b@x.com', perRound: [{ roundIndex: 0, interviewId: 'iv-c2', invitedAt: now }] }
+  // c3: selected (terminal)
+  const c3 = { ...c1, id: 'c3', candidateEmail: 'c@x.com', candidateEmailLower: 'c@x.com', status: 'selected' as const, currentRoundIndex: 1, perRound: [{ roundIndex: 0, interviewId: 'iv-c3a', invitedAt: now }, { roundIndex: 1, interviewId: 'iv-c3b', invitedAt: now }] }
+  const reports: Record<string, { overallScore?: number; notEvaluated?: boolean }> = { 'iv-c1': { overallScore: 72 } }
+  const sessions: Record<string, string> = { 'iv-c1': 'completed', 'iv-c2': 'created' }
+  const board = buildBoard(pipe, [c1, c2, c3], (id) => reports[id], (id) => sessions[id])
+
+  assert('columns = rounds + selected + not_advancing', board.columns.length === goodRounds.length + 2)
+  const round0 = board.columns.find((c) => c.kind === 'round' && c.roundIndex === 0)!
+  const selectedCol = board.columns.find((c) => c.kind === 'selected')!
+  assert('c1 in round0 column', round0.cards.some((k) => k.pipelineCandidateId === 'c1'))
+  const c1card = round0.cards.find((k) => k.pipelineCandidateId === 'c1')!
+  assert('c1 scored 72', c1card.score === 72 && c1card.roundStatus === 'completed')
+  assert('c1 advanceable', c1card.advanceable === true)
+  const c2card = round0.cards.find((k) => k.pipelineCandidateId === 'c2')!
+  assert('c2 not scored -> null score, not advanceable', c2card.score === null && c2card.advanceable === false)
+  assert('c3 in selected column, not advanceable', selectedCol.cards.some((k) => k.pipelineCandidateId === 'c3') && selectedCol.cards[0].advanceable === false)
 }
 
 console.log(`\n${failures === 0 ? '✅ ALL PIPELINE-ROUTE TESTS PASSED' : `❌ ${failures} ASSERTION(S) FAILED`}`)

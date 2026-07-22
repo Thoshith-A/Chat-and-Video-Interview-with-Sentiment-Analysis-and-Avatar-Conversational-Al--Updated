@@ -15,6 +15,7 @@ import { defaultTemplateFor } from '../../shared/inviteEmail'
 import type {
   AuthContext, Pipeline, RoundDef, TrackType,
   PipelineCandidate, PipelineInviteResult, InviteEmailTemplate,
+  PipelineBoard, BoardColumn, BoardCard,
 } from '../../shared/types'
 
 export const pipelinesRouter = Router()
@@ -76,6 +77,46 @@ function buildPipelineCandidate(
   }
 }
 
+/** Join candidates with their current round's report/session into a board (pure). */
+export function buildBoard(
+  pipeline: Pipeline,
+  candidates: PipelineCandidate[],
+  reportOf: (id: string) => { overallScore?: number; notEvaluated?: boolean } | undefined,
+  sessionStatusOf: (id: string) => string | undefined,
+): PipelineBoard {
+  const roundCols: BoardColumn[] = pipeline.rounds.map((r) => ({
+    key: `round-${r.index}`, title: r.name, roundIndex: r.index, kind: 'round' as const, cards: [],
+  }))
+  const selectedCol: BoardColumn = { key: 'selected', title: 'Selected', roundIndex: null, kind: 'selected', cards: [] }
+  const notCol: BoardColumn = { key: 'not-advancing', title: 'Not advancing', roundIndex: null, kind: 'not_advancing', cards: [] }
+
+  for (const c of candidates) {
+    const prog = c.perRound.find((p) => p.roundIndex === c.currentRoundIndex)
+    const interviewId = prog?.interviewId
+    const report = interviewId ? reportOf(interviewId) : undefined
+    const scored = !!report && typeof report.overallScore === 'number' && report.notEvaluated !== true
+    const sessionStatus = interviewId ? sessionStatusOf(interviewId) : undefined
+    const roundStatus: BoardCard['roundStatus'] = !interviewId ? 'none'
+      : scored || sessionStatus === 'completed' ? 'completed'
+      : sessionStatus === 'in_progress' || sessionStatus === 'system_check' ? 'in_progress'
+      : sessionStatus === 'expired' ? 'expired'
+      : 'invited'
+    const card: BoardCard = {
+      pipelineCandidateId: c.id, candidateEmail: c.candidateEmail, candidateName: c.candidateName,
+      currentRoundIndex: c.currentRoundIndex, status: c.status, roundStatus,
+      score: scored ? (report!.overallScore as number) : null,
+      advanceable: c.status === 'in_round' && scored,
+    }
+    if (c.status === 'selected') selectedCol.cards.push(card)
+    else if (c.status === 'not_advancing') notCol.cards.push(card)
+    else {
+      const col = roundCols.find((rc) => rc.roundIndex === c.currentRoundIndex) ?? roundCols[0]
+      col.cards.push(card)
+    }
+  }
+  return { pipeline, columns: [...roundCols, selectedCol, notCol] }
+}
+
 /** Resolve the invite-email template for Round 1: inline config wins, else owned id, else default. */
 function resolveEmailTemplate(auth: AuthContext, body: Record<string, any>): InviteEmailTemplate | null {
   const now = new Date().toISOString()
@@ -102,6 +143,18 @@ pipelinesRouter.get('/', ah((req, res) => {
 
 pipelinesRouter.get('/:id', ah((req, res) => {
   res.json(loadOwned(req.params.id, requireAuth(req)))
+}))
+
+pipelinesRouter.get('/:id/board', ah((req, res) => {
+  const auth = requireAuth(req)
+  const pipeline = loadOwned(req.params.id, auth)
+  const candidates = [...db.pipelineCandidates.values()].filter((c) => c.pipelineId === pipeline.id)
+  const board = buildBoard(
+    pipeline, candidates,
+    (id) => db.reports.get(id),
+    (id) => db.sessions.get(id)?.status,
+  )
+  res.json(board)
 }))
 
 pipelinesRouter.post('/', ah((req, res) => {
@@ -171,4 +224,4 @@ pipelinesRouter.post('/:id/invite', ah(async (req, res) => {
   res.status(201).json(result)
 }))
 
-export const __test = { owns, normalize, loadOwned, ALLOWED_ROUND_MODES, buildPipelineCandidate }
+export const __test = { owns, normalize, loadOwned, ALLOWED_ROUND_MODES, buildPipelineCandidate, buildBoard }

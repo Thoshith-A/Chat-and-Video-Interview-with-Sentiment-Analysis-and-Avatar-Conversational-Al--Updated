@@ -201,6 +201,28 @@ export interface InterviewPipelineRef {
   pipelineCandidateId: string
 }
 
+export interface BoardCard {
+  pipelineCandidateId: string
+  candidateEmail: string
+  candidateName?: string
+  currentRoundIndex: number
+  status: PipelineCandidateStatus
+  roundStatus: 'invited' | 'in_progress' | 'completed' | 'expired' | 'none'
+  score: number | null
+  advanceable: boolean
+}
+export interface BoardColumn {
+  key: string
+  title: string
+  roundIndex: number | null
+  kind: 'round' | 'selected' | 'not_advancing'
+  cards: BoardCard[]
+}
+export interface PipelineBoard {
+  pipeline: Pipeline
+  columns: BoardColumn[]
+}
+
 export interface PipelineInviteRequest {
   candidates: { email: string; role: string }[]
   emailConfig?: Partial<InviteEmailTemplate>
