@@ -82,6 +82,9 @@ export interface QuestionSet {
  * `recruiterId` is stamped server-side from the auth token (never client-supplied),
  * mirroring the Sessions ownership pattern. The per-candidate interview link and the
  * "use this exact email" note are injected + locked server-side at send time. */
+/** Discriminates configurable emails by transition purpose. Absent === 'invite'. */
+export type EmailKind = 'invite' | 'advance' | 'selected' | 'rejection'
+
 export interface InviteEmailSender {
   verifiedSenderEmail: string
   fromName: string
@@ -92,6 +95,7 @@ export interface InviteEmailTemplate {
   recruiterId: string // OWNER (Firebase uid) — server-stamped, scopes all reads
   name: string
   isDefault: boolean
+  kind?: EmailKind // absent === 'invite' (backward-compatible; see kindOf())
   sender: InviteEmailSender
   subject: string // supports {{merge_vars}}
   bodyHtml: string // sanitized WYSIWYG output (editable body region only)
