@@ -1,14 +1,14 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer,
 } from 'recharts'
 import {
-  ArrowLeft, Download, ChevronDown, AlertTriangle, Clock, Zap, ShieldAlert, Loader2,
+  ArrowLeft, Download, ChevronDown, AlertTriangle, Clock, Zap, ShieldAlert, Loader2, Star,
 } from 'lucide-react'
-import { PageHeader, Card, Button, Badge, Skeleton, cn } from '@/components/ui'
+import { PageHeader, Card, Button, Textarea, Badge, Skeleton, cn } from '@/components/ui'
 import { sessionsApi } from '@/lib/api'
 import { exportElementToPdf } from '@/lib/pdf'
 import { FacialAnalysisPanel } from '@/components/ats/FacialAnalysisPanel'
@@ -32,6 +32,78 @@ const TRACK_LABEL: Record<string, string> = {
 }
 
 const scoreColor = (s: number) => (s >= 75 ? '#16a34a' : s >= 55 ? '#d97706' : '#dc2626')
+
+/**
+ * Two-way Interview is recruiter-scored (in addition to the Gemini scorecard,
+ * which reuses the conversation-scoring path over the transcribed recording).
+ * This card lets the interviewer leave a 0–5 star rating + private notes,
+ * persisted via POST /sessions/:id/twoway/review (server mirrors it onto both
+ * session.manualReview — the source of truth — and report.manualReview, so a
+ * refetch of this same report query shows it back immediately).
+ */
+function ManualReviewCard({
+  sessionId,
+  manualReview,
+}: {
+  sessionId: string
+  manualReview?: { rating: number; notes: string; by?: string; at: string }
+}) {
+  const qc = useQueryClient()
+  const [rating, setRating] = useState(manualReview?.rating ?? 0)
+  const [notes, setNotes] = useState(manualReview?.notes ?? '')
+
+  // Re-sync local draft if the server copy changes underneath us (e.g. another
+  // recruiter saved a review, or our own save round-trips through a refetch).
+  useEffect(() => {
+    setRating(manualReview?.rating ?? 0)
+    setNotes(manualReview?.notes ?? '')
+  }, [manualReview?.rating, manualReview?.notes])
+
+  const save = useMutation({
+    mutationFn: () => sessionsApi.twowayReview(sessionId, { rating, notes }),
+    onSuccess: () => {
+      toast.success('Review saved')
+      qc.invalidateQueries({ queryKey: ['report', sessionId] })
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : 'Could not save the review'),
+  })
+
+  return (
+    <Card className="p-5">
+      <h3 className="text-sm font-bold uppercase tracking-wide text-neutral-500">Interviewer review</h3>
+      {manualReview?.at && (
+        <p className="mt-1 text-xs text-neutral-400">
+          Last saved {new Date(manualReview.at).toLocaleString()}{manualReview.by ? ` by ${manualReview.by}` : ''}
+        </p>
+      )}
+      <div className="mt-3 flex items-center gap-1">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => setRating(n === rating ? 0 : n)}
+            aria-label={`Rate ${n} star${n === 1 ? '' : 's'}`}
+            className="text-neutral-300 transition-colors hover:text-warning"
+          >
+            <Star size={20} className={n <= rating ? 'fill-warning text-warning' : ''} />
+          </button>
+        ))}
+        {rating > 0 && <span className="ml-2 text-xs font-medium text-neutral-400">{rating}/5</span>}
+      </div>
+      <Textarea
+        className="mt-3"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        placeholder="Private notes for your hiring team — not shown to the candidate."
+        rows={4}
+        charLimit={4000}
+      />
+      <div className="mt-3 flex justify-end">
+        <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>Save review</Button>
+      </div>
+    </Card>
+  )
+}
 
 function Gauge({ score }: { score: number }) {
   const R = 64
@@ -313,6 +385,11 @@ export default function ReportPage() {
                 className="aspect-video w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-neutral-900"
               />
             </Card>
+          )}
+
+          {/* interviewer manual review (Two-way Interview — recruiter-scored) */}
+          {session.track === 'two_way' && (
+            <ManualReviewCard sessionId={session.id} manualReview={report.manualReview} />
           )}
 
           {/* full transcript (conversation tracks) */}
