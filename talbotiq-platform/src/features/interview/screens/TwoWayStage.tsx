@@ -4,6 +4,7 @@ import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, AlertTriangle } from '
 import type { BrandingConfig } from '@shared/types'
 import { sessionsApi, ApiError } from '@/lib/api'
 import { useDailyCall } from '../useDailyCall'
+import { classifyJoinFailure } from '../twowayJoinError'
 import { DailyVideoTile } from '@/components/interview/DailyVideoTile'
 import { Completion } from './Completion'
 
@@ -13,6 +14,12 @@ interface Props {
 }
 
 const RETRY_MS = 4000
+// A 'transient' join failure (backend momentarily unreachable — a dev restart
+// or a prod deploy) retries silently, but only so many times: past this a
+// genuinely broken backend surfaces the hard error instead of spinning forever.
+// ~40s of retries at RETRY_MS. (A 'waiting-host' 409 retries indefinitely — the
+// recruiter may take minutes — and is NOT bounded by this.)
+const MAX_TRANSIENT_RETRIES = 10
 
 /**
  * Candidate side of the live Two-way Interview. Joins the Daily room the
@@ -39,10 +46,14 @@ export function TwoWayStage({ sessionId, branding }: Props) {
 
   const [joinError, setJoinError] = useState<string | null>(null) // hard (non-retryable) join failure
   const [waitingForHost, setWaitingForHost] = useState(true) // recruiter hasn't opened the room yet
+  const [reconnecting, setReconnecting] = useState(false) // backend blip; retrying the join silently
   const [attempt, setAttempt] = useState(0) // bump to retry the whole flow after a hard error
   const [completed, setCompleted] = useState(false)
 
   const completingRef = useRef(false)
+  // Consecutive 'transient' join failures in the current join cycle (reset on
+  // any success or a clean 'waiting-host' response). Bounds the silent retry.
+  const transientRetriesRef = useRef(0)
   // Tracks whether the interviewer's tile has ever shown up on this join
   // cycle, so a momentary drop (remote goes null again while still `joined`)
   // reads as "reconnecting" rather than the pre-admit "waiting to be let in"
@@ -72,22 +83,46 @@ export function TwoWayStage({ sessionId, branding }: Props) {
     let retryTimer: ReturnType<typeof setTimeout> | undefined
     setJoinError(null)
     setWaitingForHost(true)
+    setReconnecting(false)
+    transientRetriesRef.current = 0
     hadRemoteRef.current = false
 
     const attemptJoin = async () => {
       try {
         const { roomUrl, token } = await sessionsApi.twowayJoin(sessionId)
         if (cancelled) return
+        transientRetriesRef.current = 0
+        setReconnecting(false)
         setWaitingForHost(false)
         await dc.join(roomUrl, token)
       } catch (e) {
         if (cancelled) return
-        const notStarted = e instanceof ApiError && e.status === 409 && /has not started/i.test(e.message)
-        if (notStarted) {
-          retryTimer = setTimeout(() => { if (!cancelled) void attemptJoin() }, RETRY_MS)
-        } else {
-          setJoinError(e instanceof Error ? e.message : 'Could not join the interview')
+        // dc.join() never throws (it surfaces call errors via dc.callState),
+        // so anything caught here is a failed twowayJoin HTTP request. Classify
+        // it: a definite client error is fatal; a recruiter-not-started 409 or a
+        // transient backend blip stays in the lobby and retries on the interval.
+        const status = e instanceof ApiError ? e.status : null
+        const message = e instanceof Error ? e.message : ''
+        const kind = classifyJoinFailure(status, message)
+
+        if (kind === 'fatal') {
+          setJoinError(message || 'Could not join the interview')
+          return
         }
+        if (kind === 'transient') {
+          transientRetriesRef.current += 1
+          if (transientRetriesRef.current > MAX_TRANSIENT_RETRIES) {
+            setJoinError(message || 'We couldn’t reach the interview server. Please try again.')
+            return
+          }
+          setReconnecting(true)
+        } else {
+          // 'waiting-host' — the server IS responding (just not started yet), so
+          // the transient budget resets and we show the waiting-for-host copy.
+          transientRetriesRef.current = 0
+          setReconnecting(false)
+        }
+        retryTimer = setTimeout(() => { if (!cancelled) void attemptJoin() }, RETRY_MS)
       }
     }
     void attemptJoin()
@@ -198,14 +233,18 @@ export function TwoWayStage({ sessionId, branding }: Props) {
             <Loader2 size={26} className="animate-spin text-white" />
           </motion.div>
           <p className="text-lg font-semibold text-white">
-            {waitingForHost
-              ? 'Waiting for the interviewer to start the interview…'
-              : dc.callState === 'joined' && hadRemoteRef.current
-                ? 'Reconnecting…' // was live; the interviewer's tile just dropped momentarily
-                : 'Waiting for the interviewer to admit you…'}
+            {reconnecting
+              ? 'Reconnecting…' // backend briefly unreachable (restart/deploy); retrying automatically
+              : waitingForHost
+                ? 'Waiting for the interviewer to start the interview…'
+                : dc.callState === 'joined' && hadRemoteRef.current
+                  ? 'Reconnecting…' // was live; the interviewer's tile just dropped momentarily
+                  : 'Waiting for the interviewer to admit you…'}
           </p>
           <p className="max-w-sm text-sm text-neutral-400">
-            Your camera and mic are ready — you’ll be connected the moment the interviewer lets you in.
+            {reconnecting
+              ? 'We briefly lost the connection to the interview server — reconnecting automatically. No need to do anything.'
+              : 'Your camera and mic are ready — you’ll be connected the moment the interviewer lets you in.'}
           </p>
         </div>
       </div>

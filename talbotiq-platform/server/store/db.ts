@@ -8,6 +8,7 @@ import type {
   ResultReport,
   AppUser,
   AvatarInterviewSettings,
+  InviteEmailTemplate,
 } from '../../shared/types'
 import { seedData } from './seed'
 
@@ -34,6 +35,7 @@ interface Snapshot {
   reports: ResultReport[]
   users?: AppUser[]
   settings?: AppSettings
+  inviteEmailTemplates?: InviteEmailTemplate[]
 }
 
 /**
@@ -47,6 +49,7 @@ class Database {
   sessions = new Map<string, InterviewSession>()
   reports = new Map<string, ResultReport>()
   users = new Map<string, AppUser>()   // keyed by Firebase uid
+  inviteEmailTemplates = new Map<string, InviteEmailTemplate>() // owned per recruiter
   settings: AppSettings = {}
 
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -60,6 +63,7 @@ class Database {
         snap.sessions?.forEach((s) => this.sessions.set(s.id, s))
         snap.reports?.forEach((r) => this.reports.set(r.sessionId, r))
         snap.users?.forEach((u) => this.users.set(u.uid, u))
+        snap.inviteEmailTemplates?.forEach((t) => this.inviteEmailTemplates.set(t.id, t))
         if (snap.settings) this.settings = snap.settings
       }
     } catch (err) {
@@ -90,6 +94,7 @@ class Database {
         sessions: [...this.sessions.values()],
         reports: [...this.reports.values()],
         users: [...this.users.values()],
+        inviteEmailTemplates: [...this.inviteEmailTemplates.values()],
         settings: this.settings,
       }
       fs.writeFileSync(DATA_FILE, JSON.stringify(snap, null, 2))

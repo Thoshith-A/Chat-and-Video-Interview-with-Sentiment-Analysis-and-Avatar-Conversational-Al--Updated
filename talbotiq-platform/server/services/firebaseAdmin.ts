@@ -1,6 +1,7 @@
 import { initializeApp, cert, applicationDefault, getApps, type App } from 'firebase-admin/app'
 import { getAuth, type Auth, type DecodedIdToken } from 'firebase-admin/auth'
 import { getFirestore, type Firestore } from 'firebase-admin/firestore'
+import { getStorage, type Storage } from 'firebase-admin/storage'
 import { HttpError } from '../util/ah'
 import type { UserRole } from '../../shared/types'
 
@@ -25,6 +26,7 @@ import type { UserRole } from '../../shared/types'
 
 let cached: { app: App; auth: Auth } | null = null
 let firestoreCache: Firestore | null = null
+let bucketCache: ReturnType<Storage['bucket']> | null = null
 let initTried = false
 let initError: string | null = null
 
@@ -96,6 +98,25 @@ export function adminFirestore(): Firestore {
   if (!cached) throw new HttpError(503, `Authentication is not configured on the server (${initError ?? 'unknown reason'})`)
   if (!firestoreCache) firestoreCache = getFirestore(cached.app)
   return firestoreCache
+}
+
+/** The configured Storage bucket name (server var, else the client-facing one). */
+export function storageBucketName(): string {
+  return (process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim()
+}
+
+/**
+ * Admin Storage bucket handle, or a 503/500 if not configured. Admin writes bypass
+ * Storage security rules — used to host recruiter-uploaded invite-email logos and
+ * return a public, tokenised download URL that email clients can load.
+ */
+export function adminBucket(): ReturnType<Storage['bucket']> {
+  ensureInit()
+  if (!cached) throw new HttpError(503, `Storage is not configured on the server (${initError ?? 'unknown reason'})`)
+  const name = storageBucketName()
+  if (!name) throw new HttpError(500, 'Storage bucket not configured (set FIREBASE_STORAGE_BUCKET or VITE_FIREBASE_STORAGE_BUCKET)')
+  if (!bucketCache) bucketCache = getStorage(cached.app).bucket(name)
+  return bucketCache
 }
 
 /**

@@ -2,11 +2,14 @@ import { useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { MessageSquare, Mic, Video, Clock, Clapperboard, Users, ArrowLeft, Check, FileText, Layers, Plus, UploadCloud, Trash2, AlertTriangle, Loader2, CheckCircle2, Copy } from 'lucide-react'
-import { Button, Input, Skeleton, cn } from '@/components/ui'
+import { MessageSquare, Mic, Video, Clock, Clapperboard, Users, ArrowLeft, Check, FileText, Layers, Plus, UploadCloud, Trash2, AlertTriangle, Loader2, CheckCircle2, Copy, Mail, RefreshCw } from 'lucide-react'
+import { Button, Input, Skeleton, Badge, cn } from '@/components/ui'
 import { questionSetsApi, invitesApi, settingsApi } from '@/lib/api'
 import { GenerateFromResumeModal } from './GenerateFromResumeModal'
-import type { TrackType, QuestionStyle, DifficultyChoice, GeminiModel, QuestionSet, CreateInvitesResult } from '@shared/types'
+import { InviteEmailStep } from './invite-email/InviteEmailStep'
+import { ReviewSend } from './invite-email/ReviewSend'
+import { defaultInviteEmailTemplate, validateLockedTokens } from '@shared/inviteEmail'
+import type { TrackType, QuestionStyle, DifficultyChoice, GeminiModel, QuestionSet, CreateInvitesResult, InviteEmailTemplate } from '@shared/types'
 
 const emailOk = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim())
 
@@ -45,7 +48,9 @@ const DIFFICULTIES: DifficultyChoice[] = ['easy', 'medium', 'hard', 'mixed']
 const STEPS = [
   { n: 1, title: 'Basics', hint: 'Mode & role' },
   { n: 2, title: 'Questions', hint: 'Tailor or reuse' },
-  { n: 3, title: 'Candidates', hint: 'Invite in bulk' },
+  { n: 3, title: 'Candidates', hint: 'Add recipients' },
+  { n: 4, title: 'Invite email', hint: 'Configure & test' },
+  { n: 5, title: 'Review', hint: 'Confirm & send' },
 ] as const
 
 /** Config the interview auto-applies per candidate (persisted on the invite at submit). */
@@ -214,10 +219,34 @@ export default function InviteWizard() {
   const fileInput = useRef<HTMLInputElement>(null)
   const [creating, setCreating] = useState(false)
   const [result, setResult] = useState<CreateInvitesResult | null>(null)
+  const [retrying, setRetrying] = useState<Set<string>>(new Set())
+
+  // Step 4 — the invite email config (a full template draft; server ignores the
+  // synthetic id/owner/timestamps). Preloaded with the sensible default; the recruiter
+  // can load/save their own saved templates in the step itself.
+  const [emailDraft, setEmailDraft] = useState<InviteEmailTemplate>(() => ({
+    id: 'draft',
+    recruiterId: '',
+    createdAt: '',
+    updatedAt: '',
+    ...defaultInviteEmailTemplate(),
+  }))
 
   const sets = useQuery({ queryKey: ['question-sets'], queryFn: questionSetsApi.list, enabled: step === 2 && mode !== 'two_way' })
 
   const validCount = candidates.filter((c) => emailOk(c.email)).length
+  const validCandidates = candidates.filter((c) => emailOk(c.email)).map((c) => ({ email: c.email.trim(), role: c.role.trim() || role }))
+  const sampleEmail = validCandidates[0]?.email || 'candidate@example.com'
+  const emailLocked = validateLockedTokens(emailDraft.subject, emailDraft.bodyHtml)
+  const emailConfigPayload = (): Partial<InviteEmailTemplate> => ({
+    name: emailDraft.name,
+    sender: emailDraft.sender,
+    subject: emailDraft.subject,
+    bodyHtml: emailDraft.bodyHtml,
+    cta: emailDraft.cta,
+    branding: emailDraft.branding,
+    deadlineText: emailDraft.deadlineText,
+  })
 
   const mergeRows = (incoming: { email: string; role: string }[]) => {
     setCandidates((prev) => {
@@ -261,17 +290,19 @@ export default function InviteWizard() {
     // Two-way Interview has no scripted question source (live recruiter-led
     // call) — every other mode requires one.
     if (!mode || (mode !== 'two_way' && !source) || validCount === 0) return
+    if (!emailLocked.ok) { toast.error(`The invite email is missing the interview link (${emailLocked.missing.join(', ')})`); return }
     setCreating(true)
     try {
-      const valid = candidates.filter((c) => emailOk(c.email)).map((c) => ({ email: c.email.trim(), role: c.role.trim() || role }))
       const res = await invitesApi.create({
         mode: mode as Mode,
         role: role.trim(),
         ...(mode !== 'two_way' ? { source: source as Source } : {}),
         config: source === 'tailor' ? { style: cfg.style, techCount: cfg.techCount, nonTechCount: cfg.nonTechCount, difficulty: cfg.difficulty, domains: cfg.domains, model: cfg.model } : undefined,
         questionSetId: source === 'set' ? selectedSetId : undefined,
-        candidates: valid,
+        candidates: validCandidates,
         origin: window.location.origin,
+        emailConfig: emailConfigPayload(),
+        sendEmails: true,
       })
       setResult(res)
       toast.success(`Created ${res.created.length} invite${res.created.length === 1 ? '' : 's'}`)
@@ -279,6 +310,24 @@ export default function InviteWizard() {
       toast.error(e instanceof Error ? e.message : 'Could not create invites')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const retryOne = async (id: string) => {
+    setRetrying((s) => new Set(s).add(id))
+    try {
+      const r = await invitesApi.retry(id, { role: role.trim(), origin: window.location.origin, emailConfig: emailConfigPayload() })
+      setResult((prev) => prev && ({
+        ...prev,
+        emailed: prev.emailed + (r.sent ? 1 : 0),
+        created: prev.created.map((c) => c.id === id ? { ...c, sent: r.sent, status: r.status as CreateInvitesResult['created'][number]['status'], error: r.error } : c),
+      }))
+      if (r.sent) toast.success(`Resent to ${r.email}`)
+      else toast.error(r.error || 'Retry failed')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Retry failed')
+    } finally {
+      setRetrying((s) => { const n = new Set(s); n.delete(id); return n })
     }
   }
 
@@ -330,19 +379,34 @@ export default function InviteWizard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-neutral-50 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-500">
-                  <th className="px-3 py-2">Candidate</th><th className="px-3 py-2">Invite link</th><th className="px-3 py-2 w-10"></th>
+                  <th className="px-3 py-2">Candidate</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Invite link</th><th className="px-3 py-2 w-10"></th>
                 </tr>
               </thead>
               <tbody>
-                {result.created.map((c) => (
-                  <tr key={c.id} className="border-b border-border last:border-0">
-                    <td className="px-3 py-2 text-neutral-700">{c.email}</td>
-                    <td className="px-3 py-2"><span className="block max-w-[420px] truncate font-mono text-xs text-neutral-500">{c.link}</span></td>
-                    <td className="px-3 py-2 text-right">
-                      <button onClick={() => { navigator.clipboard.writeText(c.link); toast.success('Link copied') }} className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700" aria-label="Copy link"><Copy size={14} /></button>
-                    </td>
-                  </tr>
-                ))}
+                {result.created.map((c) => {
+                  const failed = c.sent === false
+                  const variant = c.status === 'delivered' ? 'success' : c.status === 'accepted' ? 'info' : failed ? 'danger' : 'neutral'
+                  const label = c.status ?? (c.sent ? 'accepted' : 'pending')
+                  return (
+                    <tr key={c.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-2 text-neutral-700">{c.email}</td>
+                      <td className="px-3 py-2">
+                        <span className="flex items-center gap-2">
+                          <Badge variant={variant}>{label}</Badge>
+                          {failed && (
+                            <button onClick={() => void retryOne(c.id)} disabled={retrying.has(c.id)} className="inline-flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline disabled:opacity-50" title={c.error || 'Retry'}>
+                              <RefreshCw size={12} className={retrying.has(c.id) ? 'animate-spin' : ''} /> Retry
+                            </button>
+                          )}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2"><span className="block max-w-[340px] truncate font-mono text-xs text-neutral-500">{c.link}</span></td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => { navigator.clipboard.writeText(c.link); toast.success('Link copied') }} className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700" aria-label="Copy link"><Copy size={14} /></button>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -625,8 +689,51 @@ export default function InviteWizard() {
 
           <div className="flex items-center justify-between gap-2 border-t border-border pt-5">
             <Button variant="ghost" onClick={() => setStep(2)}>← Back</Button>
-            <Button loading={creating} disabled={validCount === 0} onClick={submit}>
-              Create {validCount > 0 ? `${validCount} ` : ''}invite{validCount === 1 ? '' : 's'}
+            <Button disabled={validCount === 0} onClick={() => setStep(4)}>
+              Next: Invite email →
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 4: invite email ── */}
+      {!result && step === 4 && (
+        <div className="space-y-6">
+          <section>
+            <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold text-neutral-800"><Mail size={15} className="text-primary-700" /> Configure the invite email</h2>
+            <p className="mb-3 text-xs text-neutral-400">
+              Set the sender, subject, message, button, and branding — then preview and send yourself a test.
+              Each candidate’s unique interview link and the “use this exact email” note are added automatically and can’t be removed.
+            </p>
+            <InviteEmailStep
+              draft={emailDraft}
+              onChange={setEmailDraft}
+              role={role}
+              sampleEmail={sampleEmail}
+              origin={window.location.origin}
+            />
+          </section>
+
+          <div className="flex items-center justify-between gap-2 border-t border-border pt-5">
+            <Button variant="ghost" onClick={() => setStep(3)}>← Back</Button>
+            <Button disabled={!emailLocked.ok} onClick={() => setStep(5)}>Next: Review →</Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Step 5: review & send ── */}
+      {!result && step === 5 && (
+        <div className="space-y-6">
+          <section>
+            <h2 className="mb-1 text-sm font-semibold text-neutral-800">Review & send</h2>
+            <p className="mb-3 text-xs text-neutral-400">Confirm the recipients and the email below, then send.</p>
+            <ReviewSend candidates={validCandidates} draft={emailDraft} role={role} origin={window.location.origin} />
+          </section>
+
+          <div className="flex items-center justify-between gap-2 border-t border-border pt-5">
+            <Button variant="ghost" onClick={() => setStep(4)}>← Back</Button>
+            <Button loading={creating} disabled={validCount === 0 || !emailLocked.ok} onClick={submit}>
+              Send {validCount > 0 ? `${validCount} ` : ''}invite{validCount === 1 ? '' : 's'}
             </Button>
           </div>
         </div>

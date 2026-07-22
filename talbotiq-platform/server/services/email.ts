@@ -76,19 +76,37 @@ export interface MailInput {
   subject: string
   html: string
   text?: string
+  /** Override the From, e.g. `"Talent Team <talent@yourco.com>"` (must be a Brevo
+   *  verified sender). Falls back to MAIL_FROM env when omitted. */
+  from?: string
+  replyTo?: string
+  /** Extra SMTP headers — e.g. `X-Mailin-custom` carrying the interview id so Brevo
+   *  delivery webhooks can be correlated back to the recipient. */
+  headers?: Record<string, string>
 }
 
-/** Send one email, or dry-run+log if the mailer isn't fully configured yet. */
+/** Everything except the From is env-only; the From may be supplied per-send. */
+function transportReady(): boolean {
+  return Boolean(HOST && PORT && USER && PASS)
+}
+
+/** Send one email, or dry-run+log if the mailer isn't configured / has no sender. */
 export async function sendMail(input: MailInput): Promise<SendResult> {
-  if (!mailerReady()) {
-    console.log(`[email:dry-run] would send to ${input.to} — "${input.subject}" (missing: ${mailerStatus().missing.join(', ')})`)
+  const from = (input.from && input.from.trim()) || FROM
+  if (!transportReady() || !from) {
+    const missing = [!USER && 'SMTP_USER', !PASS && 'SMTP_PASS', !from && 'a From/verified sender']
+      .filter(Boolean)
+      .join(', ')
+    console.log(`[email:dry-run] would send to ${input.to} — "${input.subject}" (missing: ${missing})`)
     return { sent: false, dryRun: true }
   }
   const info = await transport().sendMail({
-    from: FROM,
+    from,
     to: input.to,
+    replyTo: input.replyTo || undefined,
     subject: input.subject,
     html: input.html,
+    headers: input.headers,
     text: input.text ?? input.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
   })
   return { sent: true, messageId: info.messageId }

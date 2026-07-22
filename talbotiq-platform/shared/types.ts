@@ -77,6 +77,42 @@ export interface QuestionSet {
   updatedAt: string
 }
 
+/* ── Invite-email templates (owned per recruiter; Express/JSON store) ──────────
+ * Configures the Brevo invite email a recruiter can preview/test before sending.
+ * `recruiterId` is stamped server-side from the auth token (never client-supplied),
+ * mirroring the Sessions ownership pattern. The per-candidate interview link and the
+ * "use this exact email" note are injected + locked server-side at send time. */
+export interface InviteEmailSender {
+  verifiedSenderEmail: string
+  fromName: string
+  replyTo?: string
+}
+export interface InviteEmailTemplate {
+  id: string
+  recruiterId: string // OWNER (Firebase uid) — server-stamped, scopes all reads
+  name: string
+  isDefault: boolean
+  sender: InviteEmailSender
+  subject: string // supports {{merge_vars}}
+  bodyHtml: string // sanitized WYSIWYG output (editable body region only)
+  cta: { text: string; color: string }
+  branding: BrandingConfig & { footer?: string }
+  deadlineText?: string
+  createdAt: string
+  updatedAt: string
+}
+export type InviteSendStatusValue =
+  | 'accepted' | 'delivered' | 'bounced' | 'spam' | 'failed' | 'opened' | 'clicked'
+/** Additive, Flutter-ignored status block written onto each interviews/{id} doc. */
+export interface InviteSendStatus {
+  messageId?: string
+  status: InviteSendStatusValue
+  error?: string
+  sentAt?: string
+  attempts: number
+  lastEventAt?: string
+}
+
 export interface BrandingConfig {
   companyName: string
   logoUrl?: string
@@ -696,12 +732,49 @@ export interface CreateInvitesRequest {
   questionSetId?: string                            // when source === 'set'
   candidates: { email: string; role: string }[]
   origin?: string                                   // web origin, for the invite link in emails
+  // Configurable invite email (additive). When neither is set, the legacy built-in
+  // email is used (backwards compatible). `emailConfig` (inline) wins over the id.
+  emailTemplateId?: string
+  emailConfig?: Partial<InviteEmailTemplate>
+  sendEmails?: boolean                              // default true; false = create links only
 }
 export interface CreateInvitesResult {
   testId: string
-  created: { id: string; email: string; link: string }[]
+  created: {
+    id: string
+    email: string
+    link: string
+    sent?: boolean                 // did the invite email go out for this recipient?
+    status?: InviteSendStatusValue // send-time status (webhook events update it later)
+    error?: string                 // failure reason when !sent
+  }[]
   emailed: number     // how many invite emails actually went out (0 while the mailer is in dry-run)
   dryRun: boolean     // true when the mailer isn't fully configured yet
+}
+
+/** Recruiter → server: send ONE test invite email to the recruiter's own address. */
+export interface TestInviteEmailRequest {
+  role?: string
+  origin?: string
+  emailTemplateId?: string
+  emailConfig?: Partial<InviteEmailTemplate>
+}
+export interface TestInviteEmailResult {
+  sent: boolean
+  dryRun?: boolean
+  to: string
+  error?: string
+}
+
+/** Server → client: Brevo verified senders for the sender picker. */
+export interface InviteVerifiedSender {
+  email: string
+  name: string
+  active: boolean
+}
+export interface InviteSendersResult {
+  senders: InviteVerifiedSender[]
+  brevoReady: boolean
 }
 
 /** High-level state of the live call, surfaced to the candidate UI. */

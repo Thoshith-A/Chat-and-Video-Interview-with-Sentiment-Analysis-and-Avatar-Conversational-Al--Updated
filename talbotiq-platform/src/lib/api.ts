@@ -27,6 +27,10 @@ import type {
   AvatarSettingsStatus,
   AvatarStartResponse,
   TwoWayJoinResponse,
+  InviteEmailTemplate,
+  InviteSendersResult,
+  TestInviteEmailRequest,
+  TestInviteEmailResult,
 } from '@shared/types'
 
 const BASE = '/api'
@@ -225,6 +229,39 @@ export const invitesApi = {
   },
   create: (body: CreateInvitesRequest) =>
     http<CreateInvitesResult>('/invites', { method: 'POST', body: JSON.stringify(body) }),
+  // Brevo verified senders for the sender picker (server-side key).
+  senders: () => http<InviteSendersResult>('/invites/senders'),
+  // Upload an invite-email logo → returns a public, email-safe hosted URL.
+  uploadLogo: async (file: File): Promise<{ url: string }> => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`${BASE}/invites/logo`, { method: 'POST', body: fd })
+    const text = await res.text()
+    const data = text ? JSON.parse(text) : undefined
+    if (!res.ok) throw new ApiError((data && data.error) || `Logo upload failed (${res.status})`, res.status, data)
+    return data as { url: string }
+  },
+  // Send one test invite email to the current recruiter, using the given config.
+  test: (body: TestInviteEmailRequest) =>
+    http<TestInviteEmailResult>('/invites/test', { method: 'POST', body: JSON.stringify(body) }),
+  // Retry a single failed recipient.
+  retry: (interviewId: string, body: TestInviteEmailRequest) =>
+    http<{ id: string; email: string; sent: boolean; status: string; error?: string }>(
+      `/invites/${interviewId}/retry`, { method: 'POST', body: JSON.stringify(body) },
+    ),
+}
+
+/* ─── Invite-email templates (owned per recruiter) ──────────────────────── */
+export const inviteEmailTemplatesApi = {
+  list: () => http<InviteEmailTemplate[]>('/invite-email-templates'),
+  get: (id: string) => http<InviteEmailTemplate>(`/invite-email-templates/${id}`),
+  create: (body: Partial<InviteEmailTemplate>) =>
+    http<InviteEmailTemplate>('/invite-email-templates', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: Partial<InviteEmailTemplate>) =>
+    http<InviteEmailTemplate>(`/invite-email-templates/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  duplicate: (id: string) =>
+    http<InviteEmailTemplate>(`/invite-email-templates/${id}/duplicate`, { method: 'POST' }),
+  remove: (id: string) => http<void>(`/invite-email-templates/${id}`, { method: 'DELETE' }),
 }
 
 /* ─── Analytics (aggregate dashboard) ───────────────────────────────────── */

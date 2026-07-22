@@ -9,6 +9,8 @@ import { settingsRouter } from './routes/settings'
 import { voicesRouter } from './routes/voices'
 import { analyticsRouter } from './routes/analytics'
 import { invitesRouter } from './routes/invites'
+import { inviteEmailTemplatesRouter } from './routes/inviteEmailTemplates'
+import { brevoWebhookRouter } from './routes/brevoWebhook'
 import { avatarRouter } from './routes/avatar'
 import { authRouter } from './routes/auth'
 import { faceCacheRouter } from './routes/faceCache'
@@ -49,7 +51,11 @@ app.use('/api/question-sets', authenticate, requireRecruiter, questionSetsRouter
 app.use('/api/settings', authenticate, requireRecruiter, settingsRouter)
 app.use('/api/voices', authenticate, requireRecruiter, voicesRouter)
 app.use('/api/analytics', authenticate, requireRecruiter, analyticsRouter)
+// Mounted BEFORE /api/invites so it wins for this path: Brevo delivery webhooks
+// are PUBLIC (no bearer token) and carry their own ?token= shared-secret check.
+app.use('/api/invites/brevo-webhook', brevoWebhookRouter)
 app.use('/api/invites', authenticate, requireRecruiter, invitesRouter)
+app.use('/api/invite-email-templates', authenticate, requireRecruiter, inviteEmailTemplatesRouter)
 // Mounted BEFORE /api/avatar so it wins for this path: it carries its own auth
 // that also accepts ?token= (video tags can't send the Authorization header).
 app.use('/api/avatar/face-cache', faceCacheRouter)
