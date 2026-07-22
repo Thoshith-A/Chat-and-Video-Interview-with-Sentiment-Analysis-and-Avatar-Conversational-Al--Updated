@@ -303,6 +303,18 @@ export default function ReportPage() {
             </div>
           </Card>
 
+          {/* call recording (Two-way Interview) */}
+          {session.recordingUrl && (
+            <Card className="p-5">
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-neutral-500">Call recording</h3>
+              <video
+                controls
+                src={session.recordingUrl}
+                className="aspect-video w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-neutral-900"
+              />
+            </Card>
+          )}
+
           {/* full transcript (conversation tracks) */}
           {session.transcript && (
             <Card className="p-0">

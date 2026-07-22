@@ -473,6 +473,8 @@ export interface SessionReportView {
     tabSwitchCount: number
     /** Full conversation transcript (chatbot / voice / video_avatar tracks). */
     transcript?: SessionReportTurn[]
+    /** Two-way Interview: URL of the call recording, for report playback. Additive. */
+    recordingUrl?: string
   }
   rubric: KpiRubric
   report: ResultReport | null

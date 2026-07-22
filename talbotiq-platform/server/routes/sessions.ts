@@ -1047,6 +1047,8 @@ sessionsRouter.get('/:id/report', requireRecruiter, ah(async (req, res) => {
             })),
           }
         : {}),
+      // Two-way Interview: call recording URL, for report playback.
+      ...(session.recordingUrl ? { recordingUrl: session.recordingUrl } : {}),
     },
     rubric: template.rubric,
     report: db.reports.get(session.id) ?? null,
