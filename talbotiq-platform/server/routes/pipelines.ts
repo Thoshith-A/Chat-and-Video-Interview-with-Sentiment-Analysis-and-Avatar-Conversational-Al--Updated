@@ -10,12 +10,13 @@ import { randomUUID } from 'node:crypto'
 import { db } from '../store/db'
 import { ah, HttpError } from '../util/ah'
 import { requireAuth } from '../middleware/auth'
-import { createAndSendInterview, type SendCtx } from '../services/interviewInvite'
+import { createAndSendInterview, sendTerminalEmail, type SendCtx } from '../services/interviewInvite'
+import { adminFirestore } from '../services/firebaseAdmin'
 import { defaultTemplateFor } from '../../shared/inviteEmail'
 import type {
-  AuthContext, Pipeline, RoundDef, TrackType,
+  AuthContext, Pipeline, RoundDef, TrackType, EmailKind,
   PipelineCandidate, PipelineInviteResult, InviteEmailTemplate,
-  PipelineBoard, BoardColumn, BoardCard,
+  PipelineBoard, BoardColumn, BoardCard, AdvanceRule, AdvanceResult,
 } from '../../shared/types'
 
 export const pipelinesRouter = Router()
@@ -117,12 +118,17 @@ export function buildBoard(
   return { pipeline, columns: [...roundCols, selectedCol, notCol] }
 }
 
-/** Resolve the invite-email template for Round 1: inline config wins, else owned id, else default. */
-function resolveEmailTemplate(auth: AuthContext, body: Record<string, any>): InviteEmailTemplate | null {
+/**
+ * Resolve the email template for a given transition kind: inline config wins, else
+ * owned id, else a kind-appropriate default. `kind` defaults to 'invite' for
+ * backward compatibility, but callers for advance/selected/rejection MUST pass
+ * their own kind — defaulting to the invite copy for those sends would be wrong.
+ */
+function resolveEmailTemplate(auth: AuthContext, body: Record<string, any>, kind: EmailKind = 'invite'): InviteEmailTemplate | null {
   const now = new Date().toISOString()
   const stamp = (seed: Partial<InviteEmailTemplate>): InviteEmailTemplate => ({
     id: 'inline', recruiterId: auth.uid, createdAt: now, updatedAt: now,
-    ...(defaultTemplateFor('invite') as any), ...seed,
+    ...(defaultTemplateFor(kind) as any), ...seed,
   })
   if (body.emailConfig) return stamp(body.emailConfig)
   if (typeof body.emailTemplateId === 'string') {
@@ -131,6 +137,21 @@ function resolveEmailTemplate(auth: AuthContext, body: Record<string, any>): Inv
     throw new HttpError(404, 'Email template not found')
   }
   return stamp({})
+}
+
+/** Pure: pick candidate ids meeting an AdvanceRule. Null scores are never selected. */
+export function selectByCriteria(cards: { pipelineCandidateId: string; score: number | null }[], rule: AdvanceRule): string[] {
+  const scored = cards.filter((c) => typeof c.score === 'number') as { pipelineCandidateId: string; score: number }[]
+  if (rule.kind === 'threshold') return scored.filter((c) => c.score >= rule.value).map((c) => c.pipelineCandidateId)
+  return [...scored].sort((a, b) => b.score - a.score).slice(0, Math.max(0, rule.value)).map((c) => c.pipelineCandidateId)
+}
+
+/** Pure: throws HttpError(400) unless the candidate may advance to targetRoundIndex right now. */
+export function assertAdvanceable(candidate: { status: string; currentRoundIndex: number }, targetRoundIndex: number, roundCount: number, scored: boolean): void {
+  if (candidate.status !== 'in_round') throw new HttpError(400, 'Candidate is not in an active round')
+  if (!scored) throw new HttpError(400, 'Candidate has not completed and been scored in the current round')
+  if (targetRoundIndex !== candidate.currentRoundIndex + 1) throw new HttpError(400, 'Can only advance to the next round')
+  if (targetRoundIndex > roundCount) throw new HttpError(400, 'Target round out of range')
 }
 
 pipelinesRouter.get('/', ah((req, res) => {
@@ -190,7 +211,7 @@ pipelinesRouter.post('/:id/invite', ah(async (req, res) => {
   const candidates: { email: string; role: string }[] = Array.isArray(body.candidates) ? body.candidates : []
   if (candidates.length === 0) throw new HttpError(400, 'no candidates')
   const round0: RoundDef = pipeline.rounds[0]
-  const emailTpl = resolveEmailTemplate(auth, body)
+  const emailTpl = resolveEmailTemplate(auth, body, 'invite')
   const sendEmails = body.sendEmails !== false
   const origin = typeof body.origin === 'string' ? body.origin : ''
   const nowIso = new Date().toISOString()
@@ -224,4 +245,140 @@ pipelinesRouter.post('/:id/invite', ah(async (req, res) => {
   res.status(201).json(result)
 }))
 
-export const __test = { owns, normalize, loadOwned, ALLOWED_ROUND_MODES, buildPipelineCandidate, buildBoard }
+/**
+ * Advance one or more candidates: to the next round (creates + sends that round's
+ * interview invite), or — when targetRoundIndex is the last round index + 1 — to
+ * the terminal 'selected' status (email only, no interviews doc). Each candidate is
+ * independently checked for ownership + pipeline membership + eligibility.
+ */
+pipelinesRouter.post('/:id/advance', ah(async (req, res) => {
+  const auth = requireAuth(req)
+  const pipeline = loadOwned(req.params.id, auth)
+  const body = (req.body ?? {}) as Record<string, any>
+  const ids: string[] = Array.isArray(body.candidateIds) ? body.candidateIds : []
+  const target = Number(body.targetRoundIndex)
+  if (ids.length === 0 || !Number.isInteger(target)) throw new HttpError(400, 'candidateIds and targetRoundIndex required')
+  const emailTpl = resolveEmailTemplate(auth, body, target >= pipeline.rounds.length ? 'selected' : 'advance')
+  const sendEmails = body.sendEmails !== false
+  const origin = typeof body.origin === 'string' ? body.origin : ''
+  const basis = typeof body.basis === 'string' ? body.basis : 'manual'
+  const nowIso = new Date().toISOString()
+  const results: AdvanceResult['results'] = []
+
+  for (const pcId of ids) {
+    const c = db.pipelineCandidates.get(pcId)
+    if (!c || c.pipelineId !== pipeline.id || (c.recruiterId !== auth.uid && !auth.admin)) throw new HttpError(404, 'Candidate not found')
+    const curInterviewId = c.perRound.find((p) => p.roundIndex === c.currentRoundIndex)?.interviewId
+    const report = curInterviewId ? db.reports.get(curInterviewId) : undefined
+    const scored = !!report && typeof report.overallScore === 'number' && report.notEvaluated !== true
+    assertAdvanceable(c, target, pipeline.rounds.length, scored)
+
+    if (target >= pipeline.rounds.length) {
+      // Final selection — no new interviews doc, terminal email only.
+      c.status = 'selected'; c.updatedAt = nowIso
+      c.history.push({ at: nowIso, byUid: auth.uid, action: 'selected', fromRound: c.currentRoundIndex, basis })
+      let sent = false, error: string | undefined
+      if (sendEmails) {
+        const r = await sendTerminalEmail(c.candidateEmail, emailTpl, 'selected', {
+          candidate_name: c.candidateEmail.split('@')[0], role: c.role,
+          recruiter_name: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ',
+          score: String(report?.overallScore ?? ''),
+        })
+        sent = r.sent; error = r.error
+      }
+      c.history[c.history.length - 1].emailResult = sent ? 'accepted' : sendEmails ? 'failed' : 'skipped'
+      results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: 'selected', sent, error })
+    } else {
+      const round = pipeline.rounds[target]
+      const questions = round.source === 'set' && round.questionSetId
+        ? (db.questionSets.get(round.questionSetId)?.questions.map((q) => q.text) ?? [])
+        : []
+      const ctx: SendCtx = {
+        testId: randomUUID(), recruiterId: auth.uid, recruiterEmail: auth.email, recruiterName: null, nowIso,
+        mode: round.mode, questions, source: round.source, config: round.config, questionSetId: round.questionSetId,
+        pipeline: { pipelineId: pipeline.id, roundIndex: target, pipelineCandidateId: pcId },
+        origin, fromName: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ', deadline: emailTpl?.deadlineText || '',
+      }
+      const row = await createAndSendInterview(
+        ctx, { email: c.candidateEmail, role: c.role }, emailTpl, sendEmails,
+        { emailKind: 'advance', roundName: round.name, previousRoundName: pipeline.rounds[c.currentRoundIndex]?.name, score: String(report?.overallScore ?? '') },
+      )
+      c.perRound.push({ roundIndex: target, interviewId: row.id, invitedAt: nowIso })
+      c.history.push({ at: nowIso, byUid: auth.uid, action: 'advanced', fromRound: c.currentRoundIndex, toRound: target, basis, emailResult: row.sent ? 'accepted' : sendEmails ? 'failed' : 'skipped' })
+      c.currentRoundIndex = target; c.status = 'in_round'; c.updatedAt = nowIso
+      results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: target, sent: row.sent, error: row.error })
+    }
+    db.pipelineCandidates.set(c.id, c)
+  }
+  db.scheduleSave()
+  res.status(200).json({ pipelineId: pipeline.id, results } as AdvanceResult)
+}))
+
+/**
+ * Mark candidates as not advancing (rejected out of the pipeline). Rejection email
+ * is OFF by default — only sent when the caller explicitly opts in via sendRejection.
+ */
+pipelinesRouter.post('/:id/not-advancing', ah(async (req, res) => {
+  const auth = requireAuth(req)
+  const pipeline = loadOwned(req.params.id, auth)
+  const body = (req.body ?? {}) as Record<string, any>
+  const ids: string[] = Array.isArray(body.candidateIds) ? body.candidateIds : []
+  if (ids.length === 0) throw new HttpError(400, 'candidateIds required')
+  const sendRejection = body.sendRejection === true // OFF by default
+  const emailTpl = sendRejection ? resolveEmailTemplate(auth, body, 'rejection') : null
+  const nowIso = new Date().toISOString()
+  const results: AdvanceResult['results'] = []
+  for (const pcId of ids) {
+    const c = db.pipelineCandidates.get(pcId)
+    if (!c || c.pipelineId !== pipeline.id || (c.recruiterId !== auth.uid && !auth.admin)) throw new HttpError(404, 'Candidate not found')
+    c.status = 'not_advancing'; c.updatedAt = nowIso
+    let sent = false, error: string | undefined
+    if (sendRejection) {
+      const r = await sendTerminalEmail(c.candidateEmail, emailTpl, 'rejection', {
+        candidate_name: c.candidateEmail.split('@')[0], role: c.role,
+        recruiter_name: emailTpl?.sender?.fromName || 'TalbotIQ', company: emailTpl?.branding?.companyName || 'TalbotIQ',
+      })
+      sent = r.sent; error = r.error
+    }
+    c.history.push({
+      at: nowIso, byUid: auth.uid, action: 'not_advancing', fromRound: c.currentRoundIndex,
+      basis: sendRejection ? 'rejection email' : 'no email', emailResult: sendRejection ? (sent ? 'accepted' : 'failed') : 'skipped',
+    })
+    db.pipelineCandidates.set(c.id, c)
+    results.push({ pipelineCandidateId: pcId, email: c.candidateEmail, toRound: 'selected', sent, error }) // toRound unused for rejection
+  }
+  db.scheduleSave()
+  res.status(200).json({ pipelineId: pipeline.id, results } as AdvanceResult)
+}))
+
+/**
+ * Undo the most recent advance for one candidate: only while the round they were
+ * advanced INTO has not yet been completed (no report). Deletes that round's
+ * interviews/{id} doc directly via the Admin SDK — it does NOT touch
+ * materializeInviteSession or any session/claim state.
+ */
+pipelinesRouter.post('/:id/move-back', ah(async (req, res) => {
+  const auth = requireAuth(req)
+  const pipeline = loadOwned(req.params.id, auth)
+  const pcId = (req.body ?? {}).candidateId
+  const c = db.pipelineCandidates.get(pcId)
+  if (!c || c.pipelineId !== pipeline.id || (c.recruiterId !== auth.uid && !auth.admin)) throw new HttpError(404, 'Candidate not found')
+  if (c.currentRoundIndex === 0 || c.status === 'selected' || c.status === 'not_advancing') throw new HttpError(400, 'Nothing to move back')
+  const cur = c.perRound.find((p) => p.roundIndex === c.currentRoundIndex)
+  // Only allowed while the current (advanced-into) round is not yet completed.
+  if (cur && db.reports.get(cur.interviewId)) throw new HttpError(400, 'Current round already completed; cannot move back')
+  const nowIso = new Date().toISOString()
+  if (cur) { await adminFirestore().collection('interviews').doc(cur.interviewId).delete().catch(() => {}) }
+  c.perRound = c.perRound.filter((p) => p.roundIndex !== c.currentRoundIndex)
+  const from = c.currentRoundIndex
+  c.currentRoundIndex = from - 1; c.status = 'in_round'; c.updatedAt = nowIso
+  c.history.push({ at: nowIso, byUid: auth.uid, action: 'moved_back', fromRound: from, toRound: from - 1, basis: 'correction' })
+  db.pipelineCandidates.set(c.id, c)
+  db.scheduleSave()
+  res.status(200).json({ ok: true })
+}))
+
+export const __test = {
+  owns, normalize, loadOwned, ALLOWED_ROUND_MODES, buildPipelineCandidate, buildBoard,
+  resolveEmailTemplate, selectByCriteria, assertAdvanceable,
+}

@@ -7,7 +7,7 @@ import { db } from '../store/db'
 import { __test } from './pipelines'
 import type { AuthContext, RoundDef } from '../../shared/types'
 
-const { owns, normalize, loadOwned, buildPipelineCandidate, buildBoard } = __test
+const { owns, normalize, loadOwned, buildPipelineCandidate, buildBoard, selectByCriteria, assertAdvanceable, resolveEmailTemplate } = __test
 let failures = 0
 function assert(label: string, cond: boolean, extra = '') {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? ' — ' + extra : ''}`)
@@ -95,6 +95,40 @@ db.pipelines.delete('pl-a')
   const c2card = round0.cards.find((k) => k.pipelineCandidateId === 'c2')!
   assert('c2 not scored -> null score, not advanceable', c2card.score === null && c2card.advanceable === false)
   assert('c3 in selected column, not advanceable', selectedCol.cards.some((k) => k.pipelineCandidateId === 'c3') && selectedCol.cards[0].advanceable === false)
+}
+
+// selectByCriteria / assertAdvanceable: pure eligibility + selection helpers
+{
+  const { selectByCriteria, assertAdvanceable } = __test
+  const cards = [
+    { pipelineCandidateId: 'a', score: 80 }, { pipelineCandidateId: 'b', score: 55 },
+    { pipelineCandidateId: 'c', score: 65 }, { pipelineCandidateId: 'd', score: null },
+  ]
+  assert('threshold>=60 picks a,c', JSON.stringify(selectByCriteria(cards, { kind: 'threshold', value: 60 }).sort()) === JSON.stringify(['a', 'c']))
+  assert('topN=2 picks a,c (highest)', JSON.stringify(selectByCriteria(cards, { kind: 'topN', value: 2 }).sort()) === JSON.stringify(['a', 'c']))
+  assert('null score never selected', !selectByCriteria(cards, { kind: 'threshold', value: 0 }).includes('d'))
+
+  const cand = { id: 'x', status: 'in_round', currentRoundIndex: 0 } as any
+  assertAdvanceable(cand, 1, 3, true) // ok, no throw
+  throws('advance not scored -> 400', () => assertAdvanceable(cand, 1, 3, false), 400)
+  throws('advance skip round -> 400', () => assertAdvanceable(cand, 2, 3, true), 400)
+  throws('advance when selected -> 400', () => assertAdvanceable({ ...cand, status: 'selected' }, 1, 3, true), 400)
+  assertAdvanceable({ ...cand, currentRoundIndex: 2 }, 3, 3, true) // last round -> selected (target === roundCount)
+}
+
+// resolveEmailTemplate: kind-aware default (plan correction — must NOT always default to 'invite')
+{
+  const { resolveEmailTemplate } = __test
+  const auth: AuthContext = { uid: 'alice', email: 'a@x.com', emailVerified: true, role: 'recruiter', admin: false }
+  const inviteDefault = resolveEmailTemplate(auth, {}, 'invite')
+  const advanceDefault = resolveEmailTemplate(auth, {}, 'advance')
+  const selectedDefault = resolveEmailTemplate(auth, {}, 'selected')
+  const rejectionDefault = resolveEmailTemplate(auth, {}, 'rejection')
+  assert('invite default kind invite (backward-compat)', inviteDefault?.kind === undefined || inviteDefault?.kind === 'invite')
+  assert('advance default kind advance', advanceDefault?.kind === 'advance')
+  assert('selected default kind selected', selectedDefault?.kind === 'selected')
+  assert('rejection default kind rejection', rejectionDefault?.kind === 'rejection')
+  assert('advance default subject differs from invite default', advanceDefault?.subject !== inviteDefault?.subject)
 }
 
 console.log(`\n${failures === 0 ? '✅ ALL PIPELINE-ROUTE TESTS PASSED' : `❌ ${failures} ASSERTION(S) FAILED`}`)

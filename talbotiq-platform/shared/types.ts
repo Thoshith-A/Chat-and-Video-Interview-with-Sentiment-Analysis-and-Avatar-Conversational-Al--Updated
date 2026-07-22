@@ -237,6 +237,29 @@ export interface PipelineInviteResult {
   dryRun: boolean
 }
 
+export interface AdvanceRequest {
+  candidateIds: string[]
+  targetRoundIndex: number
+  emailTemplateId?: string
+  emailConfig?: Partial<InviteEmailTemplate>
+  origin?: string
+  basis?: string
+  sendEmails?: boolean
+}
+export interface NotAdvancingRequest {
+  candidateIds: string[]
+  sendRejection?: boolean
+  emailTemplateId?: string
+  emailConfig?: Partial<InviteEmailTemplate>
+}
+export interface MoveBackRequest {
+  candidateId: string
+}
+export interface AdvanceResult {
+  pipelineId: string
+  results: { pipelineCandidateId: string; email: string; toRound: number | 'selected'; sent?: boolean; error?: string }[]
+}
+
 export interface BrandingConfig {
   companyName: string
   logoUrl?: string
