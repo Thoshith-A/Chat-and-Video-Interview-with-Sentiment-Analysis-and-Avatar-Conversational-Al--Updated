@@ -9,6 +9,8 @@ import type {
   AppUser,
   AvatarInterviewSettings,
   InviteEmailTemplate,
+  Pipeline,
+  PipelineCandidate,
 } from '../../shared/types'
 import { seedData } from './seed'
 
@@ -36,6 +38,8 @@ interface Snapshot {
   users?: AppUser[]
   settings?: AppSettings
   inviteEmailTemplates?: InviteEmailTemplate[]
+  pipelines?: Pipeline[]
+  pipelineCandidates?: PipelineCandidate[]
 }
 
 /**
@@ -50,6 +54,8 @@ class Database {
   reports = new Map<string, ResultReport>()
   users = new Map<string, AppUser>()   // keyed by Firebase uid
   inviteEmailTemplates = new Map<string, InviteEmailTemplate>() // owned per recruiter
+  pipelines = new Map<string, Pipeline>()                     // owned per recruiter
+  pipelineCandidates = new Map<string, PipelineCandidate>()   // owned per recruiter
   settings: AppSettings = {}
 
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -64,6 +70,8 @@ class Database {
         snap.reports?.forEach((r) => this.reports.set(r.sessionId, r))
         snap.users?.forEach((u) => this.users.set(u.uid, u))
         snap.inviteEmailTemplates?.forEach((t) => this.inviteEmailTemplates.set(t.id, t))
+        snap.pipelines?.forEach((p) => this.pipelines.set(p.id, p))
+        snap.pipelineCandidates?.forEach((c) => this.pipelineCandidates.set(c.id, c))
         if (snap.settings) this.settings = snap.settings
       }
     } catch (err) {
@@ -95,6 +103,8 @@ class Database {
         reports: [...this.reports.values()],
         users: [...this.users.values()],
         inviteEmailTemplates: [...this.inviteEmailTemplates.values()],
+        pipelines: [...this.pipelines.values()],
+        pipelineCandidates: [...this.pipelineCandidates.values()],
         settings: this.settings,
       }
       fs.writeFileSync(DATA_FILE, JSON.stringify(snap, null, 2))

@@ -117,6 +117,84 @@ export interface InviteSendStatus {
   lastEventAt?: string
 }
 
+/* ── Multi-round interview pipelines (additive; local Express/JSON store) ──────
+ * A Pipeline groups ordered rounds for a role. Each round a candidate enters is a
+ * real interviews/{id} invite doc (reuses the /take/:id + claim + scoring path).
+ * Per-candidate progression is tracked in PipelineCandidate. Owned per recruiter
+ * (recruiterId server-stamped), mirroring Sessions. */
+export type AdvanceRule =
+  | { kind: 'threshold'; value: number }  // overall score >= value
+  | { kind: 'topN'; value: number }       // top N by score
+
+export interface RoundDef {
+  index: number                 // 0-based, contiguous
+  name: string
+  mode: TrackType               // async auto-scored subset in v1
+  source?: 'tailor' | 'set'
+  config?: {
+    style: QuestionStyle
+    techCount: number
+    nonTechCount: number
+    difficulty: DifficultyChoice
+    domains: string[]
+    model: GeminiModel
+  }
+  questionSetId?: string
+  advanceRule?: AdvanceRule
+}
+
+export interface Pipeline {
+  id: string
+  recruiterId: string           // OWNER — server-stamped
+  role: string
+  type: 'multi'                 // single-interview setups create no pipeline
+  name?: string
+  rounds: RoundDef[]            // ordered; length >= 1
+  createdAt: string
+  updatedAt: string
+}
+
+export type PipelineCandidateStatus = 'in_round' | 'advanced' | 'selected' | 'not_advancing'
+
+export interface RoundProgress {
+  roundIndex: number
+  interviewId: string           // interviews/{id} doc + local session id for this round
+  invitedAt: string
+}
+
+export interface AuditEntry {
+  at: string
+  byUid: string
+  action: 'invited' | 'advanced' | 'selected' | 'not_advancing' | 'moved_back'
+  fromRound?: number
+  toRound?: number
+  basis?: string                // "drag" | "threshold>=60" | "topN=5"
+  emailResult?: 'accepted' | 'failed' | 'skipped'
+}
+
+export interface PipelineCandidate {
+  id: string
+  pipelineId: string
+  recruiterId: string           // OWNER — server-stamped
+  candidateEmail: string
+  candidateEmailLower: string
+  candidateName?: string
+  role: string
+  currentRoundIndex: number
+  status: PipelineCandidateStatus
+  perRound: RoundProgress[]
+  history: AuditEntry[]
+  createdAt: string
+  updatedAt: string
+}
+
+/** Additive, Flutter-ignored ref written onto a round's interviews/{id} doc. */
+export interface InterviewPipelineRef {
+  pipelineId: string
+  roundIndex: number
+  pipelineCandidateId: string
+}
+
 export interface BrandingConfig {
   companyName: string
   logoUrl?: string
