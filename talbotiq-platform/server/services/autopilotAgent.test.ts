@@ -24,6 +24,7 @@ const names = ctx.availableActions.map((a) => a.name)
 // unknown action name is dropped
 const d1 = normalizeDecision({ say: 'ok', actionName: 'setup.hackTheDb', argsJson: '{}', awaitingUser: false }, names)
 assert('unknown action dropped', d1.action === undefined)
+assert('unknown action forces awaitingUser (no stall)', d1.awaitingUser === true)
 // known action + args parsed
 const d2 = normalizeDecision({ say: 'Selecting voice', actionName: 'setup.selectMode', argsJson: '{"mode":"voice"}', awaitingUser: false }, names)
 assert('known action kept', d2.action?.name === 'setup.selectMode' && (d2.action?.args as any).mode === 'voice')

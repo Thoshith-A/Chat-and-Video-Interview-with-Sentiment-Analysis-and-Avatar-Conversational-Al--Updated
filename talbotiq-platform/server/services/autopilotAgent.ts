@@ -34,7 +34,9 @@ export function normalizeDecision(
   const say = typeof raw.say === 'string' ? raw.say : ''
   const awaitingUser = raw.awaitingUser === true || raw.awaitingUser === 'true'
   const name = typeof raw.actionName === 'string' ? raw.actionName.trim() : ''
-  if (!name || !availableNames.includes(name)) return { say, awaitingUser: awaitingUser || !name }
+  // When no registered action survives (empty OR unknown name), force awaitingUser
+  // so the client waits for the recruiter instead of stalling with nothing to run.
+  if (!name || !availableNames.includes(name)) return { say, awaitingUser: true }
   let args: Record<string, unknown> = {}
   try { const p = JSON.parse(typeof raw.argsJson === 'string' && raw.argsJson ? raw.argsJson : '{}'); if (p && typeof p === 'object') args = p as Record<string, unknown> } catch { /* keep {} */ }
   return { say, action: { name, args }, awaitingUser }
@@ -49,6 +51,9 @@ export async function runAutopilotAgent(req: AgentRequest): Promise<AgentDecisio
     .filter((m) => m.content?.trim())
     .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }))
   while (contents.length && contents[0].role === 'model') contents.shift()
+  // No user turn to act on (e.g. an all-assistant history) — don't call Gemini
+  // with empty contents; prompt the recruiter instead.
+  if (!contents.length) return { say: 'What would you like to do in TalbotIQ?', awaitingUser: true }
   try {
     const res = await geminiClient().models.generateContent({
       model: modelName(),
