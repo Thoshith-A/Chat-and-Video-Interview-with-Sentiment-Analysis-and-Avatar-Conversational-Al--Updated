@@ -1,4 +1,5 @@
 import { geminiClient, modelName, geminiEnabled } from './gemini'
+import { isAuthError } from './autopilotAgent'
 import {
   buildMimicGuidePrompt,
   OUT_OF_SCOPE_REFUSAL,
@@ -122,12 +123,22 @@ export async function runMimicGuide(
     const text = (res.text ?? '').trim()
     return text || OUT_OF_SCOPE_REFUSAL
   } catch (error) {
-    // Model unavailable (outage / depleted quota) — answer from the canned
-    // knowledge base so the assistant stays useful instead of erroring.
     console.error(
       '[mimic-guide] degraded:',
       error instanceof Error ? error.message : error,
     )
+    // Auth/credential failure is NOT a transient outage — say so plainly instead
+    // of silently serving canned answers (which masks a broken key as "working"
+    // and quietly degrades scoring/question-generation too).
+    if (isAuthError(error)) {
+      return (
+        "I can't reach the AI model right now — the Gemini API key looks invalid, expired, or missing. " +
+        'Add a valid Gemini API key in **Settings → Gemini** (or set `GEMINI_API_KEY` on the server), then ask me again. ' +
+        "Until then I'll answer from my built-in notes only."
+      )
+    }
+    // Model unavailable (outage / depleted quota) — answer from the canned
+    // knowledge base so the assistant stays useful instead of erroring.
     return cannedAnswer(lastUser)
   }
 }
