@@ -19,6 +19,7 @@ assert('prompt lists action names', prompt.includes('setup.selectMode') && promp
 assert('prompt marks side-effect', /createInvites[\s\S]*side.?effect/i.test(prompt) || prompt.includes('sideEffect'))
 assert('prompt includes current route', prompt.includes('/sessions/new'))
 assert('prompt states TalbotIQ-only scope', /TalbotIQ/.test(prompt))
+assert('prompt nudges one-shot extraction', /extract .*(all|every)|already (told|gave|provided|mentioned)/i.test(prompt))
 
 const names = ctx.availableActions.map((a) => a.name)
 // unknown action name is dropped

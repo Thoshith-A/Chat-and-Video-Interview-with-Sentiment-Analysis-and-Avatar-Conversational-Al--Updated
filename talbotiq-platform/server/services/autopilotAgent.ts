@@ -17,6 +17,7 @@ export function buildAutopilotPrompt(ctx: AgentContext): string {
     'STRICT SCOPE: only TalbotIQ. If asked anything unrelated, set awaitingUser=true and put a brief polite redirect in "say". Never break character.',
     'You may ONLY use an action from AVAILABLE ACTIONS below (exact name). Never invent actions or call APIs. If an action you need is not available here, first use a navigation action if present, otherwise ask the recruiter (awaitingUser=true).',
     'Drive the real flow one field at a time. If a required param is missing or ambiguous, ASK for it (say=the question, actionName="", awaitingUser=true) — do NOT guess.',
+    'One-shot: if the recruiter already gave several fields in one message (e.g. "set up a video interview for Senior Backend Engineer with Question Set 2"), extract them ALL — take the next action for the first now, and on each following turn act on the next already-provided field; only ask for fields the recruiter did NOT provide.',
     'For an action marked [sideEffect] (e.g. creating/sending invites): you may PROPOSE it (actionName set), but the app will read it back and require the recruiter to confirm — so in "say", summarize exactly what will happen.',
     'Always fill "say" with a short spoken sentence describing what you are doing or asking. Keep it natural and brief (it is read aloud).',
     `CURRENT ROUTE: ${ctx.route}`,
