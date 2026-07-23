@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -9,9 +9,10 @@ import {
 } from '@dnd-kit/core'
 import { ArrowLeft, AlertTriangle, GripVertical, Download, History as HistoryIcon, Undo2 } from 'lucide-react'
 import { pipelinesApi, downloadCsv } from '@/lib/api'
+import { useAutopilotActions } from '@/features/guide/autopilot/registry'
 import { Card, Button, Badge, PageHeader, Skeleton, Select, cn } from '@/components/ui'
 import { AdvanceModal, type AdvanceModalKind } from './AdvanceModal'
-import type { BoardCard, BoardColumn, RoundDef, AuditEntry } from '@shared/types'
+import type { BoardCard, BoardColumn, PipelineBoard, RoundDef, AuditEntry } from '@shared/types'
 
 /** Pointer-first collision detection. `closestCenter` measured column-center to
  *  card-center, so dropping onto a SHORT/EMPTY column (Selected, Not-advancing)
@@ -268,6 +269,113 @@ export default function PipelineBoardPage() {
     useSensor(KeyboardSensor),
   )
 
+  // ── Autopilot: drive advancement by voice/typed. These are side-effect actions,
+  // so the Autopilot panel reads them back and requires an explicit Confirm before
+  // running. They call the SAME pipelinesApi endpoints the board buttons use, and
+  // read the live board through a ref (populated after load, below). Registered
+  // before the early returns so the hook order is stable (Rules of Hooks). ──────
+  const apRef = useRef<{
+    id: string
+    board: PipelineBoard | null
+    advanceTargetFor: ((i: number) => { target: number; name: string }) | null
+    refetch: () => void
+  }>({ id: '', board: null, advanceTargetFor: null, refetch: () => {} })
+
+  const apAdvance = useCallback(async (candidateIds: string[], target: number, basis: string) => {
+    if (candidateIds.length === 0) { toast.error('No matching candidates to advance'); return }
+    await pipelinesApi.advance(apRef.current.id, { candidateIds, targetRoundIndex: target, origin: window.location.origin, basis })
+    toast.success(`Advanced ${candidateIds.length} candidate${candidateIds.length === 1 ? '' : 's'}`)
+    apRef.current.refetch()
+  }, [])
+
+  const apActions = useMemo(() => {
+    const roundCol = (name: string): BoardColumn | undefined =>
+      apRef.current.board?.columns.find((c) => c.kind === 'round' && c.title.toLowerCase() === name.trim().toLowerCase())
+    const cardByEmail = (email: string): BoardCard | undefined => {
+      const want = email.trim().toLowerCase()
+      for (const c of apRef.current.board?.columns ?? []) {
+        const hit = c.cards.find((k) => k.candidateEmail.toLowerCase() === want)
+        if (hit) return hit
+      }
+      return undefined
+    }
+    return {
+      advanceByScore: {
+        description: 'Advance all completed+scored candidates in a named round whose score is >= a threshold to the next round (or to the Selected list from the final round)',
+        sideEffect: true,
+        params: [
+          { name: 'round', type: 'string' as const, required: true, description: 'the round name, e.g. Screening / Technical / Final' },
+          { name: 'minScore', type: 'number' as const, required: true },
+        ],
+        run: async (args: Record<string, unknown>) => {
+          const col = roundCol(String(args.round ?? ''))
+          if (!col || col.roundIndex == null) { toast.error(`No round named "${String(args.round)}"`); return }
+          const eligible = pickByCriteria(col.cards, 'threshold', Number(args.minScore))
+          const t = apRef.current.advanceTargetFor?.(col.roundIndex)
+          if (!t) return
+          await apAdvance(eligible.map((c) => c.pipelineCandidateId), t.target, `autopilot score>=${String(args.minScore)}`)
+        },
+      },
+      advanceTopN: {
+        description: 'Advance the top N scoring completed candidates in a named round to the next round',
+        sideEffect: true,
+        params: [
+          { name: 'round', type: 'string' as const, required: true },
+          { name: 'n', type: 'number' as const, required: true },
+        ],
+        run: async (args: Record<string, unknown>) => {
+          const col = roundCol(String(args.round ?? ''))
+          if (!col || col.roundIndex == null) { toast.error(`No round named "${String(args.round)}"`); return }
+          const eligible = pickByCriteria(col.cards, 'topN', Number(args.n))
+          const t = apRef.current.advanceTargetFor?.(col.roundIndex)
+          if (!t) return
+          await apAdvance(eligible.map((c) => c.pipelineCandidateId), t.target, `autopilot top ${String(args.n)}`)
+        },
+      },
+      advanceCandidate: {
+        description: 'Advance one candidate (by email) to the next round; only works once they have completed and been scored in their current round',
+        sideEffect: true,
+        params: [{ name: 'email', type: 'string' as const, required: true }],
+        run: async (args: Record<string, unknown>) => {
+          const card = cardByEmail(String(args.email ?? ''))
+          if (!card) { toast.error('No candidate with that email on this board'); return }
+          if (!card.advanceable) { toast.error(`${card.candidateEmail} is not advanceable yet (round not completed + scored)`); return }
+          const t = apRef.current.advanceTargetFor?.(card.currentRoundIndex)
+          if (!t) return
+          await apAdvance([card.pipelineCandidateId], t.target, 'autopilot single')
+        },
+      },
+      notAdvancing: {
+        description: 'Move a candidate (by email) into the Not advancing lane. Does NOT send a rejection email.',
+        sideEffect: true,
+        params: [{ name: 'email', type: 'string' as const, required: true }],
+        run: async (args: Record<string, unknown>) => {
+          const card = cardByEmail(String(args.email ?? ''))
+          if (!card) { toast.error('No candidate with that email on this board'); return }
+          await pipelinesApi.notAdvancing(apRef.current.id, { candidateIds: [card.pipelineCandidateId], sendRejection: false })
+          toast.success(`Moved ${card.candidateEmail} to Not advancing`)
+          apRef.current.refetch()
+        },
+      },
+    }
+  }, [apAdvance])
+
+  const apGetState = useCallback(() => {
+    const b = apRef.current.board
+    if (!b) return { board: 'loading' }
+    return {
+      role: b.pipeline.role,
+      rounds: b.pipeline.rounds.map((r) => r.name),
+      columns: b.columns.map((c) => ({
+        column: c.title,
+        count: c.cards.length,
+        advanceable: c.cards.filter((k) => k.advanceable).map((k) => ({ email: k.candidateEmail, score: k.score })),
+      })),
+    }
+  }, [])
+  const apOpts = useMemo(() => ({ getState: apGetState }), [apGetState])
+  useAutopilotActions('pipeline', apActions, apOpts)
+
   if (q.isLoading) {
     return (
       <div className="max-w-[1440px] mx-auto px-6 py-8 space-y-4">
@@ -319,6 +427,8 @@ export default function PipelineBoardPage() {
     const next = fromRoundIndex + 1
     return next >= roundsLen ? { target: roundsLen, name: 'Selected' } : { target: next, name: board.pipeline.rounds[next].name }
   }
+  // Publish the live board + helpers so the Autopilot actions (registered above) act on current data.
+  apRef.current = { id, board, advanceTargetFor, refetch: () => void q.refetch() }
 
   const onDragStart = (e: DragStartEvent) => {
     const data = e.active.data.current as { card: BoardCard } | undefined
