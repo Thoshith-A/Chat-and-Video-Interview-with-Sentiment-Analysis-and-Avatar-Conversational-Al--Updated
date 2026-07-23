@@ -80,7 +80,7 @@ export async function runAutopilotAgent(req: AgentRequest): Promise<AgentDecisio
     console.error('[autopilot] agent error', err)
     if (isAuthError(err)) {
       return {
-        say: "I can't reach the AI model — the Gemini API key looks invalid or missing. Add a valid key (it starts with \"AIza\") in Settings → Gemini, or set GEMINI_API_KEY on the server, then try again.",
+        say: "I can't reach the AI model — the Gemini API key looks invalid, expired, or missing. Add a valid Gemini API key in Settings → Gemini, or set GEMINI_API_KEY on the server, then try again.",
         awaitingUser: true,
       }
     }
