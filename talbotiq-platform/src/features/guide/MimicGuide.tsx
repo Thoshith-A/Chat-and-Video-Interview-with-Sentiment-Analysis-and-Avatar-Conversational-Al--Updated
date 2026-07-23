@@ -20,6 +20,7 @@ import {
 } from '@/lib/speechRecognition'
 import { cancelSpeech } from '@/lib/speechSynthesis'
 import { SPEECH_LOCALES, plainTextForSpeech, prewarmSpeech, speakSmart } from '@/lib/guideSpeech'
+import { isLikelyEcho } from '@/lib/voiceEcho'
 import { useAutopilotRunner } from './autopilot/useAutopilotRunner'
 import { useAutopilotActions, useAutopilotRegistry, snapshotState } from './autopilot/registry'
 
@@ -382,6 +383,7 @@ export default function MimicGuide() {
     const text = plainTextForSpeech(last.content)
     if (!text) return
     stopSpeakRef.current?.()
+    lastSpokenNormRef.current = text // so voice mode can filter this reply's echo tail
     setSpeakingIndex(lastIndex)
     stopSpeakRef.current = speakSmart(
       text,
@@ -436,6 +438,7 @@ export default function MimicGuide() {
       stopListeningRef.current?.()
       if (micMeterTimerRef.current !== null) window.clearInterval(micMeterTimerRef.current)
       if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current)
+      if (speakingWatchdogRef.current !== null) window.clearTimeout(speakingWatchdogRef.current)
       stopSpeakRef.current?.() // server-PCM playback isn't covered by cancelSpeech()
       micStreamRef.current?.getTracks().forEach((t) => t.stop())
       void micAudioCtxRef.current?.close().catch(() => {})
@@ -453,6 +456,7 @@ export default function MimicGuide() {
     const text = plainTextForSpeech(content)
     if (!text) return
     stopSpeakRef.current?.()
+    lastSpokenNormRef.current = text
     setSpeakingIndex(index)
     stopSpeakRef.current = speakSmart(
       text,
@@ -627,9 +631,22 @@ export default function MimicGuide() {
   // (otherwise the spoken read-back could answer its own confirm).
   const speakingRef = useRef(false)
   const ttsEndedAtRef = useRef(0)
+  const lastSpokenNormRef = useRef('') // text the assistant last spoke — for content-based echo suppression
+  const speakingWatchdogRef = useRef<number | null>(null)
   useEffect(() => {
     if (speakingIndex === null && speakingRef.current) ttsEndedAtRef.current = Date.now()
     speakingRef.current = speakingIndex !== null
+    // Defense-in-depth: a MISSED TTS onEnd (playback path that never fires its
+    // callback) would strand speakingRef=true and make voice mode permanently
+    // deaf. Bound it — force-clear after a hard ceiling longer than any real reply.
+    if (speakingWatchdogRef.current !== null) { window.clearTimeout(speakingWatchdogRef.current); speakingWatchdogRef.current = null }
+    if (speakingIndex !== null) {
+      speakingWatchdogRef.current = window.setTimeout(() => {
+        speakingRef.current = false
+        ttsEndedAtRef.current = Date.now()
+        setSpeakingIndex(null)
+      }, 45000)
+    }
   }, [speakingIndex])
 
   const stopMicMeter = () => {
@@ -735,12 +752,19 @@ export default function MimicGuide() {
       (result) => {
         if (speakingRef.current) return // never transcribe the assistant's own TTS
         if (voiceModeRef.current) {
-          // Drop the recognizer's finalization TAIL of the assistant's own speech
-          // (finals for TTS audio arrive after speaking ends, past the gate above).
-          if (Date.now() - ttsEndedAtRef.current < 1500) return
+          const sinceTts = Date.now() - ttsEndedAtRef.current
+          // Tiny jitter guard only — skip the recognizer's instantaneous flush at
+          // the moment playback stops. (The old 1500ms deaf window dropped the
+          // user's real next command; that was the reliability bug.)
+          if (sinceTts < 250) return
           // Hands-free: buffer what's heard and AUTO-SUBMIT after a short silence —
           // no Enter needed; works with the panel closed (the floating pill shows it).
           if (result.isFinal) {
+            // Suppress the assistant's own read-back tail by CONTENT (not by going
+            // deaf): only within a few seconds of playback ending, and only when the
+            // phrase substantially echoes what was just spoken. A genuine command or
+            // a short "yes"/"no" is never suppressed — so capture stays responsive.
+            if (sinceTts < 3500 && isLikelyEcho(result.transcript, lastSpokenNormRef.current)) return
             voiceBufRef.current = `${voiceBufRef.current}${result.transcript} `.replace(/\s+/g, ' ')
           }
           // ANY activity (interims too) re-arms the silence timer — the user is
