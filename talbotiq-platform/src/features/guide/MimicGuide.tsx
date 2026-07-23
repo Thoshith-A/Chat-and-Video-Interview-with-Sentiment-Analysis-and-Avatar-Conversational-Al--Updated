@@ -20,6 +20,8 @@ import {
 } from '@/lib/speechRecognition'
 import { cancelSpeech } from '@/lib/speechSynthesis'
 import { SPEECH_LOCALES, plainTextForSpeech, prewarmSpeech, speakSmart } from '@/lib/guideSpeech'
+import { useAutopilotRunner } from './autopilot/useAutopilotRunner'
+import { useAutopilotActions, useAutopilotRegistry, snapshotState } from './autopilot/registry'
 
 // ── Endpoint contract: POST /api/help/chat → { reply } ─────────────────────
 // The global fetch interceptor (AuthProvider) attaches the bearer token, so a
@@ -251,6 +253,34 @@ export default function MimicGuide() {
   const [hydrated, setHydrated] = useState(false)
   const [autoSpeak, setAutoSpeak] = useState(true)
   const [speakingIndex, setSpeakingIndex] = useState<number | null>(null)
+  const [autopilot, setAutopilot] = useState(false)
+  const runner = useAutopilotRunner()
+
+  // Register navigation as a global Autopilot action while the panel is mounted.
+  // The runner special-cases `global.navigate` (it holds `useNavigate`); this
+  // descriptor's `run` is a no-op placeholder that only exists so the model is
+  // offered the action.
+  useAutopilotActions(
+    'global',
+    useMemo(
+      () => ({
+        navigate: {
+          description: 'Go to a TalbotIQ page (e.g. /sessions/new, /pipelines, /analytics)',
+          params: [{ name: 'path', type: 'string' as const, required: true }],
+          run: () => {},
+        },
+      }),
+      [],
+    ),
+  )
+
+  // Autopilot step tracker: derived from whatever the mounted wizard/screen
+  // exposes via `useAutopilotActions(..., { getState })`. Not live-reactive to
+  // every keystroke on the wizard (the registry only changes identity on
+  // mount/unmount) — it reads fresh values whenever this panel re-renders,
+  // which happens after every Autopilot turn. Hook call kept unconditional
+  // (before the recruiter-only early return below) per rules-of-hooks.
+  const registrySnapshot = snapshotState(useAutopilotRegistry())
 
   const controllerRef = useRef<AbortController | null>(null)
   const stopListeningRef = useRef<(() => void) | null>(null)
@@ -462,6 +492,32 @@ export default function MimicGuide() {
       })
   }
 
+  // Composer entry point for BOTH modes: Autopilot OFF branches straight into the
+  // existing `send`/`/api/help/chat` path, unchanged. Autopilot ON runs the turn
+  // through the Autopilot runner instead (build context → agent → plan → run/confirm/ask).
+  const submitComposer = async (raw: string) => {
+    const content = raw.trim()
+    if (!content || pending) return
+    if (!autopilot) {
+      send(content)
+      return
+    }
+
+    stopSpeakRef.current?.()
+    cancelSpeech()
+    setSpeakingIndex(null)
+
+    setMessages((m) => [...m, { role: 'user', content }])
+    setDraft('')
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    setPending(true)
+
+    const history = messages.map((m) => ({ role: m.role, content: m.content }))
+    const res = await runner.runTurn(content, history)
+    setMessages((m) => [...m, { role: 'assistant', content: res.say }])
+    setPending(false)
+  }
+
   const toggleMic = () => {
     if (listening) {
       stopListeningRef.current?.()
@@ -521,6 +577,10 @@ export default function MimicGuide() {
   if (!isAuthenticated || role !== 'recruiter') return null
 
   const prompts = promptsForLang(voiceLang)
+  const stepText =
+    typeof registrySnapshot.stepName === 'string' && registrySnapshot.stepName
+      ? `Set up an interview · Step ${registrySnapshot.step}/5 — ${registrySnapshot.stepName}`
+      : 'Autopilot ready — tell me what to do'
 
   return (
     <>
@@ -573,6 +633,21 @@ export default function MimicGuide() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
+                  onClick={() => setAutopilot((prev) => !prev)}
+                  title={autopilot ? 'Autopilot: on' : 'Autopilot: off'}
+                  aria-label="Toggle Autopilot"
+                  aria-pressed={autopilot}
+                  className={cn(
+                    'rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                    autopilot
+                      ? 'border-[#a78bfa]/50 bg-[#a78bfa]/20 text-[#c4b5fd]'
+                      : 'border-white/10 text-neutral-400 hover:text-white',
+                  )}
+                >
+                  Autopilot
+                </button>
+                <button
+                  type="button"
                   onClick={toggleAutoSpeak}
                   title={autoSpeak ? 'Auto-speak answers: on' : 'Auto-speak answers: off'}
                   aria-label="Toggle auto-speak"
@@ -610,7 +685,48 @@ export default function MimicGuide() {
               <span>Voice language:</span>
               <VoiceLangSelect value={voiceLang} onChange={setVoiceLang} />
             </div>
+            {autopilot ? (
+              <p className="pt-1 text-[11px] text-neutral-500">
+                Type what you want — e.g. &quot;set up a video interview for Senior Backend
+                Engineer&quot;
+              </p>
+            ) : null}
           </div>
+
+          {/* Autopilot: step tracker, action log, read-back confirm card. */}
+          {autopilot ? (
+            <div className="flex flex-col gap-2 border-b border-white/5 bg-[#12141f] px-4 py-2">
+              <p className="text-xs text-neutral-400">{stepText}</p>
+              {runner.log.length > 0 ? (
+                <div className="max-h-24 overflow-y-auto rounded-md border border-white/5 bg-[#0d0f1a] p-2 font-mono text-[10px] leading-relaxed text-neutral-500">
+                  {runner.log.map((line, index) => (
+                    <div key={index}>{line}</div>
+                  ))}
+                </div>
+              ) : null}
+              {runner.pendingConfirm ? (
+                <div className="rounded-lg border border-[#a78bfa]/50 bg-[#a78bfa]/10 p-2.5">
+                  <p className="mb-2 text-xs text-neutral-100">{runner.pendingConfirm.summary}</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void runner.confirm()}
+                      className="rounded-md bg-[#a78bfa] px-2.5 py-1 text-[11px] font-semibold text-[#0d0f1a] transition-opacity hover:opacity-90"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      onClick={runner.cancelConfirm}
+                      className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-neutral-300 transition-colors hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
@@ -678,7 +794,7 @@ export default function MimicGuide() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
-                    send(draft)
+                    void submitComposer(draft)
                   }
                 }}
                 rows={1}
@@ -687,7 +803,7 @@ export default function MimicGuide() {
               />
               <button
                 type="button"
-                onClick={() => send(draft)}
+                onClick={() => void submitComposer(draft)}
                 disabled={pending || draft.trim().length === 0}
                 title="Send"
                 aria-label="Send"
