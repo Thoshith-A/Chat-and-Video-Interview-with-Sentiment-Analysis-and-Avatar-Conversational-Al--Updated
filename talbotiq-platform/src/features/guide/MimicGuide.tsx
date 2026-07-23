@@ -506,6 +506,10 @@ export default function MimicGuide() {
   const submitComposer = async (raw: string) => {
     const content = raw.trim()
     if (!content || pending) return
+    // Sent — reset the dictation seed so ongoing listening starts a fresh sentence
+    // (otherwise the already-sent text would resurface in the box on the next word).
+    micBaseRef.current = ''
+    micFinalRef.current = ''
     if (!autopilot) {
       send(content)
       return
@@ -537,6 +541,14 @@ export default function MimicGuide() {
   const micMeterTimerRef = useRef<number | null>(null)
   const [micLevel, setMicLevel] = useState(0)
   const [micDevice, setMicDevice] = useState('')
+  // Generation token: quick off→on creates a NEW session; stale recognition chains
+  // and in-flight getUserMedia meters must see the mismatch and stand down (else two
+  // chains abort/restart each other forever and orphaned streams leak).
+  const micSessionRef = useRef(0)
+  const micRestartsRef = useRef({ count: 0, windowStart: 0 })
+  // Never transcribe the assistant's own TTS coming out of the speakers.
+  const speakingRef = useRef(false)
+  useEffect(() => { speakingRef.current = speakingIndex !== null }, [speakingIndex])
 
   const stopMicMeter = () => {
     if (micMeterTimerRef.current !== null) {
@@ -552,16 +564,20 @@ export default function MimicGuide() {
   }
 
   const stopMic = () => {
+    micSessionRef.current++ // invalidate any in-flight chain/meter for this session
     listeningRef.current = false
     stopListeningRef.current?.()
     stopMicMeter()
     setListening(false)
   }
 
-  const startMicMeter = async () => {
+  const startMicMeter = async (session: number) => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      if (!listeningRef.current) { stream.getTracks().forEach((t) => t.stop()); return }
+      if (!listeningRef.current || micSessionRef.current !== session) {
+        stream.getTracks().forEach((t) => t.stop())
+        return
+      }
       micStreamRef.current = stream
       const label = stream.getAudioTracks()[0]?.label ?? ''
       setMicDevice(label)
@@ -569,25 +585,35 @@ export default function MimicGuide() {
       if (!Ctx) return
       const ctx = new Ctx()
       micAudioCtxRef.current = ctx
+      // Autoplay policy can create the context suspended (esp. after the await) —
+      // a suspended context reads flat silence and would false-alarm the diagnosis.
+      if (ctx.state !== 'running') void ctx.resume().catch(() => {})
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       ctx.createMediaStreamSource(stream).connect(analyser)
       const data = new Uint8Array(analyser.fftSize)
       let peak = 0
+      let warned = false
       const startedAt = Date.now()
       micMeterTimerRef.current = window.setInterval(() => {
+        if (micSessionRef.current !== session) return // stale meter — stand down
         analyser.getByteTimeDomainData(data)
         let sum = 0
         for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v }
         const rms = Math.sqrt(sum / data.length)
         peak = Math.max(peak, rms)
-        setMicLevel(rms)
-        // 4s with zero audio energy = Windows is handing the browser SILENCE.
-        if (Date.now() - startedAt > 4000 && peak < 0.01) {
+        setMicLevel(Math.round(rms * 50) / 50) // quantized — damp re-render churn
+        // Sustained DIGITAL silence (exact zeros, context running) = Windows is
+        // handing the browser nothing. Warn but KEEP LISTENING (never kill a
+        // possibly-working session on a heuristic); clear if audio appears.
+        if (!warned && Date.now() - startedAt > 4000 && peak < 0.001 && ctx.state === 'running') {
+          warned = true
           setVoiceError(
-            `Your mic${label ? ` ("${label}")` : ''} is on but only SILENCE is reaching the browser — so there's nothing to transcribe. Check: a physical/keyboard mic-mute, Windows Settings → Privacy & security → Microphone, and that the right input device is the default (Settings → System → Sound → Input). You can type meanwhile.`,
+            `Your mic${label ? ` ("${label}")` : ''} is on but only SILENCE is reaching the browser. Check: a physical/keyboard mic-mute, Windows Settings → Privacy & security → Microphone, and the default input device (Settings → System → Sound → Input). You can type meanwhile.`,
           )
-          stopMic()
+        } else if (warned && peak >= 0.001) {
+          warned = false
+          setVoiceError(null)
         }
       }, 150)
     } catch {
@@ -607,10 +633,12 @@ export default function MimicGuide() {
     setVoiceError(null)
     setListening(true)
     listeningRef.current = true
+    const session = ++micSessionRef.current // this toggle-on owns the chain + meter
+    micRestartsRef.current = { count: 0, windowStart: Date.now() }
     // Seed with whatever is already typed so dictation appends rather than replaces.
     micBaseRef.current = draft.trim() ? `${draft.trim()} ` : ''
     micFinalRef.current = ''
-    void startMicMeter()
+    void startMicMeter(session)
     // Chrome recycles recognition sessions (and ends them on silence with
     // "no-speech") — while the mic toggle is ON we transparently restart, so
     // listening keeps going until the recruiter clicks the mic off.
@@ -618,6 +646,7 @@ export default function MimicGuide() {
       stopListeningRef.current = startSpeechRecognition(
       SPEECH_LOCALES[voiceLang] ?? voiceLang,
       (result) => {
+        if (speakingRef.current) return // never transcribe the assistant's own TTS
         // Stream the transcript into the box (both guide + Autopilot): commit each
         // finalized chunk and show the live interim, so the recruiter SEES what was
         // heard and can edit before sending (Enter / send submits it).
@@ -630,6 +659,7 @@ export default function MimicGuide() {
         // Benign/transient: 'no-speech' (a silent stretch) and 'aborted' just end
         // this session — onend below auto-restarts while the mic is still on.
         if (error === 'no-speech' || error === 'aborted') return
+        if (micSessionRef.current !== session) return // stale chain — don't touch the live one
         const msg =
           error === 'not-allowed' || error === 'service-not-allowed'
             ? 'Microphone access is blocked. Allow the mic for localhost in your browser, and check Windows mic privacy (Settings → Privacy → Microphone).'
@@ -644,16 +674,31 @@ export default function MimicGuide() {
         setListening(false)
       },
       () => {
-        // Session ended (silence timeout / service recycle): restart while ON.
+        // Session ended (silence timeout / service recycle): restart while this
+        // toggle-on still owns the mic. Stale chains (superseded session) do nothing.
+        if (micSessionRef.current !== session) return
         if (listeningRef.current) {
-          try { startRec(); return } catch { /* fall through to stop */ }
+          const now = Date.now()
+          const w = micRestartsRef.current
+          if (now - w.windowStart > 10000) { w.count = 0; w.windowStart = now }
+          if (++w.count <= 12) {
+            try { startRec(); return } catch { /* fall through to stop */ }
+          } else {
+            setVoiceError('Voice input keeps disconnecting — please try again, or type your answer.')
+          }
         }
+        listeningRef.current = false
         stopMicMeter()
         setListening(false)
       },
     )
     }
-    startRec()
+    try {
+      startRec()
+    } catch {
+      stopMic()
+      setVoiceError("Couldn't start voice input — please try again, or type your answer.")
+    }
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
