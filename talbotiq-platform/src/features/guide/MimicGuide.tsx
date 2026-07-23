@@ -256,6 +256,22 @@ export default function MimicGuide() {
   const [autopilot, setAutopilot] = useState(false)
   const runner = useAutopilotRunner()
 
+  // ── Voice mode (hands-free, JARVIS-style): keeps listening even with the panel
+  // CLOSED (a floating mic pill shows state), and AUTO-SUBMITS each spoken command
+  // to Autopilot after a short silence — no Enter, no panel needed. A pending
+  // side-effect read-back can be answered by voice ("yes" / "no"). ──
+  const [voiceMode, setVoiceMode] = useState(false)
+  const voiceModeRef = useRef(false)
+  useEffect(() => { voiceModeRef.current = voiceMode }, [voiceMode])
+  const [voiceHeard, setVoiceHeard] = useState('')
+  const voiceBufRef = useRef('')
+  const voiceTimerRef = useRef<number | null>(null)
+  const voiceSubmitRef = useRef<() => void>(() => {})
+  const pendingRef = useRef(false)
+  useEffect(() => { pendingRef.current = pending }, [pending])
+  const pendingConfirmRef = useRef(runner.pendingConfirm)
+  useEffect(() => { pendingConfirmRef.current = runner.pendingConfirm }, [runner.pendingConfirm])
+
   // Register navigation as a global Autopilot action while the panel is mounted.
   // The runner special-cases `global.navigate` (it holds `useNavigate`); this
   // descriptor's `run` is a no-op placeholder that only exists so the model is
@@ -410,6 +426,7 @@ export default function MimicGuide() {
       listeningRef.current = false
       stopListeningRef.current?.()
       if (micMeterTimerRef.current !== null) window.clearInterval(micMeterTimerRef.current)
+      if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current)
       micStreamRef.current?.getTracks().forEach((t) => t.stop())
       void micAudioCtxRef.current?.close().catch(() => {})
       cancelSpeech()
@@ -530,6 +547,44 @@ export default function MimicGuide() {
     setPending(false)
   }
 
+  // Voice mode: a finished utterance auto-submits as a command; while a read-back
+  // confirm is pending, "yes"/"no" answers it by voice instead.
+  const handleVoiceSubmit = () => {
+    const text = voiceBufRef.current.replace(/\s+/g, ' ').trim()
+    if (!text) return
+    if (pendingRef.current) {
+      // Agent mid-turn — retry shortly instead of dropping the spoken command.
+      if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current)
+      voiceTimerRef.current = window.setTimeout(() => voiceSubmitRef.current(), 900)
+      return
+    }
+    voiceBufRef.current = ''
+    setVoiceHeard('')
+    if (pendingConfirmRef.current) {
+      if (/^(yes|yeah|yep|confirm|go ahead|proceed|do it|send it|ok(ay)?)\b/i.test(text)) { void runner.confirm(); return }
+      if (/^(no|nope|cancel|stop|don'?t|abort)\b/i.test(text)) { runner.cancelConfirm(); return }
+    }
+    void submitComposer(text)
+  }
+  voiceSubmitRef.current = handleVoiceSubmit
+
+  const enableVoiceMode = () => {
+    setAutopilot(true) // voice commands act through Autopilot
+    setVoiceMode(true)
+    voiceModeRef.current = true // synchronously — the recognizer callbacks read it
+    voiceBufRef.current = ''
+    setVoiceHeard('')
+    if (!listeningRef.current) startMic()
+  }
+  const disableVoiceMode = () => {
+    setVoiceMode(false)
+    voiceModeRef.current = false
+    if (voiceTimerRef.current !== null) { window.clearTimeout(voiceTimerRef.current); voiceTimerRef.current = null }
+    voiceBufRef.current = ''
+    setVoiceHeard('')
+    stopMic()
+  }
+
   const micBaseRef = useRef('')
   const micFinalRef = useRef('')
   // Live mic diagnostics: measure the ACTUAL audio level reaching the browser so a
@@ -626,6 +681,11 @@ export default function MimicGuide() {
       stopMic()
       return
     }
+    startMic()
+  }
+
+  const startMic = () => {
+    if (listeningRef.current) return
     if (!isSpeechRecognitionSupported()) {
       setVoiceError("Voice input isn't supported in this browser.")
       return
@@ -647,9 +707,19 @@ export default function MimicGuide() {
       SPEECH_LOCALES[voiceLang] ?? voiceLang,
       (result) => {
         if (speakingRef.current) return // never transcribe the assistant's own TTS
-        // Stream the transcript into the box (both guide + Autopilot): commit each
-        // finalized chunk and show the live interim, so the recruiter SEES what was
-        // heard and can edit before sending (Enter / send submits it).
+        if (voiceModeRef.current) {
+          // Hands-free: buffer what's heard and AUTO-SUBMIT after a short silence —
+          // no Enter needed; works with the panel closed (the floating pill shows it).
+          if (result.isFinal) {
+            voiceBufRef.current = `${voiceBufRef.current}${result.transcript} `.replace(/\s+/g, ' ')
+            if (voiceTimerRef.current !== null) window.clearTimeout(voiceTimerRef.current)
+            voiceTimerRef.current = window.setTimeout(() => voiceSubmitRef.current(), 1400)
+          }
+          setVoiceHeard((voiceBufRef.current + (result.isFinal ? '' : result.transcript)).trim())
+          return
+        }
+        // Dictation: stream the transcript into the box (guide + Autopilot) — commit
+        // finalized chunks, show the live interim; Enter / send submits it.
         if (result.isFinal) micFinalRef.current += `${result.transcript} `
         const interim = result.isFinal ? '' : result.transcript
         setDraft((micBaseRef.current + micFinalRef.current + interim).replace(/\s+/g, ' ').trimStart())
@@ -704,12 +774,16 @@ export default function MimicGuide() {
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       controllerRef.current?.abort()
-      listeningRef.current = false
-      stopListeningRef.current?.()
-      stopMicMeter()
-      cancelSpeech()
-      setSpeakingIndex(null)
-      setListening(false)
+      if (!voiceModeRef.current) {
+        // Voice mode keeps listening (and speaking) with the panel closed —
+        // the floating mic pill takes over. Otherwise stop everything as before.
+        listeningRef.current = false
+        stopListeningRef.current?.()
+        stopMicMeter()
+        cancelSpeech()
+        setSpeakingIndex(null)
+        setListening(false)
+      }
       setPending(false)
     }
     setOpen(nextOpen)
@@ -754,6 +828,61 @@ export default function MimicGuide() {
         Mimic Guide
         <span className="absolute -top-0.5 -right-0.5 size-2.5 animate-pulse rounded-full bg-emerald-400" />
       </button>
+
+      {/* Hands-free voice pill — visible while Voice mode is on and the panel is
+          CLOSED. Shows listening state + what was heard; speech auto-submits, so
+          the recruiter can drive Autopilot without ever opening the panel. */}
+      {voiceMode && !open ? (
+        <div className="fixed bottom-6 left-6 z-[70] flex w-[min(360px,calc(100vw-3rem))] items-center gap-2.5 rounded-2xl border border-[#a78bfa]/40 bg-[#12141f]/95 px-3 py-2 text-neutral-100 shadow-2xl backdrop-blur">
+          <span
+            className={cn(
+              'flex size-9 shrink-0 items-center justify-center rounded-full',
+              listening ? 'animate-pulse bg-red-500/20 text-red-400' : 'bg-white/10 text-neutral-400',
+            )}
+          >
+            <Mic className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-semibold">
+              {pending
+                ? 'Working on it…'
+                : runner.pendingConfirm
+                  ? 'Awaiting confirmation — say “yes” or “no”'
+                  : listening
+                    ? 'Listening — speak a command'
+                    : 'Voice paused'}
+            </div>
+            <div className="truncate text-[11px] text-neutral-400">
+              {voiceHeard
+                || (runner.pendingConfirm
+                  ? runner.pendingConfirm.summary
+                  : 'e.g. “set up a video interview for Senior Backend Engineer”')}
+            </div>
+            <span className="mt-1 inline-flex h-1 w-24 overflow-hidden rounded-full bg-white/10">
+              <span
+                className="h-full rounded-full bg-emerald-400 transition-[width] duration-150"
+                style={{ width: `${Math.min(100, Math.round(micLevel * 400))}%` }}
+              />
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:text-white"
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            onClick={disableVoiceMode}
+            title="Turn voice mode off"
+            aria-label="Turn voice mode off"
+            className="shrink-0 rounded-lg border border-white/10 p-1 text-neutral-400 transition-colors hover:text-red-400"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      ) : null}
 
       {/* Overlay + slide-in panel. */}
       <div
@@ -800,6 +929,22 @@ export default function MimicGuide() {
                   )}
                 >
                   Autopilot
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (voiceMode ? disableVoiceMode() : enableVoiceMode())}
+                  title={voiceMode ? 'Voice mode: on — hands-free, auto-submits what you say (works with the panel closed)' : 'Voice mode: hands-free commands — speak and it acts, even with the panel closed'}
+                  aria-label="Toggle hands-free voice mode"
+                  aria-pressed={voiceMode}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                    voiceMode
+                      ? 'border-red-400/50 bg-red-500/15 text-red-300'
+                      : 'border-white/10 text-neutral-400 hover:text-white',
+                  )}
+                >
+                  <Mic className="size-3" />
+                  Voice
                 </button>
                 <button
                   type="button"
@@ -927,7 +1072,12 @@ export default function MimicGuide() {
             {listening ? (
               <div className="mb-2 flex items-center gap-2 px-0.5 text-[11px] text-neutral-400">
                 <span className="inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-red-400" />
-                <span className="truncate">Listening{micDevice ? ` — ${micDevice}` : ''}… speak, then click the mic to stop</span>
+                <span className="truncate">
+                  Listening{micDevice ? ` — ${micDevice}` : ''}
+                  {voiceMode
+                    ? (voiceHeard ? ` — “${voiceHeard}”` : ' — hands-free: it sends automatically when you pause')
+                    : '… speak, then click the mic to stop'}
+                </span>
                 <span className="ml-auto inline-flex h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-white/10">
                   <span
                     className={cn('h-full rounded-full transition-[width] duration-150', micLevel > 0.02 ? 'bg-emerald-400' : 'bg-neutral-500')}

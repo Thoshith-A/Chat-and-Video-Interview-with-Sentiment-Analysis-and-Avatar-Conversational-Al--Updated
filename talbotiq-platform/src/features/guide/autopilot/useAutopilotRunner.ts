@@ -22,7 +22,11 @@ export function useAutopilotRunner() {
   navRef.current = navigate
 
   const runOne = async (name: string, args: Record<string, unknown>) => {
-    if (name === 'global.navigate' && typeof args.path === 'string') { navRef.current(args.path); return }
+    if (name === 'global.navigate' && typeof args.path === 'string') {
+      // Already on that route → treat as success (prevents navigate loops).
+      if (window.location.pathname !== args.path) navRef.current(args.path)
+      return
+    }
     const action = findAction(useAutopilotRegistry.getState(), name)
     if (action) await action.run(args)
   }
