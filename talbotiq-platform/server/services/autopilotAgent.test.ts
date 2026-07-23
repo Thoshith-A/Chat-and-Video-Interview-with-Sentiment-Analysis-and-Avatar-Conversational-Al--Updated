@@ -1,5 +1,5 @@
 /** Run: npx tsx server/services/autopilotAgent.test.ts */
-import { buildAutopilotPrompt, normalizeDecision } from './autopilotAgent'
+import { buildAutopilotPrompt, normalizeDecision, isAuthError } from './autopilotAgent'
 import type { AgentContext } from '../../shared/autopilot'
 
 let failures = 0
@@ -35,6 +35,12 @@ assert('bad argsJson → empty args', d3.action?.name === 'setup.selectMode' && 
 // empty actionName → no action
 const d4 = normalizeDecision({ say: 'What role?', actionName: '', argsJson: '', awaitingUser: true }, names)
 assert('empty actionName → no action, awaiting', d4.action === undefined && d4.awaitingUser === true)
+
+assert('isAuthError: 401 status', isAuthError({ status: 401 }) === true)
+assert('isAuthError: 403 status', isAuthError({ status: 403 }) === true)
+assert('isAuthError: UNAUTHENTICATED message', isAuthError(new Error('Request had invalid authentication credentials. UNAUTHENTICATED')) === true)
+assert('isAuthError: ACCESS_TOKEN_TYPE_UNSUPPORTED', isAuthError({ message: 'ACCESS_TOKEN_TYPE_UNSUPPORTED' }) === true)
+assert('isAuthError: non-auth error is false', isAuthError(new Error('network timeout')) === false)
 
 console.log(`\n${failures === 0 ? '✅ ALL AUTOPILOT-AGENT TESTS PASSED' : `❌ ${failures} FAILED`}`)
 process.exit(failures === 0 ? 0 : 1)

@@ -499,12 +499,6 @@ export default function MimicGuide() {
   // Composer entry point for BOTH modes: Autopilot OFF branches straight into the
   // existing `send`/`/api/help/chat` path, unchanged. Autopilot ON runs the turn
   // through the Autopilot runner instead (build context → agent → plan → run/confirm/ask).
-  // Refs so the (long-lived) speech-recognition callback always sees the latest
-  // autopilot flag + submit fn — otherwise it would act on a stale closure.
-  const autopilotRef = useRef(autopilot)
-  autopilotRef.current = autopilot
-  const submitComposerRef = useRef<(raw: string) => void>(() => {})
-
   const submitComposer = async (raw: string) => {
     const content = raw.trim()
     if (!content || pending) return
@@ -527,7 +521,6 @@ export default function MimicGuide() {
     setMessages((m) => [...m, { role: 'assistant', content: res.say }])
     setPending(false)
   }
-  submitComposerRef.current = submitComposer
 
   const toggleMic = () => {
     if (listening) {
@@ -544,13 +537,9 @@ export default function MimicGuide() {
     stopListeningRef.current = startSpeechRecognition(
       SPEECH_LOCALES[voiceLang] ?? voiceLang,
       (result) => {
-        // Autopilot: speak-and-act — auto-submit the heard answer for the current
-        // step (hands-free). Guide mode: dictate into the draft as before.
-        if (autopilotRef.current) {
-          setDraft('')
-          void submitComposerRef.current(result.transcript)
-          return
-        }
+        // Put the transcript in the text box (both guide + Autopilot) so the
+        // recruiter SEES what was heard and can edit it before sending. Then
+        // Enter / the send button submits it (to the guide or the agent).
         setDraft((prev) => (prev ? `${prev} ${result.transcript}` : result.transcript))
         window.setTimeout(resizeTextarea, 0)
       },

@@ -78,6 +78,23 @@ export async function runAutopilotAgent(req: AgentRequest): Promise<AgentDecisio
     return normalizeDecision(raw, names)
   } catch (err) {
     console.error('[autopilot] agent error', err)
+    if (isAuthError(err)) {
+      return {
+        say: "I can't reach the AI model — the Gemini API key looks invalid or missing. Add a valid key (it starts with \"AIza\") in Settings → Gemini, or set GEMINI_API_KEY on the server, then try again.",
+        awaitingUser: true,
+      }
+    }
     return { say: 'Sorry — I hit a problem working that out. Could you say that again?', awaitingUser: true }
   }
+}
+
+/** True when a Gemini error is an auth/credential failure (bad or missing API key). */
+export function isAuthError(err: unknown): boolean {
+  const status = (err as { status?: number } | null)?.status
+  const msg = String((err as { message?: string } | null)?.message ?? err ?? '')
+  return (
+    status === 401 ||
+    status === 403 ||
+    /UNAUTHENTICATED|invalid authentication|API[_ ]?key|ACCESS_TOKEN_TYPE_UNSUPPORTED|PERMISSION_DENIED/i.test(msg)
+  )
 }
