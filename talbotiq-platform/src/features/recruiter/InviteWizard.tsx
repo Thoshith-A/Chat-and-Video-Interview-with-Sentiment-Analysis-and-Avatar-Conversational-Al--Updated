@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -11,6 +11,7 @@ import { ReviewSend } from './invite-email/ReviewSend'
 import { RoundBuilder, defaultRounds, toRoundDefs, type RoundDraft } from './RoundBuilder'
 import { defaultInviteEmailTemplate, validateLockedTokens } from '@shared/inviteEmail'
 import type { TrackType, QuestionStyle, DifficultyChoice, GeminiModel, QuestionSet, CreateInvitesResult, InviteEmailTemplate } from '@shared/types'
+import { useAutopilotActions } from '@/features/guide/autopilot/registry'
 
 const emailOk = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e.trim())
 
@@ -362,6 +363,49 @@ export default function InviteWizard() {
       setRetrying((s) => { const n = new Set(s); n.delete(id); return n })
     }
   }
+
+  // ── Autopilot instrumentation (additive; no existing behavior changes) ──
+  // Autopilot reads the LATEST wizard state through this ref (registered once).
+  const apStateRef = useRef({ step, setupType, mode, role, source, selectedSetId, candidates, cfg })
+  apStateRef.current = { step, setupType, mode, role, source, selectedSetId, candidates, cfg }
+
+  // Add a candidate by explicit email/role (Autopilot path; mirrors addManual's dedupe).
+  const addCandidateDirect = (email: string, r: string) => {
+    const e = email.trim().toLowerCase()
+    if (!e) return
+    setCandidates((cs) => (cs.some((c) => c.email.toLowerCase() === e) ? cs : [...cs, { id: crypto.randomUUID(), email: email.trim(), role: (r || role).trim() }]))
+  }
+  // Advance only if the current step is valid (else no-op; Autopilot re-reads state and asks).
+  const guardedNext = () => {
+    const s = apStateRef.current
+    const ok = s.step === 1 ? step1Valid : s.step === 2 ? (s.setupType === 'multi' ? step2ValidMulti : step2Valid) : true
+    if (ok) setStep((n) => Math.min(n + 1, STEPS.length))
+  }
+
+  const apActions = useMemo(() => ({
+    setInterviewType: { description: 'Choose Single Interview or Multiple Rounds', params: [{ name: 'type', type: 'enum' as const, enum: ['single', 'multi'], required: true }], run: (a: any) => setSetupType(a.type) },
+    selectMode: { description: 'Select the interview mode', params: [{ name: 'mode', type: 'enum' as const, enum: MODES.map((m) => m.value), required: true }], run: (a: any) => setMode(a.mode) },
+    setRole: { description: 'Set the candidate role/title', params: [{ name: 'role', type: 'string' as const, required: true }], run: (a: any) => setRole(a.role) },
+    setQuestionSource: { description: 'Choose question source: tailor (adaptive) or set (a saved question set)', params: [{ name: 'source', type: 'enum' as const, enum: ['tailor', 'set'], required: true }], run: (a: any) => setSource(a.source) },
+    selectQuestionSet: { description: 'Pick a saved question set by id', params: [{ name: 'id', type: 'string' as const, required: true }], run: (a: any) => setSelectedSetId(a.id) },
+    addCandidate: { description: 'Add a candidate by email', params: [{ name: 'email', type: 'string' as const, required: true }, { name: 'role', type: 'string' as const }], run: (a: any) => addCandidateDirect(a.email, a.role) },
+    nextStep: { description: 'Advance to the next step (only if the current step is complete)', params: [], run: () => guardedNext() },
+    backStep: { description: 'Go back one step', params: [], run: () => setStep((n) => Math.max(1, n - 1)) },
+    createInvites: { description: 'Create and SEND the invites for the added candidates', sideEffect: true, params: [], run: () => { void submit() } },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [])
+
+  useAutopilotActions('setup', apActions, {
+    getState: () => {
+      const s = apStateRef.current
+      return {
+        step: s.step, interviewType: s.setupType, mode: s.mode, role: s.role,
+        questionSource: s.source, questionSetId: s.selectedSetId,
+        candidateCount: s.candidates.length, candidates: s.candidates.map((c) => c.email),
+        stepName: ['', 'Basics', 'Questions', 'Candidates', 'Invite email', 'Review'][s.step] ?? '',
+      }
+    },
+  })
 
   const step1Valid = setupType === 'single'
     ? !!mode && role.trim().length >= 2
