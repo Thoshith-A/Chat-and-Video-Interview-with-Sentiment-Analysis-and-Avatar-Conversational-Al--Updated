@@ -366,7 +366,7 @@ export default function InviteWizard() {
 
   // ── Autopilot instrumentation (additive; no existing behavior changes) ──
   // Autopilot reads the LATEST wizard state through this ref (registered once).
-  const apStateRef = useRef({ step, setupType, mode, role, source, selectedSetId, candidates, cfg, step1Valid: false, step2Valid: false, step2ValidMulti: false })
+  const apStateRef = useRef({ step, setupType, mode, role, source, selectedSetId, candidates, cfg, step1Valid: false, step2Valid: false, step2ValidMulti: false, validCount: 0, emailLockedOk: false })
   // (.current is refreshed BELOW, after the validity flags are computed each render)
 
   // Add a candidate by explicit email/role (Autopilot path; mirrors addManual's dedupe).
@@ -379,8 +379,15 @@ export default function InviteWizard() {
   const guardedNext = () => {
     // Read validity from the live ref — NOT the render closure (the action defs are
     // registered once, so a closure read would be frozen at first-render values).
+    // Mirrors the REAL wizard's per-step Next gating exactly, so Autopilot can
+    // never skip past Candidates with 0 recipients or a broken invite email.
     const s = apStateRef.current
-    const ok = s.step === 1 ? s.step1Valid : s.step === 2 ? (s.setupType === 'multi' ? s.step2ValidMulti : s.step2Valid) : true
+    const ok =
+      s.step === 1 ? s.step1Valid
+      : s.step === 2 ? (s.setupType === 'multi' ? s.step2ValidMulti : s.step2Valid)
+      : s.step === 3 ? s.validCount > 0
+      : s.step === 4 ? s.emailLockedOk
+      : true
     if (ok) setStep((n) => Math.min(n + 1, STEPS.length))
   }
 
@@ -416,7 +423,8 @@ export default function InviteWizard() {
       // when true, its next move should be setup.nextStep (no permission-asking).
       stepComplete: s.step === 1 ? s.step1Valid
         : s.step === 2 ? (s.setupType === 'multi' ? s.step2ValidMulti : s.step2Valid)
-        : s.step === 3 ? s.candidates.length > 0
+        : s.step === 3 ? s.validCount > 0
+        : s.step === 4 ? s.emailLockedOk
         : true,
     }
   }, [])
@@ -435,7 +443,7 @@ export default function InviteWizard() {
   const step2ValidMulti = rounds.length >= 1 && rounds.every((r) => r.name.trim().length >= 1 && !!r.mode)
 
   // Refresh the Autopilot state ref AFTER the validity flags exist — every render.
-  apStateRef.current = { step, setupType, mode, role, source, selectedSetId, candidates, cfg, step1Valid, step2Valid, step2ValidMulti }
+  apStateRef.current = { step, setupType, mode, role, source, selectedSetId, candidates, cfg, step1Valid, step2Valid, step2ValidMulti, validCount, emailLockedOk: emailLocked.ok }
 
   return (
     <div className="mx-auto max-w-[900px] px-6 py-8">
