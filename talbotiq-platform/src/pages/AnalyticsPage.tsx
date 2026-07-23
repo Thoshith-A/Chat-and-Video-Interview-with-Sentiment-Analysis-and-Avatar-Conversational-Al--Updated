@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Cell,
 } from 'recharts'
 import { Card, StatCard, PageHeader, Select, Skeleton, EmptyState, Badge, SectionTitle, cn } from '@/components/ui'
 import { analyticsApi, templatesApi } from '@/lib/api'
-import type { AnalyticsFilters, TrackType } from '@shared/types'
+import { useAutopilotActions } from '@/features/guide/autopilot/registry'
+import { matchOption, normalizeTrack } from '@/features/guide/autopilot/filterMatch'
+import type { AnalyticsFilters, AnalyticsSummary, InterviewTemplate, TrackType } from '@shared/types'
 
 const TOOLTIP = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, color: '#0f172a', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }
 const ACCENT = '#0d5c3a'
@@ -47,6 +50,130 @@ export default function AnalyticsPage() {
     filters.role ??
     (filters.templateId ? templates.data?.find((t) => t.id === filters.templateId)?.name : undefined) ??
     'this position'
+
+  // ── Autopilot: drive the dashboard filters by voice/typed exactly like the
+  // controls above. Filtering is read-only (NOT a side effect), so these run
+  // immediately without a confirm. They read live data/setters through a ref so
+  // the memoized action defs never go stale. getState also exposes the current
+  // filters, the available options, and the headline metrics so Autopilot can
+  // ANSWER questions about the dashboard ("what's the completion rate?"). ──────
+  const navigate = useNavigate()
+  const apRef = useRef<{
+    filters: AnalyticsFilters
+    set: <K extends keyof AnalyticsFilters>(k: K, v: AnalyticsFilters[K]) => void
+    clear: () => void
+    roles: string[]
+    templates: InterviewTemplate[]
+    data: AnalyticsSummary | undefined
+    positionSelected: boolean
+  }>({ filters: {}, set: () => {}, clear: () => {}, roles: [], templates: [], data: undefined, positionSelected: false })
+
+  const apActions = useMemo(() => ({
+    filterByTrack: {
+      description: 'Filter the dashboard by interview type / track: Chatbot, Voice, Video Avatar, Video Interview, Two-way Interview, or Timed Q&A. Say "all" to clear the track filter.',
+      params: [{ name: 'track', type: 'string' as const, required: true, description: 'the interview type/track name, or "all" to clear' }],
+      run: (args: Record<string, unknown>) => {
+        const t = normalizeTrack(String(args.track ?? ''))
+        if (t === null) { toast.error(`Unknown interview type "${String(args.track)}"`); return }
+        apRef.current.set('track', t === 'all' ? undefined : t)
+      },
+    },
+    filterByRole: {
+      description: 'Filter the dashboard by candidate role/position (matches an existing role). Say "all" to clear the role filter.',
+      params: [{ name: 'role', type: 'string' as const, required: true, description: 'the role name, or "all" to clear' }],
+      run: (args: Record<string, unknown>) => {
+        const want = String(args.role ?? '').trim()
+        if (!want || /^(all|any)$/i.test(want)) { apRef.current.set('role', undefined); return }
+        const match = matchOption(want, apRef.current.roles)
+        if (!match) { toast.error(`No role matching "${want}"`); return }
+        apRef.current.set('role', match)
+      },
+    },
+    filterByTemplate: {
+      description: 'Filter the dashboard by interview template (matches a template name). Say "all" to clear the template filter.',
+      params: [{ name: 'template', type: 'string' as const, required: true, description: 'the template name, or "all" to clear' }],
+      run: (args: Record<string, unknown>) => {
+        const want = String(args.template ?? '').trim()
+        if (!want || /^(all|any)$/i.test(want)) { apRef.current.set('templateId', undefined); return }
+        const names = apRef.current.templates.map((t) => t.name)
+        const match = matchOption(want, names)
+        const tpl = match ? apRef.current.templates.find((t) => t.name === match) : undefined
+        if (!tpl) { toast.error(`No template matching "${want}"`); return }
+        apRef.current.set('templateId', tpl.id)
+      },
+    },
+    setDateRange: {
+      description: 'Set the completion date range. Dates are YYYY-MM-DD. Omit a bound to leave it open (e.g. only "from" = that date onward). Use clearFilters to remove dates entirely.',
+      params: [
+        { name: 'from', type: 'string' as const, required: false, description: 'start date YYYY-MM-DD' },
+        { name: 'to', type: 'string' as const, required: false, description: 'end date YYYY-MM-DD' },
+      ],
+      run: (args: Record<string, unknown>) => {
+        apRef.current.set('dateFrom', (args.from ? String(args.from) : undefined) as AnalyticsFilters['dateFrom'])
+        apRef.current.set('dateTo', (args.to ? String(args.to) : undefined) as AnalyticsFilters['dateTo'])
+      },
+    },
+    clearFilters: {
+      description: 'Clear ALL dashboard filters (track, template, role, and dates) back to the aggregate view.',
+      params: [],
+      run: () => apRef.current.clear(),
+    },
+    openCandidateReport: {
+      description: 'Open a top candidate\'s full report. Identify them by 1-based rank in the Top Candidates list, or by name. Only available once a role or template is selected (that is when Top Candidates appears).',
+      params: [
+        { name: 'rank', type: 'number' as const, required: false, description: '1-based position in Top Candidates' },
+        { name: 'name', type: 'string' as const, required: false, description: 'candidate name' },
+      ],
+      run: (args: Record<string, unknown>) => {
+        const top = apRef.current.data?.topCandidates ?? []
+        if (top.length === 0) { toast.error('No top candidates — pick a role or template first'); return }
+        let hit = top[0]
+        if (args.rank !== undefined && args.rank !== null && String(args.rank) !== '') {
+          const idx = Number(args.rank) - 1
+          if (idx < 0 || idx >= top.length) { toast.error(`There are only ${top.length} top candidates`); return }
+          hit = top[idx]
+        } else if (args.name) {
+          const match = matchOption(String(args.name), top.map((c) => c.name))
+          const found = match ? top.find((c) => c.name === match) : undefined
+          if (!found) { toast.error(`No top candidate named "${String(args.name)}"`); return }
+          hit = found
+        }
+        navigate(`/sessions/${hit.sessionId}/report`)
+      },
+    },
+  }), [navigate])
+
+  const apGetState = useCallback(() => {
+    const { filters: f, roles: rs, templates: tpls, data, positionSelected: ps } = apRef.current
+    const tplName = f.templateId ? tpls.find((t) => t.id === f.templateId)?.name ?? f.templateId : null
+    return {
+      screen: 'analytics',
+      filters: {
+        track: f.track ? TRACK_LABEL[f.track] : 'All tracks',
+        role: f.role ?? 'All roles',
+        template: tplName ?? 'All templates',
+        dateFrom: f.dateFrom ?? null,
+        dateTo: f.dateTo ?? null,
+      },
+      availableTracks: (Object.keys(TRACK_LABEL) as TrackType[]).map((t) => TRACK_LABEL[t]),
+      availableRoles: rs,
+      availableTemplates: tpls.map((t) => t.name),
+      positionSelected: ps,
+      metrics: data && data.totals.scored > 0 ? {
+        created: data.totals.created,
+        started: data.totals.started,
+        completed: data.totals.completed,
+        completionRate: pct(data.completionRate),
+        averageScore: ps ? data.averageOverall : null,
+        avgDuration: mmss(data.timeStats.avgDurationSeconds),
+      } : null,
+      topCandidates: ps ? (data?.topCandidates ?? []).map((c, i) => ({ rank: i + 1, name: c.name, score: c.overallScore })) : [],
+    }
+  }, [])
+  const apOpts = useMemo(() => ({ getState: apGetState }), [apGetState])
+  useAutopilotActions('analytics', apActions, apOpts)
+  // Publish live data + setters every render so the actions above act on current state.
+  apRef.current = { filters, set, clear: () => setFilters({}), roles, templates: templates.data ?? [], data: a, positionSelected }
 
   const filterBar = (
     <div className="flex flex-wrap items-end gap-3">

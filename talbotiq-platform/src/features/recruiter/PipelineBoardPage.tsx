@@ -357,6 +357,33 @@ export default function PipelineBoardPage() {
           apRef.current.refetch()
         },
       },
+      moveBack: {
+        description: 'Move a candidate (by email) BACK to their previous round. Only valid while they are in a round past the first and have not completed the current one; deletes their next-round link (the sent email cannot be unsent).',
+        sideEffect: true,
+        params: [{ name: 'email', type: 'string' as const, required: true }],
+        run: async (args: Record<string, unknown>) => {
+          const card = cardByEmail(String(args.email ?? ''))
+          if (!card) { toast.error('No candidate with that email on this board'); return }
+          if (!(card.status === 'in_round' && card.currentRoundIndex > 0 && card.roundStatus !== 'completed')) {
+            toast.error(`${card.candidateEmail} can't be moved back from their current round`); return
+          }
+          await pipelinesApi.moveBack(apRef.current.id, { candidateId: card.pipelineCandidateId })
+          toast.success(`Moved ${card.candidateEmail} back a round`)
+          apRef.current.refetch()
+        },
+      },
+      exportSelected: {
+        description: 'Download the Selected candidates list (name, email, final score) as a CSV file.',
+        params: [],
+        run: () => {
+          const b = apRef.current.board
+          const selectedCol = b?.columns.find((c) => c.kind === 'selected')
+          const cards = selectedCol?.cards ?? []
+          if (cards.length === 0) { toast.error('No selected candidates to export yet'); return }
+          const rows = cards.map((c) => [c.candidateName ?? '', c.candidateEmail, c.score ?? ''])
+          downloadCsv(`${b?.pipeline.role ?? 'pipeline'}-selected.csv`, ['Name', 'Email', 'Final score'], rows)
+        },
+      },
     }
   }, [apAdvance])
 

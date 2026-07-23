@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { pipelinesApi } from '@/lib/api'
 import { useAutopilotActions } from '@/features/guide/autopilot/registry'
+import { matchOption } from '@/features/guide/autopilot/filterMatch'
 import { Card, Select, PageHeader, EmptyState, Skeleton } from '@/components/ui'
 import type { Pipeline } from '@shared/types'
 
@@ -18,9 +20,14 @@ export default function PipelinesPage() {
     [pipelines],
   )
 
-  // ── Autopilot: open a role's board by name (read-only navigation) ──────────
+  // ── Autopilot: open a board by role, and drive the list filters (role + date
+  // range) exactly like the controls below. Filtering/navigation are read-only
+  // (not side effects), so these run immediately. Live data is read through refs
+  // so the memoized defs never go stale. ────────────────────────────────────
   const pipelinesRef = useRef<Pipeline[]>([])
   pipelinesRef.current = pipelines ?? []
+  const filterRef = useRef({ role: '', from: '', to: '' })
+  filterRef.current = { role, from, to }
   const apActions = useMemo(() => ({
     openByRole: {
       description: 'Open the progression board for a role by name (matches a pipeline role, most recent first)',
@@ -33,8 +40,52 @@ export default function PipelinesPage() {
         if (match) navigate(`/pipelines/${match.id}`)
       },
     },
+    filterByRole: {
+      description: 'Filter the pipelines list by role/position (matches an existing pipeline role). Say "all" to clear.',
+      params: [{ name: 'role', type: 'string' as const, required: true, description: 'the role name, or "all" to clear' }],
+      run: (args: Record<string, unknown>) => {
+        const want = String(args.role ?? '').trim()
+        if (!want || /^(all|any)$/i.test(want)) { setRole(''); return }
+        const roleList = [...new Set(pipelinesRef.current.map((p) => p.role).filter(Boolean))]
+        const match = matchOption(want, roleList)
+        if (!match) { toast.error(`No pipeline for a role matching "${want}"`); return }
+        setRole(match)
+      },
+    },
+    setDateRange: {
+      description: 'Filter the pipelines list by creation date range (YYYY-MM-DD). Omit a bound to leave it open; use clearFilters to remove dates.',
+      params: [
+        { name: 'from', type: 'string' as const, required: false, description: 'start date YYYY-MM-DD' },
+        { name: 'to', type: 'string' as const, required: false, description: 'end date YYYY-MM-DD' },
+      ],
+      run: (args: Record<string, unknown>) => {
+        setFrom(args.from ? String(args.from) : '')
+        setTo(args.to ? String(args.to) : '')
+      },
+    },
+    clearFilters: {
+      description: 'Clear all pipelines-list filters (role and dates).',
+      params: [],
+      run: () => { setRole(''); setFrom(''); setTo('') },
+    },
   }), [navigate])
-  const apGetState = useCallback(() => ({ pipelineRoles: pipelinesRef.current.map((p) => p.role) }), [])
+  const apGetState = useCallback(() => {
+    const all = pipelinesRef.current
+    const f = filterRef.current
+    const matching = all.filter((p) => {
+      if (f.role && p.role !== f.role) return false
+      if (f.from && (p.createdAt || '') < f.from) return false
+      if (f.to && (p.createdAt || '') > `${f.to}T23:59:59.999Z`) return false
+      return true
+    })
+    return {
+      screen: 'pipelines',
+      availableRoles: [...new Set(all.map((p) => p.role).filter(Boolean))].sort(),
+      filters: { role: f.role || 'All roles', from: f.from || null, to: f.to || null },
+      matchingCount: matching.length,
+      totalCount: all.length,
+    }
+  }, [])
   const apOpts = useMemo(() => ({ getState: apGetState }), [apGetState])
   useAutopilotActions('pipelines', apActions, apOpts)
   const hasFilters = !!(role || from || to)
