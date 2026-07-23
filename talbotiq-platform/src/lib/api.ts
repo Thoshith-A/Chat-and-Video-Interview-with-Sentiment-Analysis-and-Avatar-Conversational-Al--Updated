@@ -41,6 +41,7 @@ import type {
   MoveBackRequest,
   AdvanceResult,
 } from '@shared/types'
+import type { AgentRequest, AgentDecision } from '@shared/autopilot'
 
 const BASE = '/api'
 
@@ -315,6 +316,11 @@ export const voicesApi = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+}
+
+/* ─── Mimic Guide Autopilot ───────────────────────────────────────────────── */
+export const helpApi = {
+  agent: (body: AgentRequest) => http<AgentDecision>('/help/agent', { method: 'POST', body: JSON.stringify(body) }),
 }
 
 /** Build a CSV from rows and trigger a browser download. Values are quote-escaped. */
