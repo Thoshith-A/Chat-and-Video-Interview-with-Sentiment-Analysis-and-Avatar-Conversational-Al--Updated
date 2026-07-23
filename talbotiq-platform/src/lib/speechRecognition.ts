@@ -5,7 +5,7 @@
  * Mimic Guide for voice input (speech-to-text).
  */
 
-export type SpeechResult = { transcript: string; lang: string };
+export type SpeechResult = { transcript: string; lang: string; isFinal: boolean };
 
 interface RecognitionAlternative {
   readonly transcript: string;
@@ -13,12 +13,14 @@ interface RecognitionAlternative {
 interface RecognitionResult {
   readonly 0: RecognitionAlternative;
   readonly length: number;
+  readonly isFinal: boolean;
 }
 interface RecognitionResultList {
-  readonly 0: RecognitionResult;
   readonly length: number;
+  readonly [index: number]: RecognitionResult;
 }
 interface RecognitionEvent {
+  readonly resultIndex: number;
   readonly results: RecognitionResultList;
 }
 interface RecognitionErrorEvent {
@@ -49,8 +51,10 @@ export function isSpeechRecognitionSupported(): boolean {
 }
 
 /**
- * Start a single-utterance recognition in `lang`. Calls `onResult` with the
- * final transcript, or `onError` with a message. Returns a stop function.
+ * Start a CONTINUOUS recognition in `lang` — it keeps listening across pauses
+ * until the returned stop() is called (so a brief silence no longer ends it with
+ * a "no-speech" error). Emits interim results live (`isFinal:false`) and each
+ * finalized chunk (`isFinal:true`) so the caller can stream text into the box.
  */
 export function startSpeechRecognition(
   lang: string,
@@ -66,11 +70,18 @@ export function startSpeechRecognition(
 
   const recognition = new Ctor();
   recognition.lang = lang;
-  recognition.continuous = false;
-  recognition.interimResults = false;
+  recognition.continuous = true;
+  recognition.interimResults = true;
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript;
-    onResult({ transcript, lang });
+    let finalText = "";
+    let interimText = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const res = event.results[i];
+      if (res.isFinal) finalText += res[0].transcript;
+      else interimText += res[0].transcript;
+    }
+    if (finalText) onResult({ transcript: finalText, isFinal: true, lang });
+    if (interimText) onResult({ transcript: interimText, isFinal: false, lang });
   };
   recognition.onerror = (event) => onError(event.error);
   if (onEnd) recognition.onend = onEnd;

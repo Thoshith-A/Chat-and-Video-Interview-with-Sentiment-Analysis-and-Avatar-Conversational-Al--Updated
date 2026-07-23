@@ -522,6 +522,8 @@ export default function MimicGuide() {
     setPending(false)
   }
 
+  const micBaseRef = useRef('')
+  const micFinalRef = useRef('')
   const toggleMic = () => {
     if (listening) {
       stopListeningRef.current?.()
@@ -534,13 +536,18 @@ export default function MimicGuide() {
     }
     setVoiceError(null)
     setListening(true)
+    // Seed with whatever is already typed so dictation appends rather than replaces.
+    micBaseRef.current = draft.trim() ? `${draft.trim()} ` : ''
+    micFinalRef.current = ''
     stopListeningRef.current = startSpeechRecognition(
       SPEECH_LOCALES[voiceLang] ?? voiceLang,
       (result) => {
-        // Put the transcript in the text box (both guide + Autopilot) so the
-        // recruiter SEES what was heard and can edit it before sending. Then
-        // Enter / the send button submits it (to the guide or the agent).
-        setDraft((prev) => (prev ? `${prev} ${result.transcript}` : result.transcript))
+        // Stream the transcript into the box (both guide + Autopilot): commit each
+        // finalized chunk and show the live interim, so the recruiter SEES what was
+        // heard and can edit before sending (Enter / send submits it).
+        if (result.isFinal) micFinalRef.current += `${result.transcript} `
+        const interim = result.isFinal ? '' : result.transcript
+        setDraft((micBaseRef.current + micFinalRef.current + interim).replace(/\s+/g, ' ').trimStart())
         window.setTimeout(resizeTextarea, 0)
       },
       (error) => {
