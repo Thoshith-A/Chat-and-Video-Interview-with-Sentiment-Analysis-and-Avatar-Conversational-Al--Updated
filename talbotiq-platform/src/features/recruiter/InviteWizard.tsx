@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -395,17 +395,19 @@ export default function InviteWizard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [])
 
-  useAutopilotActions('setup', apActions, {
-    getState: () => {
-      const s = apStateRef.current
-      return {
-        step: s.step, interviewType: s.setupType, mode: s.mode, role: s.role,
-        questionSource: s.source, questionSetId: s.selectedSetId,
-        candidateCount: s.candidates.length, candidates: s.candidates.map((c) => c.email),
-        stepName: ['', 'Basics', 'Questions', 'Candidates', 'Invite email', 'Review'][s.step] ?? '',
-      }
-    },
-  })
+  // Memoized so `useAutopilotActions` registers ONCE (getState reads the live ref,
+  // so a stable identity still returns current values — no per-render re-register).
+  const apGetState = useCallback(() => {
+    const s = apStateRef.current
+    return {
+      step: s.step, interviewType: s.setupType, mode: s.mode, role: s.role,
+      questionSource: s.source, questionSetId: s.selectedSetId,
+      candidateCount: s.candidates.length, candidates: s.candidates.map((c) => c.email),
+      stepName: ['', 'Basics', 'Questions', 'Candidates', 'Invite email', 'Review'][s.step] ?? '',
+    }
+  }, [])
+  const apOpts = useMemo(() => ({ getState: apGetState }), [apGetState])
+  useAutopilotActions('setup', apActions, apOpts)
 
   const step1Valid = setupType === 'single'
     ? !!mode && role.trim().length >= 2
