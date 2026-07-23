@@ -21,6 +21,7 @@ assert('prompt includes current route', prompt.includes('/sessions/new'))
 assert('prompt states TalbotIQ-only scope', /TalbotIQ/.test(prompt))
 assert('prompt nudges one-shot extraction', /extract .*(all|every)|already (told|gave|provided|mentioned)/i.test(prompt))
 assert('prompt instructs advancing steps', /nextStep|advance the ui/i.test(prompt))
+assert('prompt forbids narrate-without-advance', /stepComplete/.test(prompt) && /never narrate/i.test(prompt))
 
 const names = ctx.availableActions.map((a) => a.name)
 // unknown action name is dropped

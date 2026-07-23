@@ -366,8 +366,8 @@ export default function InviteWizard() {
 
   // ── Autopilot instrumentation (additive; no existing behavior changes) ──
   // Autopilot reads the LATEST wizard state through this ref (registered once).
-  const apStateRef = useRef({ step, setupType, mode, role, source, selectedSetId, candidates, cfg })
-  apStateRef.current = { step, setupType, mode, role, source, selectedSetId, candidates, cfg }
+  const apStateRef = useRef({ step, setupType, mode, role, source, selectedSetId, candidates, cfg, step1Valid: false, step2Valid: false, step2ValidMulti: false })
+  // (.current is refreshed BELOW, after the validity flags are computed each render)
 
   // Add a candidate by explicit email/role (Autopilot path; mirrors addManual's dedupe).
   const addCandidateDirect = (email: string, r: string) => {
@@ -377,10 +377,18 @@ export default function InviteWizard() {
   }
   // Advance only if the current step is valid (else no-op; Autopilot re-reads state and asks).
   const guardedNext = () => {
+    // Read validity from the live ref — NOT the render closure (the action defs are
+    // registered once, so a closure read would be frozen at first-render values).
     const s = apStateRef.current
-    const ok = s.step === 1 ? step1Valid : s.step === 2 ? (s.setupType === 'multi' ? step2ValidMulti : step2Valid) : true
+    const ok = s.step === 1 ? s.step1Valid : s.step === 2 ? (s.setupType === 'multi' ? s.step2ValidMulti : s.step2Valid) : true
     if (ok) setStep((n) => Math.min(n + 1, STEPS.length))
   }
+
+  // Route the memoized action defs through this ref so they always invoke the
+  // CURRENT render's handlers — a stale guardedNext saw step1Valid=false forever
+  // (silent nextStep no-op), and a stale submit() would send first-render state.
+  const apFnsRef = useRef({ guardedNext, addCandidateDirect, submit })
+  apFnsRef.current = { guardedNext, addCandidateDirect, submit }
 
   const apActions = useMemo(() => ({
     setInterviewType: { description: 'Choose Single Interview or Multiple Rounds', params: [{ name: 'type', type: 'enum' as const, enum: ['single', 'multi'], required: true }], run: (a: any) => setSetupType(a.type) },
@@ -388,10 +396,10 @@ export default function InviteWizard() {
     setRole: { description: 'Set the candidate role/title', params: [{ name: 'role', type: 'string' as const, required: true }], run: (a: any) => setRole(a.role) },
     setQuestionSource: { description: 'Choose question source: tailor (adaptive) or set (a saved question set)', params: [{ name: 'source', type: 'enum' as const, enum: ['tailor', 'set'], required: true }], run: (a: any) => setSource(a.source) },
     selectQuestionSet: { description: 'Pick a saved question set by id', params: [{ name: 'id', type: 'string' as const, required: true }], run: (a: any) => setSelectedSetId(a.id) },
-    addCandidate: { description: 'Add a candidate by email', params: [{ name: 'email', type: 'string' as const, required: true }, { name: 'role', type: 'string' as const }], run: (a: any) => addCandidateDirect(a.email, a.role) },
-    nextStep: { description: 'Advance to the next step (only if the current step is complete)', params: [], run: () => guardedNext() },
+    addCandidate: { description: 'Add a candidate by email', params: [{ name: 'email', type: 'string' as const, required: true }, { name: 'role', type: 'string' as const }], run: (a: any) => apFnsRef.current.addCandidateDirect(a.email, a.role) },
+    nextStep: { description: 'Advance to the next step (only if the current step is complete)', params: [], run: () => apFnsRef.current.guardedNext() },
     backStep: { description: 'Go back one step', params: [], run: () => setStep((n) => Math.max(1, n - 1)) },
-    createInvites: { description: 'Create and SEND the invites for the added candidates', sideEffect: true, params: [], run: () => { void submit() } },
+    createInvites: { description: 'Create and SEND the invites for the added candidates', sideEffect: true, params: [], run: () => { void apFnsRef.current.submit() } },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [])
 
@@ -404,6 +412,12 @@ export default function InviteWizard() {
       questionSource: s.source, questionSetId: s.selectedSetId,
       candidateCount: s.candidates.length, candidates: s.candidates.map((c) => c.email),
       stepName: ['', 'Basics', 'Questions', 'Candidates', 'Invite email', 'Review'][s.step] ?? '',
+      // Hard signal for the agent: the current step's required fields are done —
+      // when true, its next move should be setup.nextStep (no permission-asking).
+      stepComplete: s.step === 1 ? s.step1Valid
+        : s.step === 2 ? (s.setupType === 'multi' ? s.step2ValidMulti : s.step2Valid)
+        : s.step === 3 ? s.candidates.length > 0
+        : true,
     }
   }, [])
   const apOpts = useMemo(() => ({ getState: apGetState }), [apGetState])
@@ -419,6 +433,9 @@ export default function InviteWizard() {
     ? true
     : source === 'tailor' ? tailorTotal >= 1 && tailorTotal <= 25 : source === 'set' ? !!selectedSetId : false
   const step2ValidMulti = rounds.length >= 1 && rounds.every((r) => r.name.trim().length >= 1 && !!r.mode)
+
+  // Refresh the Autopilot state ref AFTER the validity flags exist — every render.
+  apStateRef.current = { step, setupType, mode, role, source, selectedSetId, candidates, cfg, step1Valid, step2Valid, step2ValidMulti }
 
   return (
     <div className="mx-auto max-w-[900px] px-6 py-8">
