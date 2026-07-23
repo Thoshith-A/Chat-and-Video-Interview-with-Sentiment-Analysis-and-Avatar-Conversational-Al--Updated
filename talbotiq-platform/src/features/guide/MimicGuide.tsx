@@ -555,11 +555,19 @@ export default function MimicGuide() {
         window.setTimeout(resizeTextarea, 0)
       },
       (error) => {
-        setVoiceError(
+        // Specific, actionable guidance per error; benign cases (no-speech / the
+        // recognizer being aborted when you toggle it off) don't raise an alarm.
+        const msg =
           error === 'not-allowed' || error === 'service-not-allowed'
-            ? 'Microphone permission denied.'
-            : "Couldn't capture audio — please try again.",
-        )
+            ? 'Microphone access is blocked. Allow the mic for localhost in your browser, and check Windows mic privacy (Settings → Privacy → Microphone).'
+            : error === 'audio-capture'
+              ? 'No microphone available — check it’s connected and enabled (your Windows mic/camera privacy toggle looks off). You can type instead.'
+              : error === 'network'
+                ? 'Voice needs internet the browser’s speech service can reach. You can type instead.'
+                : error === 'no-speech'
+                  ? 'Didn’t catch anything — click the mic and speak, or just type your answer.'
+                  : null // 'aborted' and other transient cases: stop quietly.
+        if (msg) setVoiceError(msg)
         setListening(false)
       },
       () => setListening(false),
