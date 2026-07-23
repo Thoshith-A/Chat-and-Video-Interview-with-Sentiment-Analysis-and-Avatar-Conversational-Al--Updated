@@ -25,8 +25,9 @@ export default function PipelinesPage() {
     openByRole: {
       description: 'Open the progression board for a role by name (matches a pipeline role, most recent first)',
       params: [{ name: 'role', type: 'string' as const, required: true }],
-      run: ({ role: r }: { role: string }) => {
-        const want = String(r).trim().toLowerCase()
+      run: (args: Record<string, unknown>) => {
+        const want = String(args.role ?? '').trim().toLowerCase()
+        if (!want) return
         const match = pipelinesRef.current.find((p) => p.role.toLowerCase() === want)
           ?? pipelinesRef.current.find((p) => p.role.toLowerCase().includes(want))
         if (match) navigate(`/pipelines/${match.id}`)
