@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { pipelinesApi } from '@/lib/api'
+import { useAutopilotActions } from '@/features/guide/autopilot/registry'
 import { Card, Select, PageHeader, EmptyState, Skeleton } from '@/components/ui'
 import type { Pipeline } from '@shared/types'
 
@@ -10,11 +11,31 @@ export default function PipelinesPage() {
   const [role, setRole] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const navigate = useNavigate()
 
   const roles = useMemo(
     () => [...new Set((pipelines ?? []).map((p) => p.role).filter(Boolean))].sort(),
     [pipelines],
   )
+
+  // ── Autopilot: open a role's board by name (read-only navigation) ──────────
+  const pipelinesRef = useRef<Pipeline[]>([])
+  pipelinesRef.current = pipelines ?? []
+  const apActions = useMemo(() => ({
+    openByRole: {
+      description: 'Open the progression board for a role by name (matches a pipeline role, most recent first)',
+      params: [{ name: 'role', type: 'string' as const, required: true }],
+      run: ({ role: r }: { role: string }) => {
+        const want = String(r).trim().toLowerCase()
+        const match = pipelinesRef.current.find((p) => p.role.toLowerCase() === want)
+          ?? pipelinesRef.current.find((p) => p.role.toLowerCase().includes(want))
+        if (match) navigate(`/pipelines/${match.id}`)
+      },
+    },
+  }), [navigate])
+  const apGetState = useCallback(() => ({ pipelineRoles: pipelinesRef.current.map((p) => p.role) }), [])
+  const apOpts = useMemo(() => ({ getState: apGetState }), [apGetState])
+  useAutopilotActions('pipelines', apActions, apOpts)
   const hasFilters = !!(role || from || to)
   const filtered = useMemo(() => (pipelines ?? []).filter((p) => {
     if (role && p.role !== role) return false

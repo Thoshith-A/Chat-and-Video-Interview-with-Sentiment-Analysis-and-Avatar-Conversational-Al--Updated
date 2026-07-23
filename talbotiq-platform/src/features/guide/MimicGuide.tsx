@@ -265,7 +265,11 @@ export default function MimicGuide() {
     useMemo(
       () => ({
         navigate: {
-          description: 'Go to a TalbotIQ page (e.g. /sessions/new, /pipelines, /analytics)',
+          description:
+            'Go to a TalbotIQ page. Valid paths: /sessions (Sessions list), /sessions/new (Set up an interview & invite), ' +
+            '/templates (Templates), /question-sets (Question Sets), /interview (Interview), /results (AI Avatar Screening results), ' +
+            '/pipelines (multi-round Pipelines list), /analytics (Analytics dashboard), /settings (Settings). ' +
+            'Pick the closest path for what the recruiter names.',
           params: [{ name: 'path', type: 'string' as const, required: true }],
           run: () => {},
         },
