@@ -403,11 +403,15 @@ export default function MimicGuide() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // Abort an in-flight turn / stop recognition on unmount.
+  // Abort an in-flight turn / stop recognition + the mic meter on unmount.
   useEffect(() => {
     return () => {
       controllerRef.current?.abort()
+      listeningRef.current = false
       stopListeningRef.current?.()
+      if (micMeterTimerRef.current !== null) window.clearInterval(micMeterTimerRef.current)
+      micStreamRef.current?.getTracks().forEach((t) => t.stop())
+      void micAudioCtxRef.current?.close().catch(() => {})
       cancelSpeech()
     }
   }, [])
@@ -524,10 +528,76 @@ export default function MimicGuide() {
 
   const micBaseRef = useRef('')
   const micFinalRef = useRef('')
+  // Live mic diagnostics: measure the ACTUAL audio level reaching the browser so a
+  // muted / OS-blocked / wrong-device mic is diagnosed definitively (the recognizer
+  // alone can't tell "you were quiet" apart from "Windows delivered silence").
+  const listeningRef = useRef(false)
+  const micStreamRef = useRef<MediaStream | null>(null)
+  const micAudioCtxRef = useRef<AudioContext | null>(null)
+  const micMeterTimerRef = useRef<number | null>(null)
+  const [micLevel, setMicLevel] = useState(0)
+  const [micDevice, setMicDevice] = useState('')
+
+  const stopMicMeter = () => {
+    if (micMeterTimerRef.current !== null) {
+      window.clearInterval(micMeterTimerRef.current)
+      micMeterTimerRef.current = null
+    }
+    micStreamRef.current?.getTracks().forEach((t) => t.stop())
+    micStreamRef.current = null
+    void micAudioCtxRef.current?.close().catch(() => {})
+    micAudioCtxRef.current = null
+    setMicLevel(0)
+    setMicDevice('')
+  }
+
+  const stopMic = () => {
+    listeningRef.current = false
+    stopListeningRef.current?.()
+    stopMicMeter()
+    setListening(false)
+  }
+
+  const startMicMeter = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      if (!listeningRef.current) { stream.getTracks().forEach((t) => t.stop()); return }
+      micStreamRef.current = stream
+      const label = stream.getAudioTracks()[0]?.label ?? ''
+      setMicDevice(label)
+      const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!Ctx) return
+      const ctx = new Ctx()
+      micAudioCtxRef.current = ctx
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 512
+      ctx.createMediaStreamSource(stream).connect(analyser)
+      const data = new Uint8Array(analyser.fftSize)
+      let peak = 0
+      const startedAt = Date.now()
+      micMeterTimerRef.current = window.setInterval(() => {
+        analyser.getByteTimeDomainData(data)
+        let sum = 0
+        for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v }
+        const rms = Math.sqrt(sum / data.length)
+        peak = Math.max(peak, rms)
+        setMicLevel(rms)
+        // 4s with zero audio energy = Windows is handing the browser SILENCE.
+        if (Date.now() - startedAt > 4000 && peak < 0.01) {
+          setVoiceError(
+            `Your mic${label ? ` ("${label}")` : ''} is on but only SILENCE is reaching the browser — so there's nothing to transcribe. Check: a physical/keyboard mic-mute, Windows Settings → Privacy & security → Microphone, and that the right input device is the default (Settings → System → Sound → Input). You can type meanwhile.`,
+          )
+          stopMic()
+        }
+      }, 150)
+    } catch {
+      // getUserMedia refused — the recognizer's own error handler surfaces permissions.
+    }
+  }
+
   const toggleMic = () => {
     if (listening) {
-      stopListeningRef.current?.()
-      setListening(false)
+      stopMic()
       return
     }
     if (!isSpeechRecognitionSupported()) {
@@ -536,10 +606,16 @@ export default function MimicGuide() {
     }
     setVoiceError(null)
     setListening(true)
+    listeningRef.current = true
     // Seed with whatever is already typed so dictation appends rather than replaces.
     micBaseRef.current = draft.trim() ? `${draft.trim()} ` : ''
     micFinalRef.current = ''
-    stopListeningRef.current = startSpeechRecognition(
+    void startMicMeter()
+    // Chrome recycles recognition sessions (and ends them on silence with
+    // "no-speech") — while the mic toggle is ON we transparently restart, so
+    // listening keeps going until the recruiter clicks the mic off.
+    const startRec = () => {
+      stopListeningRef.current = startSpeechRecognition(
       SPEECH_LOCALES[voiceLang] ?? voiceLang,
       (result) => {
         // Stream the transcript into the box (both guide + Autopilot): commit each
@@ -551,29 +627,41 @@ export default function MimicGuide() {
         window.setTimeout(resizeTextarea, 0)
       },
       (error) => {
-        // Specific, actionable guidance per error; benign cases (no-speech / the
-        // recognizer being aborted when you toggle it off) don't raise an alarm.
+        // Benign/transient: 'no-speech' (a silent stretch) and 'aborted' just end
+        // this session — onend below auto-restarts while the mic is still on.
+        if (error === 'no-speech' || error === 'aborted') return
         const msg =
           error === 'not-allowed' || error === 'service-not-allowed'
             ? 'Microphone access is blocked. Allow the mic for localhost in your browser, and check Windows mic privacy (Settings → Privacy → Microphone).'
             : error === 'audio-capture'
-              ? 'No microphone available — check it’s connected and enabled (your Windows mic/camera privacy toggle looks off). You can type instead.'
+              ? 'No microphone available — check it’s connected and enabled. You can type instead.'
               : error === 'network'
                 ? 'Voice needs internet the browser’s speech service can reach. You can type instead.'
-                : error === 'no-speech'
-                  ? 'Didn’t catch anything — click the mic and speak, or just type your answer.'
-                  : null // 'aborted' and other transient cases: stop quietly.
-        if (msg) setVoiceError(msg)
+                : "Couldn't capture audio — please try again, or type your answer."
+        setVoiceError(msg)
+        listeningRef.current = false
+        stopMicMeter()
         setListening(false)
       },
-      () => setListening(false),
+      () => {
+        // Session ended (silence timeout / service recycle): restart while ON.
+        if (listeningRef.current) {
+          try { startRec(); return } catch { /* fall through to stop */ }
+        }
+        stopMicMeter()
+        setListening(false)
+      },
     )
+    }
+    startRec()
   }
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       controllerRef.current?.abort()
+      listeningRef.current = false
       stopListeningRef.current?.()
+      stopMicMeter()
       cancelSpeech()
       setSpeakingIndex(null)
       setListening(false)
@@ -791,6 +879,18 @@ export default function MimicGuide() {
           {/* Composer */}
           <div className="border-t border-white/5 bg-[#1a1d2e] p-3">
             {voiceError ? <p className="mb-2 text-xs text-red-400">{voiceError}</p> : null}
+            {listening ? (
+              <div className="mb-2 flex items-center gap-2 px-0.5 text-[11px] text-neutral-400">
+                <span className="inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-red-400" />
+                <span className="truncate">Listening{micDevice ? ` — ${micDevice}` : ''}… speak, then click the mic to stop</span>
+                <span className="ml-auto inline-flex h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-white/10">
+                  <span
+                    className={cn('h-full rounded-full transition-[width] duration-150', micLevel > 0.02 ? 'bg-emerald-400' : 'bg-neutral-500')}
+                    style={{ width: `${Math.min(100, Math.round(micLevel * 400))}%` }}
+                  />
+                </span>
+              </div>
+            ) : null}
             <div className="flex items-end gap-2">
               <button
                 type="button"
