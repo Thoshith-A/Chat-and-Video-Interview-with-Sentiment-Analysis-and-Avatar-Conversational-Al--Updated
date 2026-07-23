@@ -55,7 +55,9 @@ const ParamSpecSchema = z.object({
   enum: z.array(z.string()).optional(), required: z.boolean().optional(), description: z.string().optional(),
 })
 const AgentSchema = z.object({
-  messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8000) })).min(1).max(30),
+  // Tolerant on purpose: long sessions overflow any hard cap, and one empty turn
+  // must not brick the loop — the handler below trims to the recent non-empty tail.
+  messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(8000) })).min(1).max(200),
   context: z.object({
     route: z.string().max(200),
     availableActions: z.array(z.object({
@@ -69,7 +71,11 @@ helpRouter.post('/agent', async (req, res) => {
   try {
     const parsed = AgentSchema.parse(req.body)
     requireAuth(req) // recruiter or candidate — same as /chat; actions themselves are RBAC-gated client+server
-    const decision = await runAutopilotAgent(parsed)
+    // Keep only the recent, non-empty tail — never hard-reject a long/imperfect
+    // history (that would fail EVERY subsequent turn and brick the session).
+    let msgs = parsed.messages.filter((m) => m.content.trim()).slice(-30)
+    if (msgs.length === 0) msgs = [{ role: 'user' as const, content: 'Hello' }]
+    const decision = await runAutopilotAgent({ ...parsed, messages: msgs })
     res.json(decision)
   } catch (error) {
     console.error('[autopilot] /agent error', error)

@@ -38,12 +38,16 @@ export function useAutopilotRunner() {
       const reg = useAutopilotRegistry.getState()
       const ctx = buildAgentContext(window.location.pathname, listDescriptors(reg), snapshotState(reg))
       let decision: AgentDecision
-      try { decision = await helpApi.agent({ messages, context: ctx }) }
+      // Send only the recent, non-empty tail — the full session history grows
+      // unbounded and the server caps messages; a long chat used to 400 EVERY
+      // turn from then on, permanently bricking Autopilot.
+      const recent = messages.filter((m) => m.content.trim()).slice(-24)
+      try { decision = await helpApi.agent({ messages: recent, context: ctx }) }
       catch { return { say: 'Sorry — I could not reach Autopilot. Please try again.', awaiting: true } }
       lastSay = decision.say || lastSay
       const plan: ExecPlan = planExecution(decision, ctx.availableActions)
       pushLog(logLine(plan))
-      messages.push({ role: 'assistant', content: decision.say || '' })
+      messages.push({ role: 'assistant', content: decision.say || 'Done.' }) // never an EMPTY turn (would fail validation later)
 
       if (plan.kind === 'ask') return { say: decision.say, awaiting: true }
       if (plan.kind === 'refuse') {

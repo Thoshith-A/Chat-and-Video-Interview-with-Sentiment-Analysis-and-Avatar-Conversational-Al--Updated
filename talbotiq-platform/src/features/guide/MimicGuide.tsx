@@ -553,7 +553,7 @@ export default function MimicGuide() {
 
     const history = messages.map((m) => ({ role: m.role, content: m.content }))
     const res = await runner.runTurn(content, history)
-    setMessages((m) => [...m, { role: 'assistant', content: res.say }])
+    setMessages((m) => [...m, { role: 'assistant', content: res.say || 'Done.' }])
     setPending(false)
   }
 
