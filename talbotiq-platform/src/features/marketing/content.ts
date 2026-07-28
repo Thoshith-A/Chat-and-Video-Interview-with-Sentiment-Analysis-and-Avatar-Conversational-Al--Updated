@@ -35,27 +35,27 @@ const DEMO = '/mimic#demo'
 /* ─── Nav tree (drives mega-menu + footer + routes) ───────────────────────── */
 export const NAV: NavGroup[] = [
   {
-    key: 'Platform', label: 'Platform', to: '/mimic#platform',
+    key: 'Platform', label: 'Platform', to: '/mimic/platform',
     columns: [
       { title: 'Interview tracks', links: [
-        { label: 'Conversational chat', to: '/mimic#platform' },
-        { label: 'Voice screening', to: '/mimic#platform' },
-        { label: 'AI video avatar', to: '/mimic#platform' },
-        { label: 'Live two-way call', to: '/mimic#platform' },
-        { label: 'Timed Q&A', to: '/mimic#platform' },
+        { label: 'Conversational chat', to: '/mimic/platform/conversational-chat' },
+        { label: 'Voice screening', to: '/mimic/platform/voice-screening' },
+        { label: 'AI video avatar', to: '/mimic/platform/ai-video-avatar' },
+        { label: 'Live two-way call', to: '/mimic/platform/live-two-way' },
+        { label: 'Timed Q&A', to: '/mimic/platform/timed-qa' },
       ]},
       { title: 'Workflow', links: [
-        { label: 'Bulk invitations', to: '/mimic#process' },
-        { label: 'Interview templates', to: '/mimic#process' },
-        { label: 'Question sets', to: '/mimic#process' },
-        { label: 'Multi-round pipelines', to: '/mimic#process' },
-        { label: 'Rubrics & scoring', to: '/mimic#how' },
+        { label: 'Bulk invitations', to: '/mimic/platform/bulk-invitations' },
+        { label: 'Interview templates', to: '/mimic/platform/interview-templates' },
+        { label: 'Question sets', to: '/mimic/platform/question-sets' },
+        { label: 'Multi-round pipelines', to: '/mimic/platform/pipelines' },
+        { label: 'Rubrics & scoring', to: '/mimic/platform/rubrics-scoring' },
       ]},
       { title: 'Intelligence', links: [
-        { label: 'Candidate reports', to: '/mimic#how' },
-        { label: 'Recruiter analytics', to: '/mimic#how' },
-        { label: 'Signal analysis', to: '/mimic#platform' },
-        { label: 'Mimic Guide assistant', to: '/mimic#platform' },
+        { label: 'Candidate reports', to: '/mimic/platform/candidate-reports' },
+        { label: 'Recruiter analytics', to: '/mimic/platform/recruiter-analytics' },
+        { label: 'Signal analysis', to: '/mimic/platform/signal-analysis' },
+        { label: 'Mimic Guide assistant', to: '/mimic/platform/mimic-guide' },
       ]},
     ],
   },
@@ -158,6 +158,19 @@ export const NAV: NavGroup[] = [
 
 /* ─── Section hubs (real overview pages so every top-level item resolves) ──── */
 const HUBS: MktPage[] = [
+  {
+    slug: 'platform', section: 'Platform', sectionTo: '/mimic/platform', tier: 'hub',
+    kicker: 'Platform', h1: 'One platform. Every way to interview a candidate.',
+    metaTitle: 'Mimic Platform — AI interview tracks & workflow',
+    metaDesc: 'Five interview tracks, bulk invitations, templates, pipelines and one rubric — plus reports, analytics and the Mimic Guide assistant.',
+    intro: 'Mimic interviews candidates five different ways, runs the whole workflow from invite to shortlist, and turns every answer into an evidence-backed score. Explore the pieces.',
+    sections: [
+      { h2: 'Interview tracks', body: 'Pick the format that fits the role — every track scores on the same rubric.', bullets: ['Conversational chat', 'Voice screening', 'AI video avatar', 'Live two-way call', 'Timed Q&A'] },
+      { h2: 'Workflow', body: 'From a spreadsheet to interviews in inboxes, then a shortlist.', bullets: ['Bulk invitations', 'Interview templates', 'Question sets', 'Multi-round pipelines', 'Rubrics & scoring'] },
+      { h2: 'Intelligence', body: 'Evidence-backed scores, analytics and an assistant that operates the product.', bullets: ['Candidate reports', 'Recruiter analytics', 'Signal analysis', 'Mimic Guide assistant'] },
+    ],
+    cta: { title: 'See the platform on your roles', sub: 'Book a 30-minute walkthrough — no card required.' },
+  },
   {
     slug: 'solutions', section: 'Solutions', sectionTo: '/mimic/solutions', tier: 'hub',
     kicker: 'Solutions', h1: 'The right screen for every kind of hire.',
@@ -428,6 +441,94 @@ const COMPANY_PAGES: MktPage[] = [
   page('company/legal', 'C', 'Connect · Legal', 'Legal & privacy.', 'Legal & Privacy | Mimic by TalbotIQ', 'Privacy notice, terms of service, DPA and sub-processor list for Mimic and TalbotIQ.', 'The documents your legal team needs, in one place. This page links documents; it is not legal advice.', [ { h2: 'Documents', body: '[PLACEHOLDER: links to the real Privacy Notice, Terms of Service, DPA and sub-processor list].' }, { h2: 'Data requests', body: 'Access, correction and deletion requests are handled per GDPR and India’s DPDP Act. [PLACEHOLDER: privacy/DPO contact].' } ], 'Questions for legal?', 'We’ll connect you with the right person.'),
 ]
 
-export const PAGES: MktPage[] = [...HUBS, ...SOLUTION_PAGES, ...SOLUTION_BRIEFS, ...TRUST_PAGES, ...RESOURCE_PAGES, ...COMPANY_PAGES]
+/* ─── Platform pages ───────────────────────────────────────────────────────
+ * The 5 interview tracks are the crown-jewel product/SEO pages (Tier A); the
+ * workflow + intelligence items are tighter capability pages (Tier B). */
+function plat(slug: string, tier: 'A' | 'B', kicker: string, h1: string, metaTitle: string, metaDesc: string, intro: string, sections: PageSection[], faqs?: FaqItem[]): MktPage {
+  return { slug: `platform/${slug}`, section: 'Platform', sectionTo: '/mimic/platform', tier, kicker, h1, metaTitle, metaDesc, intro, sections, faqs, cta: { title: 'See it on your roles', sub: 'Book a 30-minute walkthrough — no card required.' } }
+}
+const PLATFORM_PAGES: MktPage[] = [
+  plat('conversational-chat', 'A', 'Interview tracks · Async', 'A first interview candidates finish on their phone in minutes.',
+    'Conversational Chat Interviews | Mimic', 'A text interview candidates finish on a phone in minutes — résumé-adaptive, scored on your rubric. Ideal for hourly and high-volume roles.',
+    'Scheduling is where the first round dies. A chat interview removes it entirely: candidates answer on their phone, whenever they can, and you get a scored result the same day.',
+    [
+      { h2: 'How it works', body: 'Candidates open a link and answer a short, structured set of questions in text. Each interview reads the résumé first and adapts its follow-ups.' },
+      { h2: 'Best for', body: 'Hourly, frontline and high-volume roles where speed and mobile access matter most.', bullets: ['No scheduling', 'Mobile-first, no app', 'Finishes in minutes', 'Scored on your rubric'] },
+      { h2: 'What you get', body: 'A consistent, evidence-backed score for every applicant, the day they applied.' },
+    ],
+    [{ q: 'Do candidates need an account?', a: 'No — they open a link and answer in the browser.' }]),
+  plat('voice-screening', 'A', 'Interview tracks · Async', 'Hear how a candidate communicates — then score it consistently.',
+    'AI Voice Screening Software | Mimic', 'Spoken interviews transcribed and scored on tone, pacing and content together — consistent, evidence-backed, no scheduling.',
+    'For roles where communication is the job, a résumé tells you nothing. Voice screening lets every candidate speak, and scores what they say the same way.',
+    [
+      { h2: 'How it works', body: 'Candidates answer aloud; Mimic transcribes and scores content alongside delivery signals, against your rubric.' },
+      { h2: 'Best for', body: 'Sales, support, and any customer-facing role where communication matters.', bullets: ['Transcription included', 'Signal analysis on delivery', 'No scheduling', 'One rubric across candidates'] },
+      { h2: 'What you get', body: 'The communication signal you used to only get on a live call — for every applicant, scored consistently.' },
+    ],
+    [{ q: 'Is the transcript available?', a: 'Yes — every score cites the transcript span it came from.' }]),
+  plat('ai-video-avatar', 'A', 'Interview tracks · Async', 'A face-to-face round that adapts and follows up — on the candidate’s schedule.',
+    'AI Video Avatar Interviews | Mimic', 'A configured AI video interviewer that reacts, follows up and probes shallow answers — a real face-to-face round without the scheduling.',
+    'Candidates take a video interview seriously, but scheduling one with a human at scale is impossible. An AI video avatar gives every candidate the face-to-face round, any time.',
+    [
+      { h2: 'How it works', body: 'A configured persona interviews the candidate on video, reacts to answers, follows up, and probes when an answer is thin — then scores against your rubric.' },
+      { h2: 'Configure the interviewer', body: 'Set the persona, greeting, and what it is allowed to ask in the Avatar studio.', bullets: ['Personas & replicas', 'Résumé-adaptive follow-ups', 'On the candidate’s schedule', 'Scored on your rubric'] },
+      { h2: 'What you get', body: 'A structured, consistent video round for everyone — not just the shortlist you had time to call.' },
+    ],
+    [{ q: 'Do candidates know it’s AI?', a: 'Yes — candidates are told and consent before starting. See Trust → Candidate rights.' }]),
+  plat('live-two-way', 'A', 'Interview tracks · Live', 'A real interviewer in the room — with Mimic taking notes and scoring.',
+    'Live Two-Way Interviews | Mimic', 'A live video interview where a human leads and Mimic captures notes, scores the rubric and records with consent — structure without the busywork.',
+    'Later rounds still need a human. Mimic makes the live interview structured and consistent: your interviewer talks to the candidate while Mimic handles notes, scoring and the record.',
+    [
+      { h2: 'How it works', body: 'A live two-way video call where your interviewer leads; Mimic captures notes, scores the rubric, and records consentfully.' },
+      { h2: 'Best for', body: 'Panel and final rounds where a human decision needs a consistent structure and record.', bullets: ['Host room + candidate lobby', 'Interviewer star-rating + notes', 'Consented recording', 'Same rubric as async rounds'] },
+      { h2: 'What you get', body: 'The human touch of a live interview with the consistency and evidence of a structured one.' },
+    ]),
+  plat('timed-qa', 'A', 'Interview tracks · Async', 'Per-question timers for skills that only show up under pressure.',
+    'Timed Q&A Interviews | Mimic', 'Per-question timers pressure-test skills like triage and dispatch — with integrity checks and consistent, evidence-backed scoring.',
+    'Some skills only reveal themselves under a clock. Timed Q&A puts a fair, identical time limit on every candidate and scores how they perform against it.',
+    [
+      { h2: 'How it works', body: 'Each question has a prep and answer timer; candidates respond under the same constraints, and Mimic scores against your rubric.' },
+      { h2: 'Best for', body: 'Support triage, trading floors, dispatch — roles where speed under pressure is the job.', bullets: ['Per-question timers', 'Integrity checks', 'Identical constraints for all', 'Evidence-backed scores'] },
+      { h2: 'What you get', body: 'A fair, pressure-tested read on performance you can’t get from a résumé.' },
+    ]),
+  plat('bulk-invitations', 'B', 'Workflow · Invitations', 'From a spreadsheet to interviews in inboxes in minutes.',
+    'Bulk Candidate Invitations | Mimic', 'Invite thousands of candidates from a CSV, an ATS export or one shareable link — Mimic parses each résumé and personalises every email.',
+    'The first bottleneck is just getting the interview to everyone. Mimic sends them all in minutes.',
+    [ { h2: 'How it works', body: 'Drop in a CSV or ATS export, or share one link. Mimic parses each résumé, personalises the email, and sends the links.', bullets: ['CSV / ATS export / shareable link', 'Résumé parsing per candidate', 'Personalised invite emails'] } ]),
+  plat('interview-templates', 'B', 'Workflow · Templates', 'Configure an interview once. Reuse it across your whole team.',
+    'Interview Templates | Mimic', 'Save track, question source, rubric weights, timing and branding as one reusable template your whole team applies consistently.',
+    'Consistency comes from reuse. A template captures how a role is interviewed so every recruiter runs it the same way.',
+    [ { h2: 'What a template holds', body: 'Track, question source, rubric and weights, timing, and branding — one object your team reuses.', bullets: ['One config, reused everywhere', 'Consistent across recruiters', 'Versioned and editable'] } ]),
+  plat('question-sets', 'B', 'Workflow · Questions', 'Fixed question banks, or questions generated from a résumé.',
+    'Question Sets | Mimic', 'Build reusable fixed question banks, attach them to any template, or let Mimic generate role-specific questions from a résumé.',
+    'Start from proven questions instead of a blank page — and map every one to a rubric dimension.',
+    [ { h2: 'How it works', body: 'Create fixed sets, attach them to templates, reorder by drag, or generate from a résumé. Each question maps to a scoring dimension.', bullets: ['Reusable fixed sets', 'Résumé-generated questions', 'Mapped to the rubric'] } ]),
+  plat('pipelines', 'B', 'Workflow · Pipelines', 'Move candidates through rounds — or advance everyone above a bar.',
+    'Multi-Round Hiring Pipelines | Mimic', 'Drag candidates through rounds, or auto-advance everyone above a score threshold, then export the board — multi-round progression made simple.',
+    'Multi-round hiring gets messy in spreadsheets. A pipeline board keeps every candidate’s stage and score in one place.',
+    [ { h2: 'How it works', body: 'Each round is a column; drag a candidate to advance them, or quick-advance everyone above a threshold. Export the board when you’re done.', bullets: ['Drag-to-advance', 'Score-threshold / top-N quick advance', 'CSV export'] } ]),
+  plat('rubrics-scoring', 'B', 'Workflow · Scoring', 'One rubric, applied identically, with the evidence attached.',
+    'Rubrics & Scoring | Mimic', 'Define weighted rubric dimensions once; Mimic scores every candidate the same way and cites the answer behind each dimension.',
+    'A score is only useful if it’s consistent and explainable. The rubric is how Mimic guarantees both.',
+    [ { h2: 'How it works', body: 'You set weighted dimensions; every candidate is scored identically, and each dimension cites its evidence. See Trust → How Mimic scores.', bullets: ['Weighted, you-defined dimensions', 'Identical for every candidate', 'Evidence per dimension'] } ]),
+  plat('candidate-reports', 'B', 'Intelligence · Reports', 'A report that shows the working behind every score.',
+    'Candidate Reports | Mimic', 'A full scored report per candidate — overall score, per-dimension breakdown with evidence, transcript and signal analysis.',
+    'Hiring managers don’t want a number; they want to see why. The candidate report shows the evidence behind every dimension.',
+    [ { h2: 'What’s in a report', body: 'Overall score and recommendation, a per-dimension breakdown with the answer behind each, transcript, and signal analysis.', bullets: ['Score + recommendation', 'Per-dimension evidence', 'Transcript & signals'] } ]),
+  plat('recruiter-analytics', 'B', 'Intelligence · Analytics', 'See your whole funnel, by role, team and track.',
+    'Recruiter Analytics | Mimic', 'Aggregate results across every scored interview — by role, template, track and recruiter — with adverse-impact reporting built in.',
+    'Structured scoring finally makes hiring measurable. Analytics turn thousands of interviews into decisions.',
+    [ { h2: 'What you can see', body: 'Volume, completion, score distributions and averages, sliced by role, template, track and recruiter — plus adverse-impact monitoring.', bullets: ['By role / template / track / recruiter', 'Score distributions & trends', 'Adverse-impact reporting'] } ]),
+  plat('signal-analysis', 'B', 'Intelligence · Signals', 'Delivery signals, alongside content — not instead of it.',
+    'Signal Analysis | Mimic', 'For voice and video, Mimic assesses delivery signals such as pace and clarity alongside answer content — always as supporting evidence, never a verdict.',
+    'How something is said can matter for customer-facing roles. Mimic surfaces delivery signals as evidence, never as a standalone judgement.',
+    [ { h2: 'How it works', body: 'On voice/video tracks, delivery signals are analysed alongside content and shown as supporting evidence in the report.', bullets: ['Pace, clarity, filler words', 'Shown with content, not alone', 'Human interprets it'] } ]),
+  plat('mimic-guide', 'B', 'Intelligence · Assistant', 'An assistant that operates Mimic by voice or type.',
+    'Mimic Guide Assistant | Mimic', 'A built-in assistant that answers questions and, with Autopilot, operates the product — setting up interviews, filtering analytics, advancing pipelines — with confirmation before anything sends.',
+    'The fastest way to run Mimic is to ask it. The Mimic Guide answers questions and can operate the product for you, hands-free.',
+    [ { h2: 'What it does', body: 'Ask how something works, or turn on Autopilot and it drives the UI — setting up interviews, filtering the dashboard, advancing candidates — reading back and confirming before any action that sends.', bullets: ['Voice or typed', 'Operates the real UI', 'Confirms before side-effects'] } ]),
+]
+
+export const PAGES: MktPage[] = [...HUBS, ...PLATFORM_PAGES, ...SOLUTION_PAGES, ...SOLUTION_BRIEFS, ...TRUST_PAGES, ...RESOURCE_PAGES, ...COMPANY_PAGES]
 export const PAGE_BY_SLUG: Record<string, MktPage> = Object.fromEntries(PAGES.map((p) => [p.slug, p]))
 export { DEMO }
