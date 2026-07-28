@@ -73,6 +73,37 @@ export default function MimicSite() {
 
   useEffect(() => () => { if (hideTimer.current) window.clearTimeout(hideTimer.current) }, [])
 
+  // Per-route SEO head. A single-page app shares one <head>, so set the marketing
+  // page's own title/meta/OG/canonical + JSON-LD on mount and restore on unmount.
+  // (Client-rendered — fine for JS-executing crawlers; a prerender/SSR pass is the
+  // follow-up for full static SEO. Tracked in the delivery notes.)
+  useEffect(() => {
+    const prevTitle = document.title
+    document.title = 'Mimic by TalbotIQ — AI Interviews for Every Candidate'
+    const desc = 'Mimic interviews and scores every applicant the day they apply — across chat, voice, AI video and live rounds — on one rubric, with the evidence attached. Book a demo.'
+    const added: HTMLElement[] = []
+    const meta = (sel: string, attr: string, key: string, content: string) => {
+      let el = document.head.querySelector<HTMLMetaElement>(sel)
+      if (!el) { el = document.createElement('meta'); el.setAttribute(attr, key); document.head.appendChild(el); added.push(el) }
+      el.setAttribute('content', content)
+    }
+    meta('meta[name="description"]', 'name', 'description', desc)
+    meta('meta[property="og:title"]', 'property', 'og:title', 'Mimic — AI interviews for every candidate')
+    meta('meta[property="og:description"]', 'property', 'og:description', desc)
+    meta('meta[property="og:type"]', 'property', 'og:type', 'website')
+    meta('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image')
+    const canonical = document.createElement('link'); canonical.rel = 'canonical'; canonical.href = 'https://mimic.talbotiq.com/'; document.head.appendChild(canonical); added.push(canonical)
+    const ld = document.createElement('script'); ld.type = 'application/ld+json'
+    ld.textContent = JSON.stringify({ '@context': 'https://schema.org', '@graph': [
+      { '@type': 'Organization', name: 'TalbotIQ', brand: { '@type': 'Brand', name: 'Mimic' }, url: 'https://mimic.talbotiq.com/' },
+      { '@type': 'WebSite', name: 'Mimic by TalbotIQ', url: 'https://mimic.talbotiq.com/' },
+      { '@type': 'Service', name: 'Mimic AI interview platform', serviceType: 'AI candidate screening and interviewing', description: desc },
+      { '@type': 'FAQPage', mainEntity: FAQS.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) },
+    ] })
+    document.head.appendChild(ld); added.push(ld)
+    return () => { document.title = prevTitle; added.forEach((el) => el.remove()) }
+  }, [])
+
   const openMega = (k: string) => { if (hideTimer.current) window.clearTimeout(hideTimer.current); setMega(k) }
   const scheduleClose = () => { hideTimer.current = window.setTimeout(() => setMega(null), 180) }
 
