@@ -116,24 +116,24 @@ export const NAV: NavGroup[] = [
     key: 'Resources', label: 'Resources', to: '/mimic/resources',
     columns: [
       { title: 'Learn', links: [
-        { label: 'Blog', to: '/mimic/resources' },
-        { label: 'Guides & playbooks', to: '/mimic/resources' },
-        { label: 'Webinars', to: '/mimic/resources' },
-        { label: 'Interview question library', to: '/mimic/resources' },
-        { label: 'Rubric templates', to: '/mimic/resources' },
-        { label: 'Glossary', to: '/mimic/resources' },
+        { label: 'Blog', to: '/mimic/resources/blog' },
+        { label: 'Guides & playbooks', to: '/mimic/resources/guides' },
+        { label: 'Webinars', to: '/mimic/resources/webinars' },
+        { label: 'Interview question library', to: '/mimic/resources/question-library' },
+        { label: 'Rubric templates', to: '/mimic/resources/rubric-templates' },
+        { label: 'Glossary', to: '/mimic/resources/glossary' },
       ]},
       { title: 'Proof', links: [
-        { label: 'Customer stories', to: '/mimic/resources' },
-        { label: 'ROI calculator', to: '/mimic/resources' },
-        { label: 'Benchmark report', to: '/mimic/resources' },
+        { label: 'Customer stories', to: '/mimic/resources/customer-stories' },
+        { label: 'ROI calculator', to: '/mimic/resources/roi-calculator' },
+        { label: 'Benchmark report', to: '/mimic/resources/benchmark-report' },
       ]},
       { title: 'Build', links: [
-        { label: 'Documentation', to: '/mimic/resources' },
-        { label: 'API reference', to: '/mimic/resources' },
-        { label: 'ATS integrations', to: '/mimic/resources' },
-        { label: 'Changelog', to: '/mimic/resources' },
-        { label: 'Help centre', to: '/mimic/resources' },
+        { label: 'Documentation', to: '/mimic/resources/documentation' },
+        { label: 'API reference', to: '/mimic/resources/api-reference' },
+        { label: 'ATS integrations', to: '/mimic/resources/ats-integrations' },
+        { label: 'Changelog', to: '/mimic/resources/changelog' },
+        { label: 'Help centre', to: '/mimic/resources/help' },
       ]},
     ],
   },
@@ -141,16 +141,16 @@ export const NAV: NavGroup[] = [
     key: 'Company', label: 'Company', to: '/mimic/company',
     columns: [
       { title: 'About', links: [
-        { label: 'About TalbotIQ', to: '/mimic/company' },
-        { label: 'Careers', to: '/mimic/company' },
-        { label: 'Newsroom', to: '/mimic/company' },
-        { label: 'Contact', to: '/mimic/company' },
+        { label: 'About TalbotIQ', to: '/mimic/company/about' },
+        { label: 'Careers', to: '/mimic/company/careers' },
+        { label: 'Newsroom', to: '/mimic/company/newsroom' },
+        { label: 'Contact', to: '/mimic/company/contact' },
       ]},
       { title: 'Connect', links: [
-        { label: 'Partners', to: '/mimic/company' },
-        { label: 'Become a reseller', to: '/mimic/company' },
-        { label: 'Events', to: '/mimic/company' },
-        { label: 'Legal & privacy', to: '/mimic/company' },
+        { label: 'Partners', to: '/mimic/company/partners' },
+        { label: 'Become a reseller', to: '/mimic/company/reseller' },
+        { label: 'Events', to: '/mimic/company/events' },
+        { label: 'Legal & privacy', to: '/mimic/company/legal' },
       ]},
     ],
   },
@@ -396,6 +396,38 @@ const TRUST_PAGES: MktPage[] = [
     [ { h2: 'Live status & history', body: 'Real-time component status and a public incident history. [PLACEHOLDER: status-page URL].' }, { h2: 'Subscribe', body: 'Subscribe to get notified of incidents and maintenance. [PLACEHOLDER: subscribe link].' } ]),
 ]
 
-export const PAGES: MktPage[] = [...HUBS, ...SOLUTION_PAGES, ...SOLUTION_BRIEFS, ...TRUST_PAGES]
+/* ─── Resources + Company (Tier C mostly; honest empty states, no fake data) ── */
+function page(slug: string, tier: 'A' | 'B' | 'C', kicker: string, h1: string, metaTitle: string, metaDesc: string, intro: string, sections: PageSection[], ctaTitle: string, ctaSub: string): MktPage {
+  const section = slug.startsWith('resources') ? 'Resources' : 'Company'
+  return { slug, section, sectionTo: slug.startsWith('resources') ? '/mimic/resources' : '/mimic/company', tier, kicker, h1, metaTitle, metaDesc, intro, sections, cta: { title: ctaTitle, sub: ctaSub } }
+}
+const RESOURCE_PAGES: MktPage[] = [
+  page('resources/blog', 'C', 'Learn · Blog', 'Field notes on screening at volume.', 'Mimic Blog — AI hiring & screening', 'Practical writing on structured interviews, fair AI scoring and hiring at volume from the team building Mimic.', 'Short, useful posts on running structured, fair screening — no thought-leadership filler.', [ { h2: 'What you’ll find here', body: 'Practical pieces on rubrics, adverse-impact monitoring, candidate experience and hiring at volume.' }, { h2: 'Nothing published yet', body: 'We’re just getting started. Subscribe or book a demo and we’ll share the first pieces as they land — we won’t pad this page with filler.' } ], 'Get the first posts', 'Book a demo and we’ll add you to the list.'),
+  page('resources/guides', 'C', 'Learn · Guides', 'Playbooks for structured, fair screening.', 'Guides & Playbooks | Mimic', 'Step-by-step playbooks for designing rubrics, running high-volume screening and monitoring adverse impact.', 'Longer-form, field-tested playbooks your team can act on the same day.', [ { h2: 'Topics we cover', body: 'Designing a rubric hiring managers trust; running a high-volume req; monitoring adverse impact; writing résumé-adaptive questions.' }, { h2: 'Get a copy', body: '[PLACEHOLDER: which guides are downloadable, and gating]. Ask us and we’ll send the ones relevant to your team.' } ], 'Request the playbooks', 'Tell us your use case and we’ll share what fits.'),
+  page('resources/webinars', 'C', 'Learn · Webinars', 'Live and on-demand sessions.', 'Webinars | Mimic', 'Live and recorded sessions on fair AI screening, rubric design and hiring at volume.', 'Sessions with our team and practitioners on getting structured screening right.', [ { h2: 'What’s coming', body: 'Working sessions on rubric design, compliance-ready screening and candidate experience.' }, { h2: 'No sessions scheduled yet', body: 'Register your interest and we’ll notify you of the first one. [PLACEHOLDER: webinar platform / schedule].' } ], 'Register interest', 'Book a demo and we’ll invite you to the next session.'),
+  page('resources/question-library', 'B', 'Learn · Questions', 'A library of role-ready interview questions.', 'Interview Question Library | Mimic', 'Structured, role-specific interview questions you can attach to any template — or let Mimic adapt them to each résumé.', 'Start from proven questions instead of a blank page — then let each interview adapt them to the candidate.', [ { h2: 'How it works in Mimic', body: 'Build fixed question sets, attach them to a template, or generate from a résumé. Every question maps to a rubric dimension.' }, { h2: 'Browse the library', body: '[PLACEHOLDER: is the library public, or in-product only? Link accordingly].' } ], 'See it in the product', 'Book a demo to browse the library on your roles.'),
+  page('resources/rubric-templates', 'B', 'Learn · Rubrics', 'Rubric templates you can start from.', 'Rubric Templates | Mimic', 'Pre-built scoring rubrics for common roles — weighted dimensions you can adopt as-is or tune to your bar.', 'A good rubric is the difference between a defensible score and a gut call. Start from one that works.', [ { h2: 'What a rubric template gives you', body: 'Weighted dimensions for a role, ready to apply identically to every candidate.' }, { h2: 'Get the templates', body: '[PLACEHOLDER: which role templates ship, and how to access].' } ], 'Start from a template', 'Book a demo and we’ll set one up on your role.'),
+  page('resources/glossary', 'C', 'Learn · Glossary', 'The AI-hiring terms buyers actually ask about.', 'AI Hiring Glossary | Mimic', 'Plain-English definitions of the terms that come up in AI-hiring reviews: adverse impact, rubric, adaptive interview, human-in-the-loop.', 'The words that show up in every procurement and legal review, defined plainly.', [ { h2: 'Adverse impact', body: 'When a selection procedure passes one group at a substantially lower rate than another — often referenced against the four-fifths rule.' }, { h2: 'Rubric', body: 'A fixed set of weighted dimensions used to score every candidate for a role the same way, with evidence attached.' }, { h2: 'Résumé-adaptive interview', body: 'An interview that reads the candidate’s résumé and tailors its follow-up questions to what they actually claim.' }, { h2: 'Human-in-the-loop', body: 'A design where the AI recommends and a person makes every decision that affects a candidate.' } ], 'See these in practice', 'Book a demo to see how Mimic applies them.'),
+  page('resources/customer-stories', 'A', 'Proof · Stories', 'How teams hire with Mimic.', 'Customer Stories | Mimic', 'Real results from teams screening at volume with Mimic — time-to-shortlist, recruiter hours returned and candidate experience.', 'The best proof is a team like yours. We publish stories only with the customer’s name and numbers confirmed.', [ { h2: 'What a story covers', body: 'The hiring problem, how the team rolled Mimic out, and the measured change afterwards.' }, { h2: 'Stories coming soon', body: '[PLACEHOLDER: published customer stories — name, metrics, quote, all confirmed by the customer]. We won’t post invented ones.' }, { h2: 'Be a reference', body: 'Already using Mimic and happy to share results? We’d love to tell your story.' } ], 'Talk to a reference', 'Ask us to connect you with a customer like you.'),
+  page('resources/roi-calculator', 'B', 'Proof · ROI', 'Estimate what the first round is costing you.', 'ROI Calculator | Mimic', 'Estimate the recruiter hours and time-to-fill you get back by automating the first round with Mimic.', 'The first round has a price — in recruiter hours and in candidates lost to a faster competitor. Put a number on it.', [ { h2: 'What it estimates', body: 'From your monthly applicants, minutes per manual screen and loaded recruiter cost, an estimate of hours and cost returned.' }, { h2: 'Get your number', body: '[PLACEHOLDER: embed the interactive calculator here]. Meanwhile, book a demo and we’ll run the numbers on your actual volume.' } ], 'Get a tailored estimate', 'Book a demo and we’ll model it on your reqs.'),
+  page('resources/benchmark-report', 'C', 'Proof · Benchmark', 'What 340,000 scored interviews reveal.', 'Screening Benchmark Report | Mimic', 'Findings from 340,000 scored interviews on screening accuracy, candidate experience and where manual screening leaks good people.', 'Aggregate findings from 340,000 scored interviews — what actually predicts a good hire, and where manual screening leaks talent.', [ { h2: 'What’s inside', body: 'Screening-accuracy findings, candidate-experience data, and where good candidates fall out of a manual funnel.' }, { h2: 'Download', body: '[PLACEHOLDER: report download / gating]. Ask us for a copy in the meantime.' } ], 'Get the report', 'Book a demo and we’ll send the benchmark report.'),
+  page('resources/documentation', 'C', 'Build · Docs', 'Documentation.', 'Documentation | Mimic', 'Guides for setting up templates, question sets, pipelines and integrations, plus how scoring and rubrics work.', 'Everything to set Mimic up and run it well — for admins and developers.', [ { h2: 'What’s documented', body: 'Templates, question sets, pipelines, rubrics, roles/permissions, and integration setup.' }, { h2: 'Read the docs', body: '[PLACEHOLDER: documentation URL].' } ], 'Get set up fast', 'Book a demo and we’ll walk your team through setup.'),
+  page('resources/api-reference', 'C', 'Build · API', 'API reference.', 'API Reference | Mimic', 'Programmatically create sessions, invite candidates, and pull scored results into your own systems.', 'Wire Mimic into your stack — create sessions, invite candidates and pull results.', [ { h2: 'What the API covers', body: 'Sessions, invitations, candidates, and scored results/reports.' }, { h2: 'Reference & auth', body: '[PLACEHOLDER: API base URL, auth model and full reference link].' } ], 'Talk to our team', 'Book a demo to discuss your integration.'),
+  page('resources/ats-integrations', 'A', 'Build · Integrations', 'Mimic fits the ATS you already run.', 'ATS Integrations | Mimic', 'Start today with a CSV, an ATS export or a shareable link — and connect your ATS directly on enterprise plans. No rip-and-replace.', 'You are not replacing your ATS. Mimic slots into it — start with an export today, wire up a direct connector when you’re ready.', [ { h2: 'Start with zero integration', body: 'Bulk-invite from a CSV, an ATS export, or a single shareable link. You can run your first req today.' }, { h2: 'Direct connectors', body: 'Push statuses and scores back into your ATS on enterprise plans. [PLACEHOLDER: named ATS integrations available].' }, { h2: 'What syncs', body: 'Candidates in, and scores, statuses and report links back out — so your ATS stays the system of record.' } ], 'Check your ATS', 'Book a demo and we’ll confirm your integration path.'),
+  page('resources/changelog', 'C', 'Build · Changelog', 'What’s new in Mimic.', 'Changelog | Mimic', 'Product updates, improvements and fixes to Mimic — shipped continuously.', 'What we’ve shipped, in plain language.', [ { h2: 'How we ship', body: 'We release continuously and note customer-facing changes here.' }, { h2: 'Recent updates', body: '[PLACEHOLDER: real release notes — we won’t invent version history]. Subscribe to get them as they ship.' } ], 'Subscribe to updates', 'Book a demo and we’ll keep you posted.'),
+  page('resources/help', 'C', 'Build · Help', 'Help centre.', 'Help Centre | Mimic', 'Answers to common setup and usage questions, plus how to reach Mimic support.', 'Quick answers, and a fast path to a human when you need one.', [ { h2: 'Common topics', body: 'Setting up templates, inviting candidates, reading reports, and managing access.' }, { h2: 'Contact support', body: '[PLACEHOLDER: support email / in-app support / hours].' } ], 'Need a hand?', 'Book a demo or reach support and we’ll help.'),
+]
+const COMPANY_PAGES: MktPage[] = [
+  page('company/about', 'A', 'About · Company', 'AI interviews for every candidate — built by TalbotIQ.', 'About TalbotIQ — the team behind Mimic', 'TalbotIQ builds Mimic: AI interviewing that measures every candidate the same way and keeps a human on every decision.', 'We started TalbotIQ because the first round of hiring was broken: good people wait weeks, recruiters drown, and no two candidates get the same interview. Mimic is our answer.', [ { h2: 'What we believe', body: 'Every applicant deserves a real first interview; every score should carry its evidence; and a human should make every decision.' }, { h2: 'What we build', body: 'Mimic interviews and scores candidates across five tracks on one rubric — fast enough for volume, structured enough to defend.' }, { h2: 'The company', body: '[PLACEHOLDER: founded year, HQ, team size, funding — add only what is true].' } ], 'Work with us', 'Book a demo, or see open roles on the careers page.'),
+  page('company/careers', 'C', 'About · Careers', 'Build the future of fair hiring.', 'Careers at TalbotIQ | Mimic', 'Join the team building AI interviewing that’s fast, fair and defensible. See open roles at TalbotIQ.', 'We’re a small team with an outsized mission: make the first round fair and fast for everyone.', [ { h2: 'How we work', body: 'Small team, high ownership, close to customers and to the product.' }, { h2: 'Open roles', body: '[PLACEHOLDER: current openings / careers-page link — we won’t list roles that aren’t open]. Don’t see a fit? Introduce yourself.' } ], 'Introduce yourself', 'Tell us where you’d make an impact.'),
+  page('company/newsroom', 'C', 'About · Newsroom', 'News & press.', 'Newsroom | TalbotIQ & Mimic', 'Announcements, press coverage and media resources for TalbotIQ and Mimic.', 'Company and product news, and everything press need in one place.', [ { h2: 'Announcements', body: '[PLACEHOLDER: real announcements only]. Nothing to share yet — check back or subscribe.' }, { h2: 'Press enquiries', body: '[PLACEHOLDER: press contact email and media kit].' } ], 'Media enquiries', 'Reach out and we’ll respond quickly.'),
+  page('company/contact', 'A', 'About · Contact', 'Talk to us.', 'Contact TalbotIQ | Mimic', 'Reach sales, support, partnerships or press. Book a demo, or send us a note and we’ll route you to the right person.', 'Whatever you need — a demo, a security review, a partnership — start here and we’ll get you to the right person fast.', [ { h2: 'Sales & demos', body: 'The fastest path is to book a demo — we’ll tailor it to your roles.' }, { h2: 'Support', body: 'Already a customer? Reach support through the help centre. [PLACEHOLDER: support contact].' }, { h2: 'Partnerships & press', body: '[PLACEHOLDER: partnerships and press email addresses, and postal address if you list one].' } ], 'Book a demo', 'The quickest way to a useful conversation.'),
+  page('company/partners', 'C', 'Connect · Partners', 'Partner with Mimic.', 'Partners | Mimic by TalbotIQ', 'Technology and services partners who help customers screen faster and more fairly with Mimic.', 'We work with ATS platforms, RPOs and services firms to get customers to value faster.', [ { h2: 'Partner types', body: 'Technology (ATS and HR tech), services (RPO and consultancies), and referral partners.' }, { h2: 'Become a partner', body: '[PLACEHOLDER: partner program details / application].' } ], 'Explore partnership', 'Tell us how you’d like to work together.'),
+  page('company/reseller', 'C', 'Connect · Reseller', 'Become a reseller.', 'Become a Reseller | Mimic', 'Resell Mimic to your clients with margin, enablement and support from the TalbotIQ team.', 'Bring structured AI screening to your clients, with the commercials and support to make it work.', [ { h2: 'What resellers get', body: 'Margin, enablement, and co-selling support. [PLACEHOLDER: program terms].' }, { h2: 'Apply', body: '[PLACEHOLDER: reseller application / contact].' } ], 'Talk to our team', 'Let’s discuss a reseller arrangement.'),
+  page('company/events', 'C', 'Connect · Events', 'Events.', 'Events | Mimic by TalbotIQ', 'Where to meet the TalbotIQ team — conferences, meetups and webinars.', 'Come say hello in person or online.', [ { h2: 'Upcoming', body: '[PLACEHOLDER: real events only]. Nothing scheduled right now — subscribe to hear about the next one.' } ], 'Meet the team', 'Book a demo and we’ll tell you where we’ll be.'),
+  page('company/legal', 'C', 'Connect · Legal', 'Legal & privacy.', 'Legal & Privacy | Mimic by TalbotIQ', 'Privacy notice, terms of service, DPA and sub-processor list for Mimic and TalbotIQ.', 'The documents your legal team needs, in one place. This page links documents; it is not legal advice.', [ { h2: 'Documents', body: '[PLACEHOLDER: links to the real Privacy Notice, Terms of Service, DPA and sub-processor list].' }, { h2: 'Data requests', body: 'Access, correction and deletion requests are handled per GDPR and India’s DPDP Act. [PLACEHOLDER: privacy/DPO contact].' } ], 'Questions for legal?', 'We’ll connect you with the right person.'),
+]
+
+export const PAGES: MktPage[] = [...HUBS, ...SOLUTION_PAGES, ...SOLUTION_BRIEFS, ...TRUST_PAGES, ...RESOURCE_PAGES, ...COMPANY_PAGES]
 export const PAGE_BY_SLUG: Record<string, MktPage> = Object.fromEntries(PAGES.map((p) => [p.slug, p]))
 export { DEMO }
