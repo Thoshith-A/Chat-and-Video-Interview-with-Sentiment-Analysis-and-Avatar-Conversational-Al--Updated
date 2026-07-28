@@ -5,7 +5,8 @@ export default {
     extend: {
       colors: {
         // ── Fortune 500 TalbotIQ palette ──────────────────────────────
-        primary:   { DEFAULT: '#0d5c3a', 50: '#f0faf5', 100: '#dcf5e8', 200: '#b3e9cd', 300: '#7dd3a8', 400: '#4bb87f', 500: '#2a9e65', 600: '#1a8050', 700: '#0d5c3a', 800: '#0a4a2e', 900: '#073522' },
+        // ── Mimic violet brand (recruiter workspace) ──────────────────
+        primary:   { DEFAULT: '#6B2BE0', 50: '#F8F5FE', 100: '#F0E9FD', 200: '#E0D4FB', 300: '#C9B3F7', 400: '#A985F2', 500: '#8B5CF0', 600: '#7A45EA', 700: '#6B2BE0', 800: '#4A1BA8', 900: '#2A1259' },
         accent:    { DEFAULT: '#d97706', light: '#fef3c7', pale: '#fffbeb' },
         neutral:   { 50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1', 400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155', 800: '#1e293b', 900: '#0f172a' },
         surface:   '#ffffff',
@@ -42,10 +43,10 @@ export default {
         },
       },
       fontFamily: {
-        sans:    ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Inter', 'system-ui', 'sans-serif'],
-        mono:    ['JetBrains Mono', 'Fira Code', 'monospace'],
-        head:    ['Inter', 'system-ui', 'sans-serif'],
+        sans:    ['Roboto', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['Figtree', 'Inter', 'system-ui', 'sans-serif'],
+        mono:    ['Roboto Mono', 'JetBrains Mono', 'monospace'],
+        head:    ['Figtree', 'Inter', 'system-ui', 'sans-serif'],
       },
       fontSize: {
         '2xs': ['0.625rem', { lineHeight: '1rem' }],
@@ -82,10 +83,10 @@ export default {
         lg:    '0 8px 24px -4px rgb(0 0 0 / 0.10), 0 4px 10px -4px rgb(0 0 0 / 0.06)',
         xl:    '0 16px 40px -8px rgb(0 0 0 / 0.12), 0 8px 16px -8px rgb(0 0 0 / 0.08)',
         inner: 'inset 0 2px 4px 0 rgb(0 0 0 / 0.06)',
-        'primary-sm': '0 2px 8px -2px rgb(13 92 58 / 0.3)',
-        'primary-md': '0 4px 16px -4px rgb(13 92 58 / 0.35)',
+        'primary-sm': '0 2px 8px -2px rgb(107 43 224 / 0.3)',
+        'primary-md': '0 4px 16px -4px rgb(107 43 224 / 0.35)',
       },
-      ringColor: { primary: '#0d5c3a' },
+      ringColor: { primary: '#6B2BE0' },
       zIndex: { '5': '5' },
       animation: {
         'fade-in':       'fadeIn 0.25s ease',
