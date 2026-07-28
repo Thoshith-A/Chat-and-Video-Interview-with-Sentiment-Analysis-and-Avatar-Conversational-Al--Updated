@@ -16,6 +16,7 @@ import { avatarRouter } from './routes/avatar'
 import { authRouter } from './routes/auth'
 import { faceCacheRouter } from './routes/faceCache'
 import { helpRouter } from './routes/help'
+import { leadsRouter } from './routes/leads'
 import { authenticate, requireRecruiter } from './middleware/auth'
 import { authConfigured } from './services/firebaseAdmin'
 import { attachVoiceWebSocket } from './services/voice'
@@ -43,6 +44,11 @@ app.get('/api/health', (_req, res) => {
 // is verified server-side (Admin SDK) and authorization is enforced on every
 // endpoint — client route guards are UX only.
 app.use('/api/auth', authRouter)
+
+// PUBLIC: Mimic marketing-site demo requests. Unauthenticated (visitors are
+// pre-login); stored server-side only (never Firestore), so no security-rule
+// change is needed. Additive — mounted alongside the other public routes.
+app.use('/api/leads', leadsRouter)
 
 // Recruiter-only surfaces: templates, question sets, settings, the voice
 // catalog, aggregate analytics, and all AI-Avatar-Screening proxies. Gated

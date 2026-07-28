@@ -18,6 +18,19 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = path.join(here, '..', 'data')
 const DATA_FILE = path.join(DATA_DIR, 'db.json')
 
+/** A demo-request lead captured from the public Mimic marketing site. Server-side
+ *  only (Express store) — deliberately NOT a Firestore collection, so the public
+ *  form never needs a Firestore security-rule change. */
+export interface MarketingLead {
+  id: string
+  firstName: string
+  lastName: string
+  email: string
+  hiresPerYear: string
+  source: string
+  createdAt: string
+}
+
 export interface AppSettings {
   geminiApiKey?: string
   geminiModel?: string
@@ -40,6 +53,7 @@ interface Snapshot {
   inviteEmailTemplates?: InviteEmailTemplate[]
   pipelines?: Pipeline[]
   pipelineCandidates?: PipelineCandidate[]
+  leads?: MarketingLead[]
 }
 
 /**
@@ -56,6 +70,7 @@ class Database {
   inviteEmailTemplates = new Map<string, InviteEmailTemplate>() // owned per recruiter
   pipelines = new Map<string, Pipeline>()                     // owned per recruiter
   pipelineCandidates = new Map<string, PipelineCandidate>()   // owned per recruiter
+  leads: MarketingLead[] = []                                 // public marketing demo requests
   settings: AppSettings = {}
 
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -72,6 +87,7 @@ class Database {
         snap.inviteEmailTemplates?.forEach((t) => this.inviteEmailTemplates.set(t.id, t))
         snap.pipelines?.forEach((p) => this.pipelines.set(p.id, p))
         snap.pipelineCandidates?.forEach((c) => this.pipelineCandidates.set(c.id, c))
+        if (snap.leads) this.leads = snap.leads
         if (snap.settings) this.settings = snap.settings
       }
     } catch (err) {
@@ -105,6 +121,7 @@ class Database {
         inviteEmailTemplates: [...this.inviteEmailTemplates.values()],
         pipelines: [...this.pipelines.values()],
         pipelineCandidates: [...this.pipelineCandidates.values()],
+        leads: this.leads,
         settings: this.settings,
       }
       fs.writeFileSync(DATA_FILE, JSON.stringify(snap, null, 2))
