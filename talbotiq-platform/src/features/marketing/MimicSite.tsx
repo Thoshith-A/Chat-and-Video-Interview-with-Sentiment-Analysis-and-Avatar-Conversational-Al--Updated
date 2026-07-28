@@ -34,22 +34,23 @@ const STEPS = [
   { t: 'Score every answer', r: '/sessions/:id/report', b: 'One rubric, applied identically. Each dimension cites the answer it came from, with transcript and signal analysis.' },
   { t: 'Decide with a shortlist', r: '/pipelines/:id', b: 'Drag candidates through rounds, or auto-advance everyone above a threshold. Export the board when you are done.' },
 ]
-type ClientLogo = { name: string; srcs: string[] }
+type ClientLogo = { name: string; srcs: string[]; h?: number }
 // Real client logos. Save each file (any of these formats) under /public/mimic-logos/
 // and it renders automatically: total-it-global.(png|svg|jpg|webp), aisling.(…).
-// Until a file exists the marquee falls back to the brand name as text.
+// `h` overrides the row height per logo so square marks read at the same visual
+// size as wide wordmarks. Until a file exists the marquee falls back to text.
 const withExts = (base: string) => ['png', 'svg', 'jpg', 'jpeg', 'webp'].map((e) => `${base}.${e}`)
 const CLIENTS: ClientLogo[] = [
   { name: 'Total IT Global', srcs: withExts('/mimic-logos/total-it-global') },
-  { name: 'Aisling', srcs: withExts('/mimic-logos/aisling') },
+  { name: 'Aisling', srcs: withExts('/mimic-logos/aisling'), h: 52 },
   { name: 'TalbotIQ', srcs: ['/talbotiq-logo.png'] },
 ]
 // Repeated so the sliding row stays full; the marquee doubles this for a seamless loop.
 const LOGOS: ClientLogo[] = [...CLIENTS, ...CLIENTS, ...CLIENTS]
-function LogoSlot({ name, srcs }: ClientLogo) {
+function LogoSlot({ name, srcs, h }: ClientLogo) {
   const [i, setI] = useState(0)
   if (i >= srcs.length) return <span className="logo-slot">{name.toUpperCase()}</span>
-  return <span className="logo-slot"><img src={srcs[i]} alt={name} loading="lazy" onError={() => setI(i + 1)} /></span>
+  return <span className="logo-slot"><img src={srcs[i]} alt={name} loading="lazy" onError={() => setI(i + 1)} style={h ? { height: `${h}px`, maxWidth: 'none' } : undefined} /></span>
 }
 const HERO_PROOF = [
   { n: '1.3 days', l: 'Median time to shortlist' },
@@ -200,7 +201,7 @@ export default function MimicSite() {
         <section className="logos" aria-label="Customers">
           <div className="wrap">
             <h2>Talent teams screening at volume already run on Mimic.</h2>
-            <div className="marq" aria-hidden="true"><div className="marq-track">{LOGOS.concat(LOGOS).map((l, i) => <LogoSlot key={l.name + i} name={l.name} srcs={l.srcs} />)}</div></div>
+            <div className="marq" aria-hidden="true"><div className="marq-track">{LOGOS.concat(LOGOS).map((l, i) => <LogoSlot key={l.name + i} name={l.name} srcs={l.srcs} h={l.h} />)}</div></div>
           </div>
         </section>
 
