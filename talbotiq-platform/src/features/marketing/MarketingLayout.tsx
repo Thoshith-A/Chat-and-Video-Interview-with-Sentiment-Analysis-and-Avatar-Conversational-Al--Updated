@@ -77,7 +77,7 @@ export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: 
             ))}
           </nav>
           <div className="nav-right">
-            <Link className="signin" to="/mimic#demo">Sign in</Link>
+            <Link className="signin" to="/login">Sign in</Link>
             <Link className="btn btn-primary" to="/mimic#demo">Book a demo</Link>
             <button className="navtoggle" type="button" aria-label="Menu" aria-expanded={mobileOpen} onClick={() => setMobileOpen((o) => !o)}>Menu</button>
           </div>
@@ -115,6 +115,7 @@ export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: 
                 )}
               </div>
             ))}
+            <Link to="/login" style={{ display: 'block', padding: '12px 2px', fontWeight: 700, color: 'var(--m-ink)' }}>Sign in</Link>
             <Link className="btn btn-primary" to="/mimic#demo" style={{ marginTop: 12 }}>Book a demo</Link>
           </div>
         )}
