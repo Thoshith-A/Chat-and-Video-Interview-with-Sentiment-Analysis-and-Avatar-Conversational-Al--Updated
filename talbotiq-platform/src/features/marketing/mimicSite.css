@@ -227,3 +227,39 @@
   .mimic-site .section,.mimic-site .process,.mimic-site .cta-in{padding-top:56px;padding-bottom:56px}
   .mimic-site .proof{gap:22px}
 }
+
+/* ── Mega-menu extras + inner marketing pages ────────────────────────────── */
+.mimic-site .navlinks>button{display:inline-flex;align-items:center;gap:4px}
+.mimic-site .navlinks>button.is-active{color:var(--m-ink);background:var(--m-soft)}
+.mimic-site .navlinks>button .caret{width:11px;height:11px;opacity:.55;transition:transform .18s}
+.mimic-site .navlinks>button[aria-expanded="true"] .caret{transform:rotate(180deg)}
+.mimic-site .mmenu{border-top:1px solid var(--m-line);background:#fff;padding:8px 20px 18px;max-height:72vh;overflow:auto}
+.mimic-site .macc>button{width:100%;display:flex;justify-content:space-between;align-items:center;background:none;border:0;border-bottom:1px solid var(--m-line);padding:13px 2px;font-family:var(--m-body);font-size:15px;font-weight:700;color:var(--m-ink);cursor:pointer}
+.mimic-site .macc-body{padding:4px 0 10px}
+.mimic-site .macc-body h5{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--m-muted);margin:12px 0 4px;font-family:var(--m-body);font-weight:700}
+.mimic-site .macc-body a{display:block;padding:7px 2px;color:var(--m-ink2);font-size:14px}
+.mimic-site .macc-body a:hover{color:var(--m-violet)}
+
+.mimic-site .mkpage{min-height:60vh}
+.mimic-site .crumbs{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--m-muted);padding:24px 0 0;flex-wrap:wrap}
+.mimic-site .crumbs a{color:var(--m-muted)}
+.mimic-site .crumbs a:hover{color:var(--m-violet)}
+.mimic-site .crumbs span{opacity:.5}
+.mimic-site .mk-hero{padding:22px 0 38px;border-bottom:1px solid var(--m-line);max-width:840px;animation:m-rise .4s ease both}
+.mimic-site .mk-hero h1{font-size:clamp(2rem,4.4vw,3rem);line-height:1.05;letter-spacing:-.035em;font-weight:800;margin-top:14px;text-wrap:balance}
+.mimic-site .hub-cols{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;padding:44px 0 10px}
+.mimic-site .hub-col h2{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--m-muted);font-family:var(--m-body);font-weight:700;margin-bottom:12px}
+.mimic-site .hub-col ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.mimic-site .hub-col a{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;font-weight:600;color:var(--m-ink);border:1px solid transparent;transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+.mimic-site .hub-col a:hover{background:#fff;border-color:var(--m-line);color:var(--m-violet);box-shadow:0 8px 24px -14px rgba(27,11,59,.4)}
+.mimic-site .hub-col a span{opacity:.35;transition:opacity .15s,transform .15s}
+.mimic-site .hub-col a:hover span{opacity:1;transform:translateX(3px)}
+.mimic-site .mk-body{max-width:760px;padding:40px 0}
+.mimic-site .mk-sec{margin-bottom:34px;animation:m-rise .4s ease both}
+.mimic-site .mk-sec h2{font-size:23px;letter-spacing:-.02em;font-weight:800;margin-bottom:10px}
+.mimic-site .mk-sec p{font-size:16px;line-height:1.65;color:var(--m-ink2)}
+.mimic-site .mk-bullets{margin:16px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.mimic-site .mk-bullets li{position:relative;padding-left:26px;color:var(--m-ink);font-size:15px;line-height:1.5}
+.mimic-site .mk-bullets li::before{content:"";position:absolute;left:0;top:3px;width:15px;height:15px;border-radius:5px;background:var(--m-soft);box-shadow:inset 0 0 0 1.5px var(--m-violet)}
+.mimic-site .mk-faq{max-width:820px;padding:12px 0 44px}
+@media (max-width:900px){.mimic-site .hub-cols{grid-template-columns:1fr;gap:14px}.mimic-site .cta-in{grid-template-columns:1fr!important}}

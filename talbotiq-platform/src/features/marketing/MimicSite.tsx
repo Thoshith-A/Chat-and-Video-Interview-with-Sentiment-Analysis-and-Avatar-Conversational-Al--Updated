@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './mimicSite.css'
+import { MarketingLayout } from './MarketingLayout'
 
 /* Mimic marketing site — a faithful React implementation of the Claude Design
  * doc (Mimic.dc.html). Public route (pre-login). All styling is scoped under
@@ -16,14 +17,6 @@ const Check = ({ color = 'currentColor', size = 20 }: { color?: string; size?: n
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
 )
 
-const MEGA: Record<string, { title: string; items: string[] }[]> = {
-  Platform: [{ title: 'Interview tracks', items: ['Conversational chat', 'Voice screening', 'AI video avatar', 'Live two-way call', 'Timed Q&A'] }, { title: 'Workflow', items: ['Bulk invitations', 'Interview templates', 'Question sets', 'Multi-round pipelines', 'Rubrics & scoring'] }, { title: 'Intelligence', items: ['Candidate reports', 'Recruiter analytics', 'Signal analysis', 'Mimic Guide assistant'] }],
-  Solutions: [{ title: 'By team', items: ['High-volume hiring', 'Technical hiring', 'Campus & early careers', 'Staffing agencies'] }, { title: 'By industry', items: ['Financial services', 'Healthcare', 'Retail & hospitality', 'Public sector'] }, { title: 'For candidates', items: ['Student practice mode', 'Interview readiness', 'Accessibility'] }],
-  Trust: [{ title: 'Responsible AI', items: ['How Mimic scores', 'Bias testing', 'Human-in-the-loop', 'Model transparency'] }, { title: 'Security', items: ['Data residency', 'Retention & purge', 'Access control', 'Status'] }, { title: 'Governance', items: ['Audit logs', 'Role-based access', 'Recording consent'] }],
-  Resources: [{ title: 'Learn', items: ['Screening playbooks', 'Benchmark report', 'Webinars', 'Product docs'] }, { title: 'Compare', items: ['Mimic vs. phone screens', 'ROI calculator', "Buyer's guide"] }, { title: 'Community', items: ['Customer stories', 'Release notes', 'Support'] }],
-  Company: [{ title: 'About', items: ['TalbotIQ', 'Leadership', 'Careers', 'Newsroom'] }, { title: 'Connect', items: ['Partners', 'Contact sales', 'Press kit'] }, { title: 'Legal', items: ['Privacy notice', 'Terms', 'Sub-processors'] }],
-}
-const MEGA_KEYS = Object.keys(MEGA)
 
 const TRACKS = [
   { name: 'Conversational chat', tag: 'Async', desc: 'A text interview candidates finish on a phone in minutes. Best for hourly and high-volume reqs.', meta: ['No scheduling', 'Mobile-first'], bg: '#F0E9FD', dot: '#6B2BE0' },
@@ -88,18 +81,12 @@ type FormState = { firstName: string; lastName: string; email: string; hiresPerY
 const EMPTY: FormState = { firstName: '', lastName: '', email: '', hiresPerYear: '' }
 
 export default function MimicSite() {
-  const [showBanner, setShowBanner] = useState(true)
-  const [mega, setMega] = useState<string | null>(null)
-  const [mobileOpen, setMobileOpen] = useState(false)
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormState>(EMPTY)
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, boolean>>>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [formError, setFormError] = useState('')
-  const hideTimer = useRef<number | null>(null)
-
-  useEffect(() => () => { if (hideTimer.current) window.clearTimeout(hideTimer.current) }, [])
 
   // Per-route SEO head. A single-page app shares one <head>, so set the marketing
   // page's own title/meta/OG/canonical + JSON-LD on mount and restore on unmount.
@@ -132,8 +119,6 @@ export default function MimicSite() {
     return () => { document.title = prevTitle; added.forEach((el) => el.remove()) }
   }, [])
 
-  const openMega = (k: string) => { if (hideTimer.current) window.clearTimeout(hideTimer.current); setMega(k) }
-  const scheduleClose = () => { hideTimer.current = window.setTimeout(() => setMega(null), 180) }
 
   const valid = (k: keyof FormState, v: string) =>
     k === 'email' ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) : v.trim().length > 0
@@ -164,46 +149,8 @@ export default function MimicSite() {
   }
 
   return (
-    <div className="mimic-site">
-      {showBanner && (
-        <div className="banner" role="region" aria-label="Announcement">
-          <span>Mimic interviews every applicant the day they apply — no scheduling, no queue. <a href="#demo">See it live →</a></span>
-          <button type="button" aria-label="Dismiss announcement" onClick={() => setShowBanner(false)}>×</button>
-        </div>
-      )}
-
-      <header className="nav" id="top">
-        <div className="wrap nav-in">
-          <a className="brand" href="#top" aria-label="Mimic by TalbotIQ — home"><span className="mk"><Mark /></span>Mimic</a>
-          <nav className="navlinks" aria-label="Primary" onMouseLeave={scheduleClose}>
-            {MEGA_KEYS.map((k) => (
-              <button key={k} type="button" aria-expanded={mega === k} onMouseEnter={() => openMega(k)} onFocus={() => openMega(k)} onClick={() => setMega(mega === k ? null : k)}>{k}</button>
-            ))}
-          </nav>
-          <div className="nav-right">
-            <a className="signin" href="#demo">Sign in</a>
-            <a className="btn btn-primary" href="#demo">Book a demo</a>
-            <button className="navtoggle" type="button" aria-label="Open menu" aria-expanded={mobileOpen} onClick={() => setMobileOpen((o) => !o)}>Menu</button>
-          </div>
-        </div>
-        {mega && (
-          <div className="mega open" onMouseEnter={() => openMega(mega)} onMouseLeave={scheduleClose}>
-            <div className="wrap mega-in">
-              {MEGA[mega].map((col) => (
-                <div key={col.title}><h4>{col.title}</h4><ul>{col.items.map((it) => <li key={it}><a href="#demo">{it}</a></li>)}</ul></div>
-              ))}
-            </div>
-          </div>
-        )}
-        {mobileOpen && (
-          <div style={{ borderTop: '1px solid var(--m-line)', background: '#fff', padding: '14px 20px' }}>
-            {['Platform', 'Trust', 'FAQ'].map((l) => <a key={l} href={`#${l.toLowerCase()}`} onClick={() => setMobileOpen(false)} style={{ display: 'block', padding: '10px 0', fontWeight: 600, color: 'var(--m-ink)' }}>{l}</a>)}
-            <a className="btn btn-primary" href="#demo" onClick={() => setMobileOpen(false)} style={{ marginTop: 8 }}>Book a demo</a>
-          </div>
-        )}
-      </header>
-
-      <main>
+    <MarketingLayout>
+      <main id="top">
         {/* HERO */}
         <section className="hero" aria-labelledby="hero-h1">
           <div className="wrap hero-in">
@@ -405,19 +352,6 @@ export default function MimicSite() {
           </div>
         </section>
       </main>
-
-      <footer className="foot">
-        <div className="wrap">
-          <div className="foot-grid">
-            <div className="foot-brand"><span className="brand" style={{ color: '#fff' }}><span className="mk"><Mark /></span>Mimic</span><p>AI interviews for every candidate. A TalbotIQ product.</p></div>
-            <div><h4>Platform</h4><ul>{['Interview tracks', 'Templates', 'Question sets', 'Pipelines', 'Analytics', 'Avatar studio'].map((i) => <li key={i}><a href="#platform">{i}</a></li>)}</ul></div>
-            <div><h4>Solutions</h4><ul>{['High-volume hiring', 'Technical hiring', 'Campus & students', 'Staffing agencies', 'Public sector'].map((i) => <li key={i}><a href="#demo">{i}</a></li>)}</ul></div>
-            <div><h4>Trust</h4><ul>{['Responsible AI', 'Bias audit results', 'Security & compliance', 'Data residency'].map((i) => <li key={i}><a href="#trust">{i}</a></li>)}</ul></div>
-            <div><h4>Company</h4><ul>{['About TalbotIQ', 'Careers', 'Newsroom', 'Contact sales'].map((i) => <li key={i}><a href="#demo">{i}</a></li>)}</ul></div>
-          </div>
-          <div className="foot-bottom"><span>© 2026 TalbotIQ. Mimic is a product of TalbotIQ.</span><span><a href="#demo" style={{ color: 'rgba(255,255,255,.7)' }}>Privacy</a> · <a href="#demo" style={{ color: 'rgba(255,255,255,.7)' }}>Terms</a> · <a href="#demo" style={{ color: 'rgba(255,255,255,.7)' }}>Sub-processors</a></span></div>
-        </div>
-      </footer>
-    </div>
+    </MarketingLayout>
   )
 }

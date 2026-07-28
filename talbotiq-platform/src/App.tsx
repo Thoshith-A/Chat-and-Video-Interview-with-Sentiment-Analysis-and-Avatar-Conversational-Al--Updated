@@ -10,6 +10,7 @@ import LoginPage from '@/features/auth/LoginPage'
 import AccessDenied from '@/features/auth/AccessDenied'
 import CandidateHome from '@/features/candidate/CandidateHome'
 import MimicSite from '@/features/marketing/MimicSite'
+import MarketingPage from '@/features/marketing/MarketingPage'
 import SetupPage from '@/pages/SetupPage'
 import AvatarScreeningGate from '@/features/avatar-screening/AvatarScreeningGate'
 import ResultsPage from '@/pages/ResultsPage'
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="/access-denied" element={<AccessDenied />} />
             {/* Public marketing site (pre-login). Additive; existing routes/auth untouched. */}
             <Route path="/mimic" element={<MimicSite />} />
+            <Route path="/mimic/*" element={<MarketingPage />} />
 
             {/* Candidate-only — assigned-session list + the interview itself */}
             <Route element={<RequireCandidate />}>
