@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './mimicSite.css'
 import { MarketingLayout } from './MarketingLayout'
+import { CountUp } from './motion'
 
 /* Mimic marketing site — a faithful React implementation of the Claude Design
  * doc (Mimic.dc.html). Public route (pre-login). All styling is scoped under
@@ -163,7 +164,7 @@ export default function MimicSite() {
                 <a className="btn btn-outline-l" href="#how">See how scoring works</a>
               </div>
               <div className="proof">
-                {HERO_PROOF.map((p) => (<div key={p.l}><div className="n">{p.n}</div><div className="l">{p.l}</div></div>))}
+                {HERO_PROOF.map((p) => (<div key={p.l}><div className="n"><CountUp value={p.n} /></div><div className="l">{p.l}</div></div>))}
               </div>
             </div>
             <div className="card-float" role="img" aria-label="Sample Mimic sessions workspace showing scored candidates">
@@ -196,7 +197,7 @@ export default function MimicSite() {
               <p className="lede">Applications arrive around the clock. Mimic interviews them as they land and hands your team a ranked, evidence-backed shortlist — not a queue.</p>
             </div>
             <div className="grid4">
-              {OUTCOMES.map((o) => (<div className="ocell" key={o.t}><div className="n">{o.n}</div><div className="t">{o.t}</div><div className="d">{o.d}</div></div>))}
+              {OUTCOMES.map((o) => (<div className="ocell" key={o.t}><div className="n"><CountUp value={o.n} /></div><div className="t">{o.t}</div><div className="d">{o.d}</div></div>))}
             </div>
           </div>
         </section>

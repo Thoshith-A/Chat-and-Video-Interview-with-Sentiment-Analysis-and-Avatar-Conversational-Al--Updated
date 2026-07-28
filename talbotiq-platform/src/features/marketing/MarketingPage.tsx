@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { MarketingLayout } from './MarketingLayout'
 import { NAV, PAGE_BY_SLUG, type MktPage } from './content'
+import { Reveal, CountUp } from './motion'
 
 function Jsonld({ page }: { page: MktPage }) {
   const graph: unknown[] = [
@@ -66,23 +67,33 @@ export default function MarketingPage() {
             </div>
           </header>
 
+          {page.tier !== 'hub' && (
+            <Reveal delay={60}>
+              <div className="mk-proof">
+                {[['1.3 days', 'Median time to shortlist'], ['62%', 'Recruiter hours returned'], ['340k', 'Interviews scored']].map(([v, l]) => (
+                  <div className="cell" key={l}><div className="n"><CountUp value={v} /></div><div className="l">{l}</div></div>
+                ))}
+              </div>
+            </Reveal>
+          )}
+
           {page.tier === 'hub' && group ? (
             <div className="hub-cols">
-              {group.columns.map((col) => (
-                <section key={col.title} className="hub-col">
+              {group.columns.map((col, i) => (
+                <Reveal key={col.title} as="section" className="hub-col" delay={i * 90}>
                   <h2>{col.title}</h2>
                   <ul>{col.links.map((l) => <li key={l.label}><Link to={l.to}>{l.label}<span aria-hidden="true">→</span></Link></li>)}</ul>
-                </section>
+                </Reveal>
               ))}
             </div>
           ) : (
             <div className="mk-body">
-              {page.sections.map((s) => (
-                <section key={s.h2} className="mk-sec">
+              {page.sections.map((s, i) => (
+                <Reveal key={s.h2} as="section" className="mk-sec" delay={i * 80}>
                   <h2>{s.h2}</h2>
                   <p>{s.body}</p>
                   {s.bullets && <ul className="mk-bullets">{s.bullets.map((b) => <li key={b}>{b}</li>)}</ul>}
-                </section>
+                </Reveal>
               ))}
             </div>
           )}
