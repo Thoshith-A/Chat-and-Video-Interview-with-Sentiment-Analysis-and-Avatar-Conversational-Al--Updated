@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { MarketingLayout } from './MarketingLayout'
 import { NAV, PAGE_BY_SLUG, type MktPage } from './content'
 import { Reveal, CountUp } from './motion'
+import { RoiCalculator } from './RoiCalculator'
 
 function Jsonld({ page }: { page: MktPage }) {
   const graph: unknown[] = [
@@ -88,6 +89,7 @@ export default function MarketingPage() {
             </div>
           ) : (
             <div className="mk-body">
+              {page.slug === 'resources/roi-calculator' && <Reveal><RoiCalculator /></Reveal>}
               {page.sections.map((s, i) => (
                 <Reveal key={s.h2} as="section" className="mk-sec" delay={i * 80}>
                   <h2>{s.h2}</h2>
