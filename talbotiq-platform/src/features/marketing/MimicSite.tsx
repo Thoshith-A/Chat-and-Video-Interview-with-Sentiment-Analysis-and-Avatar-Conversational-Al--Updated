@@ -3,8 +3,9 @@ import './mimicSite.css'
 
 /* Mimic marketing site — a faithful React implementation of the Claude Design
  * doc (Mimic.dc.html). Public route (pre-login). All styling is scoped under
- * `.mimic-site`. Fabricated stats/logos/testimonials/certs are rendered as
- * visible [PLACEHOLDER] tokens per the build brief. */
+ * `.mimic-site`. Content + figures match the design doc verbatim (per the
+ * user's request); the sample stats/logos/testimonial are illustrative and
+ * to be replaced with real data before public launch. */
 
 const Mark = ({ stroke = '#fff' }: { stroke?: string }) => (
   <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -39,7 +40,34 @@ const STEPS = [
   { t: 'Score every answer', r: '/sessions/:id/report', b: 'One rubric, applied identically. Each dimension cites the answer it came from, with transcript and signal analysis.' },
   { t: 'Decide with a shortlist', r: '/pipelines/:id', b: 'Drag candidates through rounds, or auto-advance everyone above a threshold. Export the board when you are done.' },
 ]
-const LOGOS = ['NORTHBRIDGE', 'AXIOM HEALTH', 'MERIDIAN', 'VOLTARA', 'KESTREL', 'STRATOS', 'ORIEL GROUP', 'HANSEN']
+const LOGOS = ['NORTHBRIDGE', 'AXIOM HEALTH', 'MERIDIAN', 'VOLTARA', 'KESTREL LOGISTICS', 'STRATOS', 'ORIEL GROUP', 'HANSEN RETAIL']
+const HERO_PROOF = [
+  { n: '1.3 days', l: 'Median time to shortlist' },
+  { n: '62%', l: 'Recruiter hours returned' },
+  { n: '340k', l: 'Interviews scored' },
+]
+const OUTCOMES = [
+  { n: '33%', t: 'Faster time-to-fill', d: 'Screening runs the night applications land, not the week after.' },
+  { n: '500+', t: 'Candidates per req, interviewed', d: 'Volume stops being a staffing question.' },
+  { n: '100%', t: 'Answers scored against one rubric', d: 'Every candidate measured the same way, evidence attached.' },
+  { n: '4 min', t: 'To configure a new round', d: 'Template, question set, invite list, send.' },
+]
+const STORY_STATS = [
+  { n: '8,400', l: 'Applicants screened in one quarter' },
+  { n: '-71%', l: 'Recruiter hours per hire' },
+  { n: '4.6/5', l: 'Candidate experience rating' },
+]
+const TRUST = [
+  { tag: 'Independently audited', t: 'Bias testing you can read', d: 'Adverse-impact testing is run by a third party and the results are published, not summarised. Every rubric dimension is reported separately.' },
+  { tag: 'Human-in-the-loop', t: 'Mimic never rejects anyone', d: 'Scores are recommendations with evidence attached. Advancing, rejecting and overriding are recruiter actions, and every one is logged.' },
+  { tag: 'Enterprise controls', t: 'Your data stays yours', d: 'Regional residency, configurable retention, GDPR purge on request, SSO and role-based access. Candidate data is never used to train models.' },
+]
+const BADGES = ['SOC 2 Type II', 'ISO 27001', 'ISO 42001', 'GDPR ready', 'WCAG 2.2 AA', 'EEOC-aligned']
+const RESOURCES = [
+  { kind: 'Benchmark report', t: 'What 340,000 scored interviews say about screening accuracy', bg: 'linear-gradient(140deg,#2A1259,#6B2BE0)' },
+  { kind: 'Playbook', t: 'Designing a rubric your hiring managers will actually trust', bg: 'linear-gradient(140deg,#6B2BE0,#C42C93)' },
+  { kind: "Buyer's guide", t: 'Twelve questions to ask any AI interview vendor', bg: 'linear-gradient(140deg,#38206B,#C42C93)' },
+]
 const HERO_ROWS = [
   { in: 'AR', name: 'Amara Reyes', tag: 'AI avatar · Scored', sc: '92', bg: '#F0E9FD', fg: '#6B2BE0', pc: '#0F7A66', pb: '#E6F7F2', scC: '#0F7A66' },
   { in: 'JT', name: 'Jonas Thiel', tag: 'Two-way · Scored', sc: '88', bg: '#E6F7F2', fg: '#0F7A66', pc: '#0F7A66', pb: '#E6F7F2', scC: '#0F7A66' },
@@ -49,11 +77,11 @@ const HERO_ROWS = [
 ]
 const FAQS = [
   { q: 'Does Mimic reject candidates automatically?', a: 'No. Every score is a recommendation with the evidence behind it. Advancing, rejecting and overriding are recruiter actions, and every one is logged. Mimic never rejects anyone on its own.' },
-  { q: 'How do you keep scoring fair?', a: 'Every candidate is measured against one rubric, and each dimension cites the exact answer it came from. Adverse-impact testing is reported per dimension, and a human makes every decision.' },
-  { q: 'How long does it take to go live?', a: "You can build a reusable interview template in minutes and send your first invitations the same day. Full rollout depends on your ATS and volume — we'll scope it in the demo.", ph: 'typical onboarding timeline' },
-  { q: 'Does Mimic work with our ATS?', a: "Invite candidates from a CSV, an ATS export, or a single shareable link. Named integrations are available. Tell us your stack and we'll confirm.", ph: 'supported ATS integrations' },
-  { q: 'Is candidate data secure and compliant?', a: 'Mimic supports regional data residency, configurable retention, GDPR purge on request, SSO and role-based access. Candidate data is never used to train models.', ph: 'certifications held' },
-  { q: 'What does Mimic cost?', a: "Mimic is priced for enterprise hiring by volume. Book a demo and we'll scope pricing to your req load.", ph: 'pricing model / starting point' },
+  { q: 'How do you keep scoring fair?', a: 'Every candidate is measured against one rubric, and each dimension cites the exact answer it came from. Adverse-impact testing is run by a third party and reported per dimension, and a human makes every decision.' },
+  { q: 'How long does it take to go live?', a: 'You can build a reusable interview template in minutes and send your first invitations the same day. Most teams are running a live round within a week; larger rollouts scale from there.' },
+  { q: 'Does Mimic work with our ATS?', a: 'Invite candidates from a CSV, an ATS export, or a single shareable link — so you can start today with no integration. Direct ATS connectors are available for enterprise plans; tell us your stack in the demo.' },
+  { q: 'Is candidate data secure and compliant?', a: 'Mimic supports regional data residency, configurable retention, GDPR purge on request, SSO and role-based access, and is SOC 2 Type II and ISO 27001 aligned. Candidate data is never used to train models.' },
+  { q: 'What does Mimic cost?', a: "Mimic is priced for enterprise hiring by volume — you pay for interview capacity, not per seat. Book a demo and we'll scope pricing to your req load." },
 ]
 
 type FormState = { firstName: string; lastName: string; email: string; hiresPerYear: string }
@@ -188,9 +216,7 @@ export default function MimicSite() {
                 <a className="btn btn-outline-l" href="#how">See how scoring works</a>
               </div>
               <div className="proof">
-                <div><div className="n"><span className="ph">[PLACEHOLDER: median time-to-shortlist]</span></div><div className="l">Median time to shortlist</div></div>
-                <div><div className="n"><span className="ph">[PLACEHOLDER: recruiter hours returned]</span></div><div className="l">Recruiter hours returned</div></div>
-                <div><div className="n"><span className="ph">[PLACEHOLDER: interviews scored]</span></div><div className="l">Interviews scored</div></div>
+                {HERO_PROOF.map((p) => (<div key={p.l}><div className="n">{p.n}</div><div className="l">{p.l}</div></div>))}
               </div>
             </div>
             <div className="card-float" role="img" aria-label="Sample Mimic sessions workspace showing scored candidates">
@@ -209,9 +235,8 @@ export default function MimicSite() {
         {/* LOGOS */}
         <section className="logos" aria-label="Customers">
           <div className="wrap">
-            <h2>Built for talent teams screening at volume</h2>
+            <h2>Talent teams screening at volume already run on Mimic.</h2>
             <div className="marq" aria-hidden="true"><div className="marq-track">{LOGOS.concat(LOGOS).map((l, i) => <span className="logo-slot" key={l + i}>{l}</span>)}</div></div>
-            <p className="center" style={{ marginTop: 18, fontSize: '12.5px', color: 'var(--m-muted)' }}><span className="ph">[PLACEHOLDER: real customer logos]</span></p>
           </div>
         </section>
 
@@ -224,10 +249,7 @@ export default function MimicSite() {
               <p className="lede">Applications arrive around the clock. Mimic interviews them as they land and hands your team a ranked, evidence-backed shortlist — not a queue.</p>
             </div>
             <div className="grid4">
-              <div className="ocell"><div className="n"><span className="ph">[PH: %]</span></div><div className="t">Faster time-to-fill</div><div className="d">Screening runs the night applications land, not the week after.</div></div>
-              <div className="ocell"><div className="n"><span className="ph">[PH: n]</span></div><div className="t">Candidates per req, interviewed</div><div className="d">Volume stops being a staffing question.</div></div>
-              <div className="ocell"><div className="n">1</div><div className="t">Rubric across every track</div><div className="d">Every candidate measured the same way, with evidence attached.</div></div>
-              <div className="ocell"><div className="n"><span className="ph">[PH: min]</span></div><div className="t">To configure a new round</div><div className="d">Template, question set, invite list, send.</div></div>
+              {OUTCOMES.map((o) => (<div className="ocell" key={o.t}><div className="n">{o.n}</div><div className="t">{o.t}</div><div className="d">{o.d}</div></div>))}
             </div>
           </div>
         </section>
@@ -302,13 +324,11 @@ export default function MimicSite() {
         <section className="section" aria-label="Customer story">
           <div className="wrap quote-grid">
             <div>
-              <blockquote><span className="ph">[PLACEHOLDER: customer testimonial quote — the outcome in the customer's own words]</span></blockquote>
-              <div className="byline"><span className="ph-photo">photo</span><div><div style={{ fontSize: 14, fontWeight: 700 }}><span className="ph">[PLACEHOLDER: name]</span></div><div style={{ fontSize: '12.5px', color: 'var(--m-ink2)', fontWeight: 500 }}><span className="ph">[PLACEHOLDER: title, company]</span></div></div></div>
+              <blockquote>“We were losing good people to a two-week screening queue. Now every applicant is interviewed the same day and my team reads five reports instead of ninety.”</blockquote>
+              <div className="byline"><span className="ph-photo">photo</span><div><div style={{ fontSize: 14, fontWeight: 700 }}>Dana Whitfield</div><div style={{ fontSize: '12.5px', color: 'var(--m-ink2)', fontWeight: 500 }}>VP Talent Acquisition, Meridian Health</div></div></div>
             </div>
             <div className="story">
-              <div className="row"><span className="n"><span className="ph">[PH]</span></span><span className="l">Applicants screened in one quarter</span></div>
-              <div className="row"><span className="n"><span className="ph">[PH]</span></span><span className="l">Recruiter hours per hire</span></div>
-              <div className="row"><span className="n"><span className="ph">[PH]</span></span><span className="l">Candidate experience rating</span></div>
+              {STORY_STATS.map((s) => (<div className="row" key={s.l}><span className="n">{s.n}</span><span className="l">{s.l}</span></div>))}
             </div>
           </div>
         </section>
@@ -318,11 +338,9 @@ export default function MimicSite() {
           <div className="wrap">
             <h2 className="h2" id="trust-h" style={{ maxWidth: '20ch' }}>Everyone claims responsible AI. Ours is auditable.</h2>
             <div className="trust-grid">
-              <div className="tcard"><div className="tag">Independently audited</div><h3>Bias testing you can read</h3><p>Adverse-impact testing is reported per rubric dimension, not summarised. <span className="ph">[PLACEHOLDER: confirm third-party auditor & published results]</span></p></div>
-              <div className="tcard"><div className="tag">Human-in-the-loop</div><h3>Mimic never rejects anyone</h3><p>Scores are recommendations with evidence attached. Advancing, rejecting and overriding are recruiter actions — and every one is logged.</p></div>
-              <div className="tcard"><div className="tag">Enterprise controls</div><h3>Your data stays yours</h3><p>Regional residency, configurable retention, GDPR purge on request, SSO and role-based access. Candidate data is never used to train models.</p></div>
+              {TRUST.map((t) => (<div className="tcard" key={t.t}><div className="tag">{t.tag}</div><h3>{t.t}</h3><p>{t.d}</p></div>))}
             </div>
-            <div className="badges"><span style={{ fontSize: '12.5px', color: 'var(--m-muted)', fontWeight: 600, marginRight: 4 }}>Compliance:</span><span className="badge"><span className="ph">[PLACEHOLDER: certifications actually held — e.g. SOC 2, ISO 27001, GDPR]</span></span></div>
+            <div className="badges"><span style={{ fontSize: '12.5px', color: 'var(--m-muted)', fontWeight: 600, marginRight: 4 }}>Compliance:</span>{BADGES.map((b) => (<span className="badge" key={b}>{b}</span>))}</div>
           </div>
         </section>
 
@@ -334,9 +352,7 @@ export default function MimicSite() {
               <a href="#demo" style={{ fontSize: '13.5px', fontWeight: 700 }}>Talk to our team →</a>
             </div>
             <div className="res-grid">
-              <a className="rcard" href="#demo" style={{ background: 'linear-gradient(140deg,#2A1259,#6B2BE0)' }}><span className="kind">Benchmark report</span><h3>What large-scale screening reveals about accuracy <span className="ph">[PH: figures]</span></h3></a>
-              <a className="rcard" href="#demo" style={{ background: 'linear-gradient(140deg,#6B2BE0,#C42C93)' }}><span className="kind">Playbook</span><h3>Designing a rubric your hiring managers will actually trust</h3></a>
-              <a className="rcard" href="#demo" style={{ background: 'linear-gradient(140deg,#38206B,#C42C93)' }}><span className="kind">Buyer's guide</span><h3>Twelve questions to ask any AI interview vendor</h3></a>
+              {RESOURCES.map((r) => (<a className="rcard" href="#demo" key={r.t} style={{ background: r.bg }}><span className="kind">{r.kind}</span><h3>{r.t}</h3></a>))}
             </div>
           </div>
         </section>
@@ -349,7 +365,7 @@ export default function MimicSite() {
               {FAQS.map((f, i) => (
                 <details key={f.q} open={i === 0}>
                   <summary>{f.q}</summary>
-                  <p>{f.a}{f.ph && <> <span className="ph">[PLACEHOLDER: {f.ph}]</span></>}</p>
+                  <p>{f.a}</p>
                 </details>
               ))}
             </div>
@@ -383,7 +399,7 @@ export default function MimicSite() {
                 <div className={`field full${errors.hiresPerYear ? ' bad' : ''}`}><label htmlFor="hy">Hires per year</label><input id="hy" inputMode="numeric" placeholder="e.g. 500–2,000" value={form.hiresPerYear} aria-invalid={!!errors.hiresPerYear} onChange={(e) => setField('hiresPerYear', e.target.value)} onBlur={(e) => setErrors((x) => ({ ...x, hiresPerYear: !valid('hiresPerYear', e.target.value) }))} /><span className="err">Roughly how many people do you hire a year?</span></div>
                 <div className="submit"><button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Book a demo'}</button></div>
                 {formError && <p className="err" style={{ display: 'block', gridColumn: '1 / -1', textAlign: 'center' }}>{formError}</p>}
-                <p className="form-note">By submitting you agree to be contacted about Mimic. <span className="ph">[PLACEHOLDER: privacy link]</span></p>
+                <p className="form-note">By submitting you agree to be contacted about Mimic. <a href="#trust">Privacy</a>.</p>
               </form>
             )}
           </div>

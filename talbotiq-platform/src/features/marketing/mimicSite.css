@@ -14,7 +14,8 @@
   line-height:1.55; -webkit-font-smoothing:antialiased; min-height:100vh;
 }
 .mimic-site *{box-sizing:border-box}
-.mimic-site h1,.mimic-site h2,.mimic-site h3,.mimic-site h4,.mimic-site blockquote{font-family:var(--m-sans);margin:0}
+.mimic-site h1,.mimic-site h2,.mimic-site h3,.mimic-site h4,.mimic-site h5,.mimic-site h6,.mimic-site blockquote{font-family:var(--m-sans);margin:0;color:inherit}
+.mimic-site{color:var(--m-ink)}
 .mimic-site a{color:var(--m-violet);text-decoration:none}
 .mimic-site a:hover{color:var(--m-violet-d)}
 .mimic-site img{max-width:100%}
