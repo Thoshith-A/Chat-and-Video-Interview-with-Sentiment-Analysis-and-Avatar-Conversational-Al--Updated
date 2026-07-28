@@ -34,7 +34,20 @@ const STEPS = [
   { t: 'Score every answer', r: '/sessions/:id/report', b: 'One rubric, applied identically. Each dimension cites the answer it came from, with transcript and signal analysis.' },
   { t: 'Decide with a shortlist', r: '/pipelines/:id', b: 'Drag candidates through rounds, or auto-advance everyone above a threshold. Export the board when you are done.' },
 ]
-const LOGOS = ['NORTHBRIDGE', 'AXIOM HEALTH', 'MERIDIAN', 'VOLTARA', 'KESTREL LOGISTICS', 'STRATOS', 'ORIEL GROUP', 'HANSEN RETAIL']
+type ClientLogo = { name: string; img: string }
+// Real client logos. Drop PNG/SVGs at these public paths and they render as images;
+// until a file exists the marquee falls back to the brand name as text.
+const CLIENTS: ClientLogo[] = [
+  { name: 'Total IT Global', img: '/mimic-logos/total-it-global.png' },
+  { name: 'Aisling', img: '/mimic-logos/aisling.png' },
+  { name: 'TalbotIQ', img: '/talbotiq-logo.png' },
+]
+// Repeated so the sliding row stays full; the marquee doubles this for a seamless loop.
+const LOGOS: ClientLogo[] = [...CLIENTS, ...CLIENTS, ...CLIENTS]
+function LogoSlot({ name, img }: ClientLogo) {
+  const [err, setErr] = useState(false)
+  return <span className="logo-slot">{err ? name.toUpperCase() : <img src={img} alt={name} loading="lazy" onError={() => setErr(true)} />}</span>
+}
 const HERO_PROOF = [
   { n: '1.3 days', l: 'Median time to shortlist' },
   { n: '62%', l: 'Recruiter hours returned' },
@@ -184,7 +197,7 @@ export default function MimicSite() {
         <section className="logos" aria-label="Customers">
           <div className="wrap">
             <h2>Talent teams screening at volume already run on Mimic.</h2>
-            <div className="marq" aria-hidden="true"><div className="marq-track">{LOGOS.concat(LOGOS).map((l, i) => <span className="logo-slot" key={l + i}>{l}</span>)}</div></div>
+            <div className="marq" aria-hidden="true"><div className="marq-track">{LOGOS.concat(LOGOS).map((l, i) => <LogoSlot key={l.name + i} name={l.name} img={l.img} />)}</div></div>
           </div>
         </section>
 

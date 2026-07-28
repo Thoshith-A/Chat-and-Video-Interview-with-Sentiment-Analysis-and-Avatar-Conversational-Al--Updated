@@ -286,3 +286,6 @@
 .mimic-site .roi .res .n{font-family:var(--m-sans);font-size:34px;font-weight:800;letter-spacing:-.03em;color:#fff;font-variant-numeric:tabular-nums}
 .mimic-site .roi .res .l{font-size:12.5px;color:rgba(255,255,255,.6);margin-top:2px}
 @media (max-width:900px){.mimic-site .roi{grid-template-columns:1fr}}
+
+/* Client logo images in the marquee (fall back to brand-name text on load error) */
+.mimic-site .logo-slot img{height:34px;width:auto;max-width:190px;object-fit:contain;display:block}
