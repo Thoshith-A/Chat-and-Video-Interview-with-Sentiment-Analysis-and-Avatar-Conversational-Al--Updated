@@ -9,17 +9,18 @@ function initialsOf(label: string): string {
   return parts.map((p) => p[0]?.toUpperCase() ?? '').join('') || 'U'
 }
 
-// NOTE: /setup is intentionally NOT in the nav — the Conversational AI (video
-// avatar) setup page opens when the recruiter picks that mode on Sessions
-// (and /interview still redirects there when no session is configured).
+// Menu bar = the Mimic design's 7-tab standard (Sessions · Templates · Question
+// sets · Pipelines · Analytics · Avatar studio · Settings). In Mimic's IA,
+// candidate results live inside Sessions → View report, and the avatar interview
+// room launches from Avatar studio (/setup) — so /interview and /results stay
+// as working routes but are intentionally not top-level tabs.
 const LINKS = [
   { to: '/sessions',      label: 'Sessions' },
   { to: '/templates',     label: 'Templates' },
-  { to: '/question-sets', label: 'Question Sets' },
-  { to: '/interview',     label: 'Interview' },
-  { to: '/results',       label: 'Results' },
+  { to: '/question-sets', label: 'Question sets' },
   { to: '/pipelines',     label: 'Pipelines' },
   { to: '/analytics',     label: 'Analytics' },
+  { to: '/setup',         label: 'Avatar studio' },
   { to: '/settings',      label: 'Settings' },
 ]
 
