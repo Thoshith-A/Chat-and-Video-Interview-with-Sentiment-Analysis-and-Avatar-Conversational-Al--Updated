@@ -33,13 +33,18 @@ export function Nav() {
     <header className="sticky top-0 z-40 bg-white border-b border-[#dde8e0]" style={{ boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
       <div className="max-w-[1440px] mx-auto px-6 h-[60px] flex items-center justify-between gap-6">
 
-        {/* Brand — exact TalbotIQ logo PNG (public/talbotiq-logo.png) */}
+        {/* Brand — Mimic wordmark (product) */}
         <button
           onClick={() => navigate('/sessions')}
-          className="flex items-center focus:outline-none flex-shrink-0"
-          aria-label="TalbotIQ home"
+          className="flex items-center gap-2 focus:outline-none flex-shrink-0"
+          aria-label="Mimic home"
         >
-          <img src="/talbotiq-logo.png" alt="TalbotIQ" className="h-10 w-auto" />
+          <span className="grid place-items-center h-7 w-7 rounded-lg bg-primary">
+            <svg viewBox="0 0 32 32" className="h-4 w-4" aria-hidden="true">
+              <path d="M7 21V11l5 6 4-6 4 6 5-6v10" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="font-display text-[19px] font-extrabold tracking-[-0.03em] text-neutral-900">Mimic</span>
         </button>
 
         {/* Nav tabs — pill style exactly matching screenshot */}
@@ -52,7 +57,7 @@ export function Nav() {
                 cn(
                   'px-4 py-1.5 rounded-full text-sm font-semibold transition-all duration-150 whitespace-nowrap',
                   isActive
-                    ? 'bg-[#0d5c3a] text-white'
+                    ? 'bg-primary text-white'
                     : 'text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100',
                 )
               }
@@ -65,7 +70,7 @@ export function Nav() {
         {/* Right */}
         <div className="flex items-center gap-3 flex-shrink-0">
           {interviewActive && (
-            <span className="flex items-center gap-1.5 text-xs font-bold text-[#0d5c3a] uppercase tracking-wider bg-[#f0faf5] border border-[#b3e9cd] px-3 py-1 rounded-full">
+            <span className="flex items-center gap-1.5 text-xs font-bold text-primary uppercase tracking-wider bg-primary-50 border border-primary-200 px-3 py-1 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-[#16a34a] animate-pulse" />
               Live
             </span>
@@ -82,7 +87,7 @@ export function Nav() {
 
           {/* Signed-in user + sign out */}
           <div
-            className="w-9 h-9 rounded-full bg-[#0d5c3a] flex items-center justify-center text-white text-xs font-bold"
+            className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold"
             title={label + (user?.admin ? ' (admin)' : '')}
           >
             {initialsOf(label)}
