@@ -12,7 +12,7 @@ import { matchOption, normalizeTrack } from '@/features/guide/autopilot/filterMa
 import type { AnalyticsFilters, AnalyticsSummary, InterviewTemplate, TrackType } from '@shared/types'
 
 const TOOLTIP = { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, color: '#0f172a', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }
-const ACCENT = '#0d5c3a'
+const ACCENT = '#6B2BE0'
 const TRACK_LABEL: Record<TrackType, string> = {
   chat: 'Timed Q&A', chatbot: 'Chatbot', voice: 'Voice', video_avatar: 'Video Avatar', video: 'Video Interview', two_way: 'Two-way Interview',
 }
@@ -20,9 +20,9 @@ const REC_LABEL: Record<string, string> = {
   strong_yes: 'Strong Yes', yes: 'Yes', maybe: 'Maybe', no: 'No', unknown: 'Unscored',
 }
 const REC_COLOR: Record<string, string> = {
-  strong_yes: '#0d5c3a', yes: '#16a34a', maybe: '#d97706', no: '#dc2626', unknown: '#94a3b8',
+  strong_yes: '#6B2BE0', yes: '#16a34a', maybe: '#d97706', no: '#dc2626', unknown: '#94a3b8',
 }
-const bucketColor = (b: string) => (b === '81-100' ? '#0d5c3a' : b === '61-80' ? '#16a34a' : b === '41-60' ? '#d97706' : '#dc2626')
+const bucketColor = (b: string) => (b === '81-100' ? '#6B2BE0' : b === '61-80' ? '#16a34a' : b === '41-60' ? '#d97706' : '#dc2626')
 const pct = (n: number) => `${Math.round(n * 100)}%`
 const mmss = (s: number) => (s > 0 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : '—')
 

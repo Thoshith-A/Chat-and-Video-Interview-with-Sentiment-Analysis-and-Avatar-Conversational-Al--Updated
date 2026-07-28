@@ -169,7 +169,7 @@ export function Slider({ value, onChange, min = 0, max = 1, step = 0.01, label, 
         type="range" min={min} max={max} step={step} value={value}
         onChange={e => onChange(Number(e.target.value))}
         className="w-full h-1 rounded-full appearance-none cursor-pointer"
-        style={{ background: `linear-gradient(to right, #0d5c3a 0%, #0d5c3a ${pct}%, #e2e8f0 ${pct}%, #e2e8f0 100%)` }}
+        style={{ background: `linear-gradient(to right, #6B2BE0 0%, #6B2BE0 ${pct}%, #e2e8f0 ${pct}%, #e2e8f0 100%)` }}
       />
       {hint && <p className="text-xs text-neutral-400">{hint}</p>}
     </div>
@@ -213,7 +213,7 @@ export function PageHeader({ kicker, title, description, action }: { kicker?: st
 
 /* ─── StatCard ───────────────────────────────────────────────────────────── */
 interface StatCardProps { label: string; value: string | number; sub?: string; trend?: 'up' | 'down'; color?: string }
-export function StatCard({ label, value, sub, trend, color = '#0d5c3a' }: StatCardProps) {
+export function StatCard({ label, value, sub, trend, color = '#6B2BE0' }: StatCardProps) {
   return (
     <Card className="p-5 flex flex-col gap-2">
       <p className="section-label">{label}</p>

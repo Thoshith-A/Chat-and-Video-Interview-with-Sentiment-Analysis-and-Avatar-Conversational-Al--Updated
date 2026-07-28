@@ -86,7 +86,7 @@ export default function LoginPage() {
                   type="button"
                   onClick={() => { setRoleIntent(r); setErr(null) }}
                   className={`rounded-lg px-3 py-2 text-sm font-semibold capitalize transition-colors ${
-                    roleIntent === r ? 'bg-white text-[#0d5c3a] shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
+                    roleIntent === r ? 'bg-white text-[#6B2BE0] shadow-sm' : 'text-neutral-500 hover:text-neutral-700'
                   }`}
                 >
                   {r}
@@ -107,7 +107,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={busy}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#0d5c3a] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0a4a2f] disabled:opacity-60"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#6B2BE0] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#4A1BA8] disabled:opacity-60"
           >
             {busy && <Loader2 className="animate-spin" size={16} />}
             {mode === 'signup' ? `Create ${roleIntent} account` : 'Sign in'}
@@ -132,7 +132,7 @@ function Field({ icon, value, onChange, ...rest }: {
   onChange: (v: string) => void
 } & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2.5 focus-within:border-[#0d5c3a]">
+    <div className="flex items-center gap-2 rounded-xl border border-border bg-white px-3 py-2.5 focus-within:border-[#6B2BE0]">
       <span className="text-neutral-400">{icon}</span>
       <input
         {...rest}

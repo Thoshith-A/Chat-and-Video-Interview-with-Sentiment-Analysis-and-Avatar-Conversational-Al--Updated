@@ -19,14 +19,14 @@ export default function AccessDenied() {
           {isAuthenticated ? (
             <button
               onClick={() => navigate(role === 'recruiter' ? '/sessions' : '/candidate')}
-              className="rounded-full bg-[#0d5c3a] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0a4a2f]"
+              className="rounded-full bg-[#6B2BE0] px-5 py-2 text-sm font-semibold text-white hover:bg-[#4A1BA8]"
             >
               Go to my home
             </button>
           ) : (
             <button
               onClick={() => navigate('/login')}
-              className="rounded-full bg-[#0d5c3a] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0a4a2f]"
+              className="rounded-full bg-[#6B2BE0] px-5 py-2 text-sm font-semibold text-white hover:bg-[#4A1BA8]"
             >
               Sign in
             </button>

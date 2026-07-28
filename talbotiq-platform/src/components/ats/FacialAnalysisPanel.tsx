@@ -23,7 +23,7 @@ function emotionChipStyle(type: RekognitionEmotionType) {
 }
 
 function barColor(pct: number) {
-  return pct >= 80 ? '#0d5c3a' : pct >= 60 ? '#d97706' : '#dc2626'
+  return pct >= 80 ? '#6B2BE0' : pct >= 60 ? '#d97706' : '#dc2626'
 }
 
 function AttentionBar({ score, label }: { score: number; label: string }) {
@@ -48,7 +48,7 @@ function EmotionChip({ type, conf }: { type: RekognitionEmotionType; conf: numbe
 }
 
 const qualityBadge: Record<string, { bg: string; text: string; border: string }> = {
-  high:         { bg: '#f0faf5', text: '#0d5c3a', border: '#b3e9cd' },
+  high:         { bg: '#F8F5FE', text: '#6B2BE0', border: '#E0D4FB' },
   medium:       { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
   low:          { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
   insufficient: { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },

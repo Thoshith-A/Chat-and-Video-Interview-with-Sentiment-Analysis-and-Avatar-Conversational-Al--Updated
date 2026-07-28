@@ -127,9 +127,9 @@ export default function App() {
               boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
               maxWidth: '380px',
             },
-            success: { iconTheme: { primary: '#0d5c3a', secondary: '#fff' } },
+            success: { iconTheme: { primary: '#6B2BE0', secondary: '#fff' } },
             error: { iconTheme: { primary: '#dc2626', secondary: '#fff' } },
-            loading: { iconTheme: { primary: '#0d5c3a', secondary: '#fff' } },
+            loading: { iconTheme: { primary: '#6B2BE0', secondary: '#fff' } },
           }}
         />
       </AuthProvider>

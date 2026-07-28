@@ -1,6 +1,6 @@
 // src/components/ats/ATSScorecardPanel.tsx
 // Displays the Gemini ATS scorecard — LIGHT theme, matching the current ResultsPage
-// (white cards, primary green #0d5c3a, amber #d97706, red #dc2626).
+// (white cards, primary green #6B2BE0, amber #d97706, red #dc2626).
 
 import { Card, SectionTitle } from '@/components/ui'
 import type { ATSScorecard, ScoredDimension, EvidenceLevel } from '@/services/geminiAnalysis'
@@ -13,14 +13,14 @@ interface Props {
 }
 
 const evidenceStyle: Record<EvidenceLevel, { bg: string; text: string; border: string }> = {
-  strong:       { bg: '#f0faf5', text: '#0d5c3a', border: '#b3e9cd' },
+  strong:       { bg: '#F8F5FE', text: '#6B2BE0', border: '#E0D4FB' },
   moderate:     { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' },
   weak:         { bg: '#fffbeb', text: '#d97706', border: '#fde68a' },
   insufficient: { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
 }
 
 const recStyle: Record<string, { bg: string; text: string; border: string }> = {
-  'Advance':           { bg: '#f0faf5', text: '#0d5c3a', border: '#b3e9cd' },
+  'Advance':           { bg: '#F8F5FE', text: '#6B2BE0', border: '#E0D4FB' },
   'Hold':              { bg: '#fffbeb', text: '#b45309', border: '#fde68a' },
   'Decline':           { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
   'Insufficient Data': { bg: '#f8fafc', text: '#64748b', border: '#e2e8f0' },
@@ -37,7 +37,7 @@ function Badge({ level, children }: { level: EvidenceLevel; children: React.Reac
 }
 
 function barColor(score: number) {
-  return score >= 7 ? '#0d5c3a' : score >= 4 ? '#d97706' : '#dc2626'
+  return score >= 7 ? '#6B2BE0' : score >= 4 ? '#d97706' : '#dc2626'
 }
 
 function DimensionRow({ label, dim }: { label: string; dim: ScoredDimension }) {

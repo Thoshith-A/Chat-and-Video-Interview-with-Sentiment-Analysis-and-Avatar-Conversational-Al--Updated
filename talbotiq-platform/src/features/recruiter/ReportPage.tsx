@@ -281,7 +281,7 @@ export default function ReportPage() {
                   <PolarGrid stroke="#e2e8f0" />
                   <PolarAngleAxis dataKey="kpi" tick={{ fontSize: 10, fill: '#64748b' }} />
                   <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                  <Radar dataKey="score" stroke="#0d5c3a" fill="#0d5c3a" fillOpacity={0.25} />
+                  <Radar dataKey="score" stroke="#6B2BE0" fill="#6B2BE0" fillOpacity={0.25} />
                 </RadarChart>
               </ResponsiveContainer>
             </Card>
