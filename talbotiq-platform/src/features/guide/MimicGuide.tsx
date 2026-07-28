@@ -8,6 +8,7 @@ import {
   Volume2,
   VolumeX,
   Square,
+  RotateCw,
   X,
 } from 'lucide-react'
 import { cn } from '@/components/ui'
@@ -720,6 +721,21 @@ export default function MimicGuide() {
     }
   }
 
+  // Hard-restart the recognizer: tear down the current session (even if it still
+  // SAYS "listening") + its buffers, and start a fresh one. Chrome's speech
+  // service can silently stall after a network blip and stop emitting transcripts
+  // while appearing live — this is the one-tap recovery so the next words are
+  // definitely captured, without reloading the page.
+  const restartMic = () => {
+    setVoiceError(null)
+    if (voiceTimerRef.current !== null) { window.clearTimeout(voiceTimerRef.current); voiceTimerRef.current = null }
+    voiceBufRef.current = ''
+    setVoiceHeard('')
+    stopMic() // increments the session token → any in-flight chain stands down
+    // Start fresh on the next tick so the old recognition fully tears down first.
+    window.setTimeout(() => startMic(), 200)
+  }
+
   const toggleMic = () => {
     if (listening) {
       stopMic()
@@ -933,6 +949,15 @@ export default function MimicGuide() {
           </div>
           <button
             type="button"
+            onClick={restartMic}
+            title="Restart listening (use if it stops taking your voice)"
+            aria-label="Restart listening"
+            className="shrink-0 rounded-lg border border-white/10 p-1.5 text-neutral-300 transition-colors hover:text-white hover:bg-white/10"
+          >
+            <RotateCw className="size-3.5" />
+          </button>
+          <button
+            type="button"
             onClick={() => setOpen(true)}
             className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:text-white"
           >
@@ -1144,12 +1169,20 @@ export default function MimicGuide() {
                     ? (voiceHeard ? ` — “${voiceHeard}”` : ' — hands-free: it sends automatically when you pause')
                     : '… speak, then click the mic to stop'}
                 </span>
-                <span className="ml-auto inline-flex h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-white/10">
+                <span className="ml-auto inline-flex h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-white/10">
                   <span
                     className={cn('h-full rounded-full transition-[width] duration-150', micLevel > 0.02 ? 'bg-emerald-400' : 'bg-neutral-500')}
                     style={{ width: `${Math.min(100, Math.round(micLevel * 400))}%` }}
                   />
                 </span>
+                <button
+                  type="button"
+                  onClick={restartMic}
+                  title="Restart listening (use if it stops taking your voice)"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-neutral-300 transition-colors hover:text-white hover:bg-white/10"
+                >
+                  <RotateCw className="size-3" /> Restart
+                </button>
               </div>
             ) : null}
             <div className="flex items-end gap-2">
