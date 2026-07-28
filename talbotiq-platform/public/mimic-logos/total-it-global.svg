@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 244 60" role="img" aria-label="Total IT Global">
+  <!-- infinity mark: red loop + grey loop -->
+  <g fill="none" stroke-width="8" stroke-linecap="round">
+    <path d="M31 15 a16 16 0 1 0 0 30" stroke="#ED1C24"/>
+    <path d="M33 15 a16 16 0 1 1 0 30" stroke="#9B9B9B"/>
+  </g>
+  <circle cx="49" cy="22" r="4.2" fill="#ED1C24"/>
+  <text x="72" y="31" font-family="Figtree, Arial, sans-serif" font-weight="800" font-size="25" letter-spacing="0.5" fill="#ED1C24">TOTAL IT</text>
+  <text x="73" y="49" font-family="Figtree, Arial, sans-serif" font-weight="700" font-size="12.5" letter-spacing="6" fill="#9B9B9B">GLOBAL</text>
+</svg>

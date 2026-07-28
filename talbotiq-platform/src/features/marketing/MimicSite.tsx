@@ -38,8 +38,8 @@ type ClientLogo = { name: string; img: string }
 // Real client logos. Drop PNG/SVGs at these public paths and they render as images;
 // until a file exists the marquee falls back to the brand name as text.
 const CLIENTS: ClientLogo[] = [
-  { name: 'Total IT Global', img: '/mimic-logos/total-it-global.png' },
-  { name: 'Aisling', img: '/mimic-logos/aisling.png' },
+  { name: 'Total IT Global', img: '/mimic-logos/total-it-global.svg' },
+  { name: 'Aisling', img: '/mimic-logos/aisling.svg' },
   { name: 'TalbotIQ', img: '/talbotiq-logo.png' },
 ]
 // Repeated so the sliding row stays full; the marquee doubles this for a seamless loop.
