@@ -15,7 +15,13 @@ import type {
 import { seedData } from './seed'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
-const DATA_DIR = path.join(here, '..', 'data')
+// DATA_DIR lets the deployment point the store at durable storage — on Render
+// it is the mounted Persistent Disk (/var/data). Unset, this is the original
+// server/data path, so local dev is unchanged. Container filesystems are
+// ephemeral: without this the snapshot is lost on every deploy and restart.
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(here, '..', 'data')
 const DATA_FILE = path.join(DATA_DIR, 'db.json')
 
 /** A demo-request lead captured from the public Mimic marketing site. Server-side
