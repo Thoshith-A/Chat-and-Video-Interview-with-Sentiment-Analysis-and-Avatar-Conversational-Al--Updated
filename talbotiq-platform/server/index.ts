@@ -22,11 +22,17 @@ import { authConfigured } from './services/firebaseAdmin'
 import { attachVoiceWebSocket } from './services/voice'
 import { attachDeepgramRelay, attachCandidateDeepgramRelay } from './services/deepgramRelay'
 import { HttpError } from './util/ah'
+import { parseAllowedOrigins, isOriginAllowed } from './util/cors'
 
 db.init()
 
 const app = express()
-app.use(cors())
+// Cross-origin is the normal case: the SPA is on Vercel, this API on Render.
+// CORS_ORIGINS blank → allow all (previous behaviour); set → strict allowlist.
+const allowedOrigins = parseAllowedOrigins(process.env.CORS_ORIGINS)
+app.use(cors({ origin: (origin, cb) => cb(null, isOriginAllowed(allowedOrigins, origin)) }))
+if (allowedOrigins) console.log(`[server] CORS restricted to: ${allowedOrigins.join(', ')}`)
+else console.log('[server] CORS: all origins allowed (set CORS_ORIGINS to restrict)')
 app.use(express.json({ limit: '4mb' }))
 
 app.get('/api/health', (_req, res) => {

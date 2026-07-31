@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { countFillers, calcWpm } from '@/services/deepgram'
 import { getIdTokenOrNull } from '@/lib/firebase'
+import { wsUrl } from '@/lib/apiOrigin'
 import { useAppStore } from '@/store/useAppStore'
 
 interface DgResult {
@@ -34,9 +35,8 @@ export function useDeepgramTranscript(enabled: boolean) {
         // Hybrid: connect to our server-side Deepgram relay. The API key stays on
         // the server (injected into the upstream Deepgram WS); we just stream the
         // MediaRecorder WebM/Opus chunks and the relay passes results straight back.
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws'
         const token = await getIdTokenOrNull()
-        const ws = new WebSocket(`${proto}://${location.host}/api/avatar/deepgram${token ? `?token=${encodeURIComponent(token)}` : ''}`)
+        const ws = new WebSocket(wsUrl(`/api/avatar/deepgram${token ? `?token=${encodeURIComponent(token)}` : ''}`))
         wsRef.current = ws
 
         ws.onopen = () => {

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import toast from 'react-hot-toast'
 import { audioStore } from '@/services/audioStore'
 import { countFillers, calcWpm } from '@/services/deepgram'
+import { wsUrl } from '@/lib/apiOrigin'
 import { getIdTokenOrNull } from '@/lib/firebase'
 import { createAudioCapture, type AudioCapture } from '@/services/audioCapture'
 import { useAppStore } from '@/store/useAppStore'
@@ -71,9 +72,8 @@ export function useAudioAnalysis(enabled: boolean, opts?: { trackInterim?: boole
     async function start() {
       // ── Deepgram via server relay — real-time transcription (optional) ───
       if (deepgramConfigured) try {
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws'
         const dgToken = await getIdTokenOrNull()
-        const dgWs = new WebSocket(`${proto}://${location.host}/api/avatar/deepgram${dgToken ? `?token=${encodeURIComponent(dgToken)}` : ''}`)
+        const dgWs = new WebSocket(wsUrl(`/api/avatar/deepgram${dgToken ? `?token=${encodeURIComponent(dgToken)}` : ''}`))
         dgWs.binaryType = 'arraybuffer'
         dgWsRef.current = dgWs
 

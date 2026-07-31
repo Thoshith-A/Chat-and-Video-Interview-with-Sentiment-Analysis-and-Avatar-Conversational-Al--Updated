@@ -7,7 +7,9 @@
  * — so by the time the picker opens, playback is instant and stays instant.
  */
 
-const BASE = '/api/avatar/face-cache'
+import { httpBase } from './apiOrigin'
+
+const BASE = `${httpBase()}/avatar/face-cache`
 
 /** Local-cache URL for a preview. Media elements can't send the Authorization
  *  header, so the bearer token rides in the query (same pattern as the WS

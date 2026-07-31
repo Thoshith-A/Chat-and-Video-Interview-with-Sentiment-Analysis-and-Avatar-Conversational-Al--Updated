@@ -1,5 +1,10 @@
 # Deployment — Google Cloud + Play Store
 
+> **Deploying to Vercel + Render instead?** See
+> [DEPLOY-VERCEL-RENDER.md](./DEPLOY-VERCEL-RENDER.md) — that is the supported,
+> currently-configured path. This document covers the Google Cloud
+> alternative and the Play Store build.
+
 > **Status: scaffolding + guide.** These steps target production on Google Cloud
 > and Android on the Play Store. They are **not run or tested in local dev** —
 > they require your own GCP project, service accounts, and Android SDK. Local
