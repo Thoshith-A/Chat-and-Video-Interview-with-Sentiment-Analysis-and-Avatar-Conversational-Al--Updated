@@ -2,6 +2,7 @@ import type {
   VoiceServerMessage, VoiceClientMessage, VoicePhase, TimeOfDay,
 } from '@shared/types'
 import { getIdTokenOrNull } from '@/lib/firebase'
+import { wsUrl } from './apiOrigin'
 
 /**
  * Low-latency browser transport for the Voice Track.
@@ -73,12 +74,11 @@ function int16BytesToFloat32(buf: ArrayBuffer): Float32Array {
 }
 
 export async function voiceWsUrl(sessionId: string): Promise<string> {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   // The WS handshake can't carry an Authorization header, so the ID token rides
   // in the query string; the server verifies it and checks session assignment.
   const token = await getIdTokenOrNull()
   const q = token ? `?token=${encodeURIComponent(token)}` : ''
-  return `${proto}://${location.host}/api/voice/${encodeURIComponent(sessionId)}${q}`
+  return wsUrl(`/api/voice/${encodeURIComponent(sessionId)}${q}`)
 }
 
 export interface VoiceClientCallbacks {

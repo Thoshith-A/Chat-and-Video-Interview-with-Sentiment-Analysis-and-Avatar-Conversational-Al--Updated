@@ -42,8 +42,11 @@ import type {
   AdvanceResult,
 } from '@shared/types'
 import type { AgentRequest, AgentDecision } from '@shared/autopilot'
+import { httpBase } from './apiOrigin'
 
-const BASE = '/api'
+// Same-origin '/api' in dev (Vite proxy); the absolute Render URL in a
+// VITE_API_BASE build. See src/lib/apiOrigin.ts.
+const BASE = httpBase()
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, {
