@@ -5,6 +5,7 @@ import {
   Mic,
   Send,
   ChevronDown,
+  Languages,
   Volume2,
   VolumeX,
   Square,
@@ -191,22 +192,22 @@ function VoiceLangSelect({
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="flex w-[200px] items-center gap-1.5 rounded-md border border-white/10 bg-[#1a1d2e] px-2 py-1 text-xs text-neutral-100 transition-colors hover:border-white/20"
+        className="flex w-[200px] items-center gap-1.5 rounded-full border border-brand-border bg-brand-card px-2.5 py-1.5 text-xs text-neutral-100 transition-colors duration-150 hover:border-brand-gold/50"
       >
         <span className="leading-none">{current?.flag}</span>
         <span className="truncate">{current?.name}</span>
-        <ChevronDown className="ml-auto size-3.5 text-neutral-400" />
+        <ChevronDown className="ml-auto size-3.5 text-brand-gray" aria-hidden />
       </button>
 
       {open ? (
-        <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-white/10 bg-[#0d0f1a] shadow-2xl">
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-56 overflow-hidden rounded-xl border border-brand-border bg-brand-card shadow-xl">
           <div className="p-1.5">
             <input
               ref={searchRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search languages…"
-              className="w-full rounded-md border border-white/10 bg-[#1a1d2e] px-2 py-1 text-xs text-neutral-100 outline-none placeholder:text-neutral-500"
+              className="w-full rounded-lg border border-brand-border bg-brand-black px-2.5 py-1.5 text-xs text-neutral-100 outline-none transition-colors duration-150 placeholder:text-brand-gray/70 focus:border-brand-gold/60"
             />
           </div>
           <div className="max-h-56 overflow-y-auto px-1 pb-1">
@@ -220,13 +221,13 @@ function VoiceLangSelect({
                   setOpen(false)
                 }}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-white/5',
-                  lang.code === value && 'bg-[#a78bfa]/10 text-[#c4b5fd]',
+                  'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors duration-150 hover:bg-brand-gold/10',
+                  lang.code === value && 'bg-brand-gold/15',
                 )}
               >
                 <span className="leading-none">{lang.flag}</span>
-                <span className="text-neutral-100">{lang.name}</span>
-                <span className="truncate text-neutral-400">{lang.native}</span>
+                <span className={cn('shrink-0', lang.code === value ? 'font-semibold text-brand-gold-light' : 'text-neutral-100')}>{lang.name}</span>
+                <span className="truncate text-brand-gray">{lang.native}</span>
               </button>
             ))}
           </div>
@@ -895,31 +896,33 @@ export default function MimicGuide() {
         title="Mimic Guide — your TalbotIQ assistant"
         aria-label="Open Mimic Guide"
         className={cn(
-          'fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-[#a78bfa] px-4 py-3 text-sm font-semibold text-[#0d0f1a] shadow-xl transition-all hover:bg-[#b9a3fb] hover:shadow-2xl',
+          'fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-brand-field px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-150 hover:-translate-y-px hover:shadow-xl',
           open && 'pointer-events-none opacity-0',
         )}
       >
-        <Sparkles className="size-4" />
+        <Sparkles className="size-4" aria-hidden />
         Mimic Guide
-        <span className="absolute -top-0.5 -right-0.5 size-2.5 animate-pulse rounded-full bg-emerald-400" />
+        <span className="absolute -top-0.5 -right-0.5 size-2.5 animate-pulse rounded-full bg-brand-green-light ring-2 ring-white" aria-hidden />
       </button>
 
       {/* Hands-free voice pill — visible while Voice mode is on and the panel is
           CLOSED. Shows listening state + what was heard; speech auto-submits, so
           the recruiter can drive Autopilot without ever opening the panel. */}
       {voiceMode && !open ? (
-        <div className="fixed bottom-6 left-6 z-[70] flex w-[min(360px,calc(100vw-3rem))] items-center gap-2.5 rounded-2xl border border-[#a78bfa]/40 bg-[#12141f]/95 px-3 py-2 text-neutral-100 shadow-2xl backdrop-blur">
+        <div className="fixed bottom-6 left-6 z-[70] flex w-[min(360px,calc(100vw-3rem))] items-center gap-2.5 rounded-2xl border border-brand-gold/40 bg-brand-card/95 px-3 py-2.5 text-neutral-100 shadow-xl backdrop-blur">
           <button
             type="button"
             onClick={() => { if (!listening) { setVoiceError(null); startMic() } }}
             title={listening ? 'Listening' : 'Tap to resume listening'}
             aria-label={listening ? 'Listening' : 'Resume listening'}
             className={cn(
-              'flex size-9 shrink-0 items-center justify-center rounded-full transition-colors',
-              listening ? 'animate-pulse bg-red-500/20 text-red-400' : 'bg-white/10 text-neutral-400 hover:text-white',
+              'flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors duration-150',
+              listening
+                ? 'animate-pulse border-red-400/50 bg-red-500/20 text-red-300'
+                : 'border-brand-border bg-brand-black text-brand-gray hover:border-brand-gold/50 hover:text-white',
             )}
           >
-            <Mic className="size-4" />
+            <Mic className="size-4" aria-hidden />
           </button>
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs font-semibold">
@@ -933,16 +936,16 @@ export default function MimicGuide() {
                       ? 'Voice stopped — tap the mic to resume'
                       : 'Voice paused'}
             </div>
-            <div className={cn('truncate text-[11px]', voiceError && !listening ? 'text-red-400' : 'text-neutral-400')}>
+            <div className={cn('truncate text-[11px]', voiceError && !listening ? 'text-red-300' : 'text-brand-gray')}>
               {(!listening && voiceError)
                 || voiceHeard
                 || (runner.pendingConfirm
                   ? runner.pendingConfirm.summary
                   : 'e.g. “set up a video interview for Senior Backend Engineer”')}
             </div>
-            <span className="mt-1 inline-flex h-1 w-24 overflow-hidden rounded-full bg-white/10">
+            <span className="mt-1.5 inline-flex h-1 w-24 overflow-hidden rounded-full bg-brand-border" aria-hidden>
               <span
-                className="h-full rounded-full bg-emerald-400 transition-[width] duration-150"
+                className="h-full rounded-full bg-brand-green-light transition-[width] duration-150"
                 style={{ width: `${Math.min(100, Math.round(micLevel * 400))}%` }}
               />
             </span>
@@ -952,14 +955,14 @@ export default function MimicGuide() {
             onClick={restartMic}
             title="Restart listening (use if it stops taking your voice)"
             aria-label="Restart listening"
-            className="shrink-0 rounded-lg border border-white/10 p-1.5 text-neutral-300 transition-colors hover:text-white hover:bg-white/10"
+            className="shrink-0 rounded-full border border-brand-border p-1.5 text-neutral-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
           >
-            <RotateCw className="size-3.5" />
+            <RotateCw className="size-3.5" aria-hidden />
           </button>
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] text-neutral-300 transition-colors hover:text-white"
+            className="shrink-0 rounded-full border border-brand-border px-2.5 py-1 text-[11px] font-semibold text-neutral-200 transition-colors duration-150 hover:border-brand-gold/50 hover:text-white"
           >
             Open
           </button>
@@ -968,9 +971,9 @@ export default function MimicGuide() {
             onClick={disableVoiceMode}
             title="Turn voice mode off"
             aria-label="Turn voice mode off"
-            className="shrink-0 rounded-lg border border-white/10 p-1 text-neutral-400 transition-colors hover:text-red-400"
+            className="shrink-0 rounded-full border border-brand-border p-1.5 text-brand-gray transition-colors duration-150 hover:border-red-400/50 hover:text-red-300"
           >
-            <X className="size-3.5" />
+            <X className="size-3.5" aria-hidden />
           </button>
         </div>
       ) : null}
@@ -986,7 +989,7 @@ export default function MimicGuide() {
         <div
           onClick={() => handleOpenChange(false)}
           className={cn(
-            'absolute inset-0 bg-black/50 transition-opacity duration-300',
+            'absolute inset-0 bg-neutral-900/50 backdrop-blur-[2px] transition-opacity duration-300',
             open ? 'opacity-100' : 'opacity-0',
           )}
         />
@@ -994,15 +997,17 @@ export default function MimicGuide() {
           role="dialog"
           aria-label="Mimic Guide"
           className={cn(
-            'absolute right-0 top-0 flex h-full w-full flex-col bg-[#0d0f1a] shadow-2xl transition-transform duration-300 sm:max-w-md',
+            'absolute right-0 top-0 flex h-full w-full flex-col border-l border-brand-border bg-brand-black shadow-xl transition-transform duration-300 sm:max-w-md',
             open ? 'translate-x-0' : 'translate-x-full',
           )}
         >
           {/* Header */}
-          <div className="flex flex-col gap-2 border-b border-[#a78bfa]/20 p-4">
+          <div className="flex flex-col gap-2 border-b border-brand-border bg-brand-card/50 p-4">
             <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 font-semibold text-white">
-                <Sparkles className="size-4 text-[#a78bfa]" />
+              <div className="flex items-center gap-2.5 font-semibold text-white">
+                <span className="flex size-7 items-center justify-center rounded-lg bg-brand-field" aria-hidden>
+                  <Sparkles className="size-3.5 text-white" />
+                </span>
                 Mimic Guide
               </div>
               <div className="flex items-center gap-3">
@@ -1013,10 +1018,10 @@ export default function MimicGuide() {
                   aria-label="Toggle Autopilot"
                   aria-pressed={autopilot}
                   className={cn(
-                    'rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                    'rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors duration-150',
                     autopilot
-                      ? 'border-[#a78bfa]/50 bg-[#a78bfa]/20 text-[#c4b5fd]'
-                      : 'border-white/10 text-neutral-400 hover:text-white',
+                      ? 'border-brand-gold/50 bg-brand-gold/15 text-brand-gold-light'
+                      : 'border-brand-border text-brand-gray hover:border-brand-gold/40 hover:text-white',
                   )}
                 >
                   Autopilot
@@ -1028,13 +1033,13 @@ export default function MimicGuide() {
                   aria-label="Toggle hands-free voice mode"
                   aria-pressed={voiceMode}
                   className={cn(
-                    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                    'inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors duration-150',
                     voiceMode
                       ? 'border-red-400/50 bg-red-500/15 text-red-300'
-                      : 'border-white/10 text-neutral-400 hover:text-white',
+                      : 'border-brand-border text-brand-gray hover:border-brand-gold/40 hover:text-white',
                   )}
                 >
-                  <Mic className="size-3" />
+                  <Mic className="size-3" aria-hidden />
                   Voice
                 </button>
                 <button
@@ -1043,19 +1048,19 @@ export default function MimicGuide() {
                   title={autoSpeak ? 'Auto-speak answers: on' : 'Auto-speak answers: off'}
                   aria-label="Toggle auto-speak"
                   aria-pressed={autoSpeak}
-                  className="transition-colors hover:text-white"
+                  className="transition-colors duration-150 hover:text-white"
                 >
                   {autoSpeak ? (
-                    <Volume2 className="size-4 text-[#a78bfa]" />
+                    <Volume2 className="size-4 text-brand-gold" aria-hidden />
                   ) : (
-                    <VolumeX className="size-4 text-neutral-400" />
+                    <VolumeX className="size-4 text-brand-gray" aria-hidden />
                   )}
                 </button>
                 {messages.length > 0 ? (
                   <button
                     type="button"
                     onClick={clearChat}
-                    className="text-xs text-neutral-400 transition-colors hover:text-white"
+                    className="text-xs font-medium text-brand-gray transition-colors duration-150 hover:text-white"
                   >
                     Clear chat
                   </button>
@@ -1063,21 +1068,21 @@ export default function MimicGuide() {
                 <button
                   type="button"
                   onClick={() => handleOpenChange(false)}
-                  className="text-neutral-400 transition-colors hover:text-white"
-                  aria-label="Close"
+                  className="text-brand-gray transition-colors duration-150 hover:text-white"
+                  aria-label="Close Mimic Guide"
                 >
-                  <X className="size-4" />
+                  <X className="size-4" aria-hidden />
                 </button>
               </div>
             </div>
-            <p className="text-xs text-neutral-400">Your TalbotIQ AI assistant</p>
-            <div className="flex items-center gap-2 pt-1 text-xs text-neutral-400">
-              <span aria-hidden>🎙</span>
-              <span>Voice language:</span>
+            <p className="text-xs text-brand-gray">Your TalbotIQ AI assistant</p>
+            <div className="flex items-center gap-2 pt-1 text-xs text-brand-gray">
+              <Languages className="size-3.5 shrink-0" aria-hidden />
+              <span>Voice language</span>
               <VoiceLangSelect value={voiceLang} onChange={setVoiceLang} />
             </div>
             {autopilot ? (
-              <p className="pt-1 text-[11px] text-neutral-500">
+              <p className="pt-1 text-[11px] leading-relaxed text-brand-gray">
                 Type what you want — e.g. &quot;set up a video interview for Senior Backend
                 Engineer&quot;
               </p>
@@ -1086,30 +1091,36 @@ export default function MimicGuide() {
 
           {/* Autopilot: step tracker, action log, read-back confirm card. */}
           {autopilot ? (
-            <div className="flex flex-col gap-2 border-b border-white/5 bg-[#12141f] px-4 py-2">
-              <p className="text-xs text-neutral-400">{stepText}</p>
+            <div className="flex flex-col gap-2.5 border-b border-brand-border bg-brand-card px-4 py-3">
+              <p className="flex items-center gap-2 text-xs text-brand-gray">
+                <span className="size-1.5 shrink-0 rounded-full bg-brand-green-light" aria-hidden />
+                <span className="truncate">{stepText}</span>
+              </p>
               {runner.log.length > 0 ? (
-                <div className="max-h-24 overflow-y-auto rounded-md border border-white/5 bg-[#0d0f1a] p-2 font-mono text-[10px] leading-relaxed text-neutral-500">
+                <div className="max-h-24 overflow-y-auto rounded-lg border border-brand-border bg-brand-black p-2.5 font-mono text-[10px] leading-relaxed text-brand-gray">
                   {runner.log.map((line, index) => (
                     <div key={index}>{line}</div>
                   ))}
                 </div>
               ) : null}
               {runner.pendingConfirm ? (
-                <div className="rounded-lg border border-[#a78bfa]/50 bg-[#a78bfa]/10 p-2.5">
-                  <p className="mb-2 text-xs text-neutral-100">{runner.pendingConfirm.summary}</p>
+                <div className="rounded-xl border border-brand-gold/45 bg-brand-gold/10 p-3">
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-brand-gold-light">
+                    Confirm before I run this
+                  </p>
+                  <p className="mb-2.5 text-xs leading-relaxed text-neutral-100">{runner.pendingConfirm.summary}</p>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => void runner.confirm()}
-                      className="rounded-md bg-[#a78bfa] px-2.5 py-1 text-[11px] font-semibold text-[#0d0f1a] transition-opacity hover:opacity-90"
+                      className="rounded-full bg-brand-gold px-3.5 py-1 text-[11px] font-semibold text-brand-black transition-colors duration-150 hover:bg-brand-gold-light"
                     >
                       Confirm
                     </button>
                     <button
                       type="button"
                       onClick={runner.cancelConfirm}
-                      className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-neutral-300 transition-colors hover:text-white"
+                      className="rounded-full border border-brand-border px-3.5 py-1 text-[11px] font-semibold text-neutral-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
                     >
                       Cancel
                     </button>
@@ -1122,19 +1133,20 @@ export default function MimicGuide() {
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
             {messages.length === 0 ? (
-              <div className="flex flex-col gap-4">
-                <p className="text-sm text-neutral-400">
-                  Hi! I&apos;m <span className="font-medium text-white">Mimic Guide</span>. Ask me
+              <div className="flex flex-col gap-5">
+                <p className="text-sm leading-relaxed text-neutral-200">
+                  Hi! I&apos;m <span className="font-semibold text-white">Mimic Guide</span>. Ask me
                   anything about TalbotIQ — interviews, templates, question sets, sessions, AI
                   Avatar Screening, or results.
                 </p>
                 <div className="flex flex-col gap-2">
+                  <p className="mb-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-brand-gray">Try asking</p>
                   {prompts.map((prompt) => (
                     <button
                       key={prompt}
                       type="button"
                       onClick={() => setDraft(prompt)}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-left text-xs text-neutral-100 transition-colors hover:bg-white/5"
+                      className="rounded-full border border-brand-border bg-brand-card/60 px-3.5 py-2 text-left text-xs text-neutral-100 transition-colors duration-150 hover:border-brand-gold/50 hover:bg-brand-gold/10 hover:text-white"
                     >
                       {prompt}
                     </button>
@@ -1158,10 +1170,14 @@ export default function MimicGuide() {
           </div>
 
           {/* Composer */}
-          <div className="border-t border-white/5 bg-[#1a1d2e] p-3">
-            {voiceError ? <p className="mb-2 text-xs text-red-400">{voiceError}</p> : null}
+          <div className="border-t border-brand-border bg-brand-card p-3">
+            {voiceError ? (
+              <p className="mb-2 rounded-lg border border-red-400/30 bg-red-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-red-300">
+                {voiceError}
+              </p>
+            ) : null}
             {listening ? (
-              <div className="mb-2 flex items-center gap-2 px-0.5 text-[11px] text-neutral-400">
+              <div className="mb-2 flex items-center gap-2 px-0.5 text-[11px] text-brand-gray">
                 <span className="inline-block size-1.5 shrink-0 animate-pulse rounded-full bg-red-400" />
                 <span className="truncate">
                   Listening{micDevice ? ` — ${micDevice}` : ''}
@@ -1169,9 +1185,9 @@ export default function MimicGuide() {
                     ? (voiceHeard ? ` — “${voiceHeard}”` : ' — hands-free: it sends automatically when you pause')
                     : '… speak, then click the mic to stop'}
                 </span>
-                <span className="ml-auto inline-flex h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-white/10">
+                <span className="ml-auto inline-flex h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-brand-border" aria-hidden>
                   <span
-                    className={cn('h-full rounded-full transition-[width] duration-150', micLevel > 0.02 ? 'bg-emerald-400' : 'bg-neutral-500')}
+                    className={cn('h-full rounded-full transition-[width] duration-150', micLevel > 0.02 ? 'bg-brand-green-light' : 'bg-brand-gray')}
                     style={{ width: `${Math.min(100, Math.round(micLevel * 400))}%` }}
                   />
                 </span>
@@ -1179,9 +1195,9 @@ export default function MimicGuide() {
                   type="button"
                   onClick={restartMic}
                   title="Restart listening (use if it stops taking your voice)"
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] text-neutral-300 transition-colors hover:text-white hover:bg-white/10"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-brand-border px-2 py-0.5 text-[10px] font-semibold text-neutral-200 transition-colors duration-150 hover:bg-white/5 hover:text-white"
                 >
-                  <RotateCw className="size-3" /> Restart
+                  <RotateCw className="size-3" aria-hidden /> Restart
                 </button>
               </div>
             ) : null}
@@ -1192,13 +1208,13 @@ export default function MimicGuide() {
                 title={listening ? 'Listening… speak now' : 'Voice input'}
                 aria-label="Voice input"
                 className={cn(
-                  'flex size-9 shrink-0 items-center justify-center rounded-lg border transition-colors',
+                  'flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors duration-150',
                   listening
-                    ? 'animate-pulse border-red-500/50 bg-red-500/15 text-red-400'
-                    : 'border-white/10 text-neutral-400 hover:text-white',
+                    ? 'animate-pulse border-red-400/50 bg-red-500/15 text-red-300'
+                    : 'border-brand-border text-brand-gray hover:border-brand-gold/50 hover:text-white',
                 )}
               >
-                <Mic className="size-4" />
+                <Mic className="size-4" aria-hidden />
               </button>
               <textarea
                 ref={textareaRef}
@@ -1215,17 +1231,17 @@ export default function MimicGuide() {
                 }}
                 rows={1}
                 placeholder="Ask anything about TalbotIQ…"
-                className="max-h-[72px] min-h-9 flex-1 resize-none rounded-lg border border-white/10 bg-[#0d0f1a] px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500 focus-visible:border-[#a78bfa]/50"
+                className="max-h-[72px] min-h-9 flex-1 resize-none rounded-xl border border-brand-border bg-brand-black px-3.5 py-2 text-sm text-neutral-100 outline-none transition-colors duration-150 placeholder:text-brand-gray/70 focus-visible:border-brand-gold/60"
               />
               <button
                 type="button"
                 onClick={() => void submitComposer(draft)}
                 disabled={pending || draft.trim().length === 0}
                 title="Send"
-                aria-label="Send"
-                className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#a78bfa] text-[#0d0f1a] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Send message"
+                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-gold text-brand-black transition-colors duration-150 hover:bg-brand-gold-light disabled:cursor-not-allowed disabled:opacity-40"
               >
-                <Send className="size-4" />
+                <Send className="size-4" aria-hidden />
               </button>
             </div>
           </div>
@@ -1249,7 +1265,7 @@ function MessageBubble({
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-[#a78bfa]/30 bg-[#a78bfa]/20 px-3 py-2 text-sm text-neutral-100">
+        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-tr-md border border-brand-gold/30 bg-brand-gold/15 px-3.5 py-2 text-sm leading-relaxed text-neutral-100">
           {message.content}
         </div>
       </div>
@@ -1259,14 +1275,14 @@ function MessageBubble({
     <div className="flex flex-col items-start gap-1">
       <div
         className={cn(
-          'max-w-[90%] rounded-2xl rounded-tl-sm border px-3 py-2',
+          'max-w-[90%] rounded-2xl rounded-tl-md border px-3.5 py-2.5',
           message.error
-            ? 'border-red-500/30 bg-red-500/10 text-red-400'
-            : 'border-white/5 bg-[#1a1d2e] text-neutral-100',
+            ? 'border-red-400/30 bg-red-500/10 text-red-300'
+            : 'border-brand-border bg-brand-card text-neutral-100',
         )}
       >
         {message.error ? (
-          <p className="text-sm">{message.content}</p>
+          <p className="text-sm leading-relaxed">{message.content}</p>
         ) : (
           <GuideMarkdown text={message.content} onNavigate={onNavigate} />
         )}
@@ -1277,11 +1293,11 @@ function MessageBubble({
           onClick={onToggleSpeak}
           title={speaking ? 'Stop' : 'Listen'}
           className={cn(
-            'flex items-center gap-1 px-1 text-[11px] transition-colors',
-            speaking ? 'text-[#a78bfa]' : 'text-neutral-400 hover:text-white',
+            'flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors duration-150',
+            speaking ? 'text-brand-gold' : 'text-brand-gray hover:bg-white/5 hover:text-white',
           )}
         >
-          {speaking ? <Square className="size-3" /> : <Volume2 className="size-3" />}
+          {speaking ? <Square className="size-3" aria-hidden /> : <Volume2 className="size-3" aria-hidden />}
           {speaking ? 'Stop' : 'Listen'}
         </button>
       )}
@@ -1292,12 +1308,12 @@ function MessageBubble({
 function ThinkingDots() {
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-white/5 bg-[#1a1d2e] px-3 py-2.5">
+      <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-md border border-brand-border bg-brand-card px-3.5 py-3">
         <span className="sr-only">Thinking…</span>
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="size-1.5 animate-bounce rounded-full bg-[#a78bfa]"
+            className="size-1.5 animate-typing-dot rounded-full bg-brand-gold"
             style={{ animationDelay: `${i * 150}ms` }}
           />
         ))}

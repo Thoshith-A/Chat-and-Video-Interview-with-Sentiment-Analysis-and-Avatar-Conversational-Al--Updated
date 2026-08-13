@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { AlertTriangle, Send, Save, Copy, Trash2, Info, Link2, UploadCloud } from 'lucide-react'
+import { AlertTriangle, Send, Save, Copy, Trash2, Info, Link2, UploadCloud, Files, AtSign, PenLine, Palette } from 'lucide-react'
 import { Button, Input, Select, cn } from '@/components/ui'
 import { inviteEmailTemplatesApi, invitesApi } from '@/lib/api'
 import { useAuth } from '@/features/auth/AuthProvider'
@@ -15,6 +15,22 @@ const QK = ['invite-email-templates'] as const
 export function sampleName(email: string): string {
   const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim()
   return local ? local.replace(/\b\w/g, (c) => c.toUpperCase()) : 'there'
+}
+
+/** A titled config panel in the left-hand column. */
+function Panel({ icon, title, hint, children }: { icon: ReactNode; title: string; hint?: string; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-border bg-white p-5 shadow-xs">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">{icon}</span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-bold leading-tight text-neutral-900">{title}</h3>
+          {hint && <p className="mt-0.5 text-xs leading-relaxed text-neutral-500">{hint}</p>}
+        </div>
+      </div>
+      {children}
+    </section>
+  )
 }
 
 /**
@@ -165,19 +181,22 @@ export function InviteEmailStep({
       {/* ── Config column ── */}
       <div className="space-y-5">
         {/* Template picker */}
-        <div className="rounded-xl border border-border bg-white p-4">
-          <label className="field-label mb-1.5 block">Saved templates</label>
+        <Panel icon={<Files size={16} />} title="Saved templates" hint="Start from one of your saved emails, or save this one to reuse it later.">
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              className="input-base h-10 flex-1 min-w-[160px] appearance-none"
-              value={selectedId}
-              onChange={(e) => (e.target.value ? loadTemplate(e.target.value) : setSelectedId(''))}
-            >
-              <option value="">— New (unsaved) —</option>
-              {templates.data?.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>
-              ))}
-            </select>
+            <div className="relative min-w-[180px] flex-1">
+              <select
+                aria-label="Saved invite email template"
+                className="input-base h-10 w-full cursor-pointer appearance-none pr-9"
+                value={selectedId}
+                onChange={(e) => (e.target.value ? loadTemplate(e.target.value) : setSelectedId(''))}
+              >
+                <option value="">— New (unsaved) —</option>
+                {templates.data?.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}{t.isDefault ? ' (default)' : ''}</option>
+                ))}
+              </select>
+              <svg className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9" /></svg>
+            </div>
             {selectedId
               ? <Button size="sm" variant="secondary" icon={<Save size={14} />} loading={busy} onClick={updateSaved}>Update</Button>
               : <Button size="sm" variant="secondary" icon={<Save size={14} />} loading={busy} onClick={saveAsNew}>Save</Button>}
@@ -185,104 +204,125 @@ export function InviteEmailStep({
             <Button size="sm" variant="ghost" icon={<Trash2 size={14} />} disabled={!selectedId || busy} onClick={remove}>Delete</Button>
             {selectedId && <Button size="sm" variant="ghost" onClick={saveAsNew} disabled={busy}>Save as new</Button>}
           </div>
-        </div>
+          {templates.isLoading && <p className="mt-2.5 text-xs text-neutral-400">Loading your saved templates…</p>}
+          {!templates.isLoading && !templates.data?.length && (
+            <p className="mt-2.5 text-xs text-neutral-400">No saved templates yet — set this email up below, then Save to reuse it for future batches.</p>
+          )}
+        </Panel>
 
         {/* Sender */}
-        <div className="rounded-xl border border-border bg-white p-4 space-y-3">
-          <p className="text-sm font-semibold text-neutral-800">Sender</p>
-          {brevoReady && senderList.length > 0 ? (
-            <Select
-              label="From address (Brevo verified sender)"
-              value={draft.sender.verifiedSenderEmail}
-              onChange={(e) => setSender({ verifiedSenderEmail: e.target.value })}
-              options={[{ value: '', label: 'Use server default (MAIL_FROM)' }, ...senderList.map((s) => ({ value: s.email, label: `${s.name ? s.name + ' — ' : ''}${s.email}${s.active ? '' : ' (inactive)'}` }))]}
-            />
-          ) : (
-            <Input
-              label="From address (verified sender)"
-              placeholder="talent@yourco.com"
-              value={draft.sender.verifiedSenderEmail}
-              onChange={(e) => setSender({ verifiedSenderEmail: e.target.value })}
-              hint="Must be a Brevo-verified sender. Leave blank to use the server default."
-            />
-          )}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input label="From name" value={draft.sender.fromName} onChange={(e) => setSender({ fromName: e.target.value })} />
-            <Input label="Reply-to (optional)" value={draft.sender.replyTo || ''} onChange={(e) => setSender({ replyTo: e.target.value })} />
+        <Panel icon={<AtSign size={16} />} title="Sender" hint="Who the invitation appears to come from.">
+          <div className="space-y-3">
+            {brevoReady && senderList.length > 0 ? (
+              <Select
+                label="From address (Brevo verified sender)"
+                value={draft.sender.verifiedSenderEmail}
+                onChange={(e) => setSender({ verifiedSenderEmail: e.target.value })}
+                options={[{ value: '', label: 'Use server default (MAIL_FROM)' }, ...senderList.map((s) => ({ value: s.email, label: `${s.name ? s.name + ' — ' : ''}${s.email}${s.active ? '' : ' (inactive)'}` }))]}
+              />
+            ) : (
+              <Input
+                label="From address (verified sender)"
+                placeholder="talent@yourco.com"
+                value={draft.sender.verifiedSenderEmail}
+                onChange={(e) => setSender({ verifiedSenderEmail: e.target.value })}
+                hint="Must be a Brevo-verified sender. Leave blank to use the server default."
+              />
+            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="From name" value={draft.sender.fromName} onChange={(e) => setSender({ fromName: e.target.value })} />
+              <Input label="Reply-to (optional)" value={draft.sender.replyTo || ''} onChange={(e) => setSender({ replyTo: e.target.value })} />
+            </div>
+            <div className="flex items-start gap-2.5 rounded-xl border border-border bg-neutral-50 p-3 text-xs leading-relaxed text-neutral-500">
+              <Info size={14} className="mt-0.5 flex-shrink-0 text-neutral-400" />
+              <span>
+                You can only send from a Brevo-verified sender. Branded sending from your own domain
+                (instead of the default <span className="font-mono">…@brevosend.com</span> subdomain) requires
+                adding the domain + SPF/DKIM verification in Brevo → Senders, Domains.
+                {!brevoReady && ' Set BREVO_API_KEY on the server to load your verified senders here.'}
+              </span>
+            </div>
           </div>
-          <div className="flex items-start gap-2 rounded-lg bg-neutral-50 p-2.5 text-xs text-neutral-500">
-            <Info size={14} className="mt-0.5 flex-shrink-0 text-neutral-400" />
-            <span>
-              You can only send from a Brevo-verified sender. Branded sending from your own domain
-              (instead of the default <span className="font-mono">…@brevosend.com</span> subdomain) requires
-              adding the domain + SPF/DKIM verification in Brevo → Senders, Domains.
-              {!brevoReady && ' Set BREVO_API_KEY on the server to load your verified senders here.'}
-            </span>
-          </div>
-        </div>
+        </Panel>
 
         {/* Subject + body */}
-        <div className="rounded-xl border border-border bg-white p-4 space-y-3">
-          <Input label="Subject" value={draft.subject} onChange={(e) => set('subject', e.target.value)} hint="Supports variables, e.g. {{role}}." />
-          <div>
-            <label className="field-label mb-1.5 block">Body</label>
-            <RichTextEditor value={draft.bodyHtml} onChange={(html) => set('bodyHtml', html)} />
-          </div>
-          {!locked.ok && (
-            <div className="flex items-center justify-between gap-2 rounded-lg border border-warning-border bg-warning-bg p-2.5 text-xs text-amber-800">
-              <span className="flex items-center gap-2"><AlertTriangle size={14} /> The interview link ({locked.missing.join(', ')}) is required and can’t be removed.</span>
-              <Button size="xs" variant="secondary" icon={<Link2 size={12} />} onClick={insertLinkToken}>Insert link</Button>
+        <Panel icon={<PenLine size={16} />} title="Message" hint="Subject and body. Merge variables fill in per candidate at send time.">
+          <div className="space-y-4">
+            <Input label="Subject" value={draft.subject} onChange={(e) => set('subject', e.target.value)} hint="Supports variables, e.g. {{role}}." />
+            <div>
+              <label className="field-label mb-1.5 block">Body</label>
+              <RichTextEditor value={draft.bodyHtml} onChange={(html) => set('bodyHtml', html)} />
             </div>
-          )}
-        </div>
-
-        {/* CTA + branding */}
-        <div className="rounded-xl border border-border bg-white p-4 space-y-3">
-          <p className="text-sm font-semibold text-neutral-800">Button & branding</p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input label="Button text" value={draft.cta.text} onChange={(e) => setCta({ text: e.target.value })} />
-            <ColorField label="Button colour" value={draft.cta.color} onChange={(v) => setCta({ color: v })} />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input label="Company name" value={draft.branding.companyName} onChange={(e) => setBranding({ companyName: e.target.value })} />
-            <ColorField label="Accent colour" value={draft.branding.accentColor} onChange={(v) => setBranding({ accentColor: v })} />
-          </div>
-          <div>
-            <label className="field-label mb-1.5 block">Logo (optional)</label>
-            <div className="flex items-center gap-2">
-              <input
-                className="input-base h-10 flex-1"
-                placeholder="https://…/logo.png"
-                value={draft.branding.logoUrl || ''}
-                onChange={(e) => { setLogoBroken(false); setBranding({ logoUrl: e.target.value }) }}
-              />
-              <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={(e) => void onUploadLogo(e.target.files?.[0] ?? null)} />
-              <Button size="sm" variant="secondary" icon={<UploadCloud size={14} />} loading={uploadingLogo} onClick={() => logoInput.current?.click()}>Upload</Button>
-            </div>
-            {draft.branding.logoUrl && (
-              <div className="mt-2 flex items-center gap-2">
-                <img
-                  key={draft.branding.logoUrl}
-                  src={draft.branding.logoUrl}
-                  alt="Logo preview"
-                  className="h-8 max-w-[160px] rounded border border-border object-contain"
-                  onLoad={() => setLogoBroken(false)}
-                  onError={() => setLogoBroken(true)}
-                />
-                {logoBroken && <span className="text-xs text-danger">This URL didn’t load as an image — use a public direct image link, or Upload a file.</span>}
+            {!locked.ok && (
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-warning-border bg-warning-bg p-3.5">
+                <span className="flex min-w-0 flex-1 items-start gap-2.5 text-xs leading-relaxed text-warning">
+                  <AlertTriangle size={15} className="mt-px flex-shrink-0" />
+                  <span>
+                    <span className="font-bold">The interview link is missing.</span>{' '}
+                    Every candidate needs their own link, so <span className="font-mono">{locked.missing.join(', ')}</span> must stay
+                    in the subject or body — add it back to continue.
+                  </span>
+                </span>
+                <Button size="xs" variant="secondary" icon={<Link2 size={12} />} onClick={insertLinkToken}>Insert link</Button>
               </div>
             )}
-            <p className="mt-1 text-xs text-neutral-400">
-              Paste a <span className="font-medium">public, direct</span> image URL, or Upload a file (we host it). Google Drive/Docs links and <span className="font-mono">localhost</span> URLs won’t load in emails.
-            </p>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Input label="Footer" value={draft.branding.footer || ''} onChange={(e) => setBranding({ footer: e.target.value })} />
-            <Input label="Deadline text (optional)" placeholder="e.g. Please complete within 5 days" value={draft.deadlineText || ''} onChange={(e) => set('deadlineText', e.target.value)} />
-          </div>
-        </div>
+        </Panel>
 
-        <div className="flex justify-end">
+        {/* CTA + branding */}
+        <Panel icon={<Palette size={16} />} title="Button & branding" hint="How the email looks — the action button, your name, and colours.">
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="Button text" value={draft.cta.text} onChange={(e) => setCta({ text: e.target.value })} />
+              <ColorField label="Button colour" value={draft.cta.color} onChange={(v) => setCta({ color: v })} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="Company name" value={draft.branding.companyName} onChange={(e) => setBranding({ companyName: e.target.value })} />
+              <ColorField label="Accent colour" value={draft.branding.accentColor} onChange={(v) => setBranding({ accentColor: v })} />
+            </div>
+            <div>
+              <label className="field-label mb-1.5 block">Logo (optional)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  aria-label="Logo image URL"
+                  className="input-base h-10 flex-1"
+                  placeholder="https://…/logo.png"
+                  value={draft.branding.logoUrl || ''}
+                  onChange={(e) => { setLogoBroken(false); setBranding({ logoUrl: e.target.value }) }}
+                />
+                <input ref={logoInput} type="file" accept="image/*" className="hidden" onChange={(e) => void onUploadLogo(e.target.files?.[0] ?? null)} />
+                <Button size="sm" variant="secondary" icon={<UploadCloud size={14} />} loading={uploadingLogo} onClick={() => logoInput.current?.click()}>Upload</Button>
+              </div>
+              {draft.branding.logoUrl && (
+                <div className="mt-2.5 flex items-center gap-2.5">
+                  <span className="inline-flex items-center rounded-xl border border-border bg-neutral-50 p-1.5">
+                    <img
+                      key={draft.branding.logoUrl}
+                      src={draft.branding.logoUrl}
+                      alt="Logo preview"
+                      className="h-7 max-w-[160px] object-contain"
+                      onLoad={() => setLogoBroken(false)}
+                      onError={() => setLogoBroken(true)}
+                    />
+                  </span>
+                  {logoBroken && <span className="text-xs leading-relaxed text-danger">This URL didn’t load as an image — use a public direct image link, or Upload a file.</span>}
+                </div>
+              )}
+              <p className="mt-2 text-xs leading-relaxed text-neutral-400">
+                Paste a <span className="font-medium text-neutral-500">public, direct</span> image URL, or Upload a file (we host it). Google Drive/Docs links and <span className="font-mono">localhost</span> URLs won’t load in emails.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="Footer" value={draft.branding.footer || ''} onChange={(e) => setBranding({ footer: e.target.value })} />
+              <Input label="Deadline text (optional)" placeholder="e.g. Please complete within 5 days" value={draft.deadlineText || ''} onChange={(e) => set('deadlineText', e.target.value)} />
+            </div>
+          </div>
+        </Panel>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-neutral-50 px-4 py-3">
+          <p className="text-xs leading-relaxed text-neutral-500">
+            Send yourself a copy first — it arrives with sample candidate details.
+          </p>
           <Button variant="secondary" icon={<Send size={15} />} loading={testing} onClick={sendTest}>Send test to me</Button>
         </div>
       </div>
@@ -290,7 +330,7 @@ export function InviteEmailStep({
       {/* ── Preview column ── */}
       <div className="space-y-2 lg:sticky lg:top-4 lg:self-start">
         <EmailPreview draft={draft} vars={vars} candidateEmail={sampleEmail} origin={origin} />
-        <p className="px-1 text-xs text-neutral-400">
+        <p className="px-1 text-xs leading-relaxed text-neutral-400">
           Sample data shown. The real per-candidate link is generated per recipient at send time.
         </p>
       </div>
@@ -300,13 +340,21 @@ export function InviteEmailStep({
 
 /** A small native colour picker + hex text pair styled to the design system. */
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const valid = /^#[0-9a-fA-F]{6}$/.test(value)
   return (
     <div>
       <label className="field-label mb-1.5 block">{label}</label>
       <div className="flex items-center gap-2">
-        <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#0d5c3a'} onChange={(e) => onChange(e.target.value)}
-          className="h-10 w-12 cursor-pointer rounded-lg border border-border bg-white p-1" />
-        <input value={value} onChange={(e) => onChange(e.target.value)} className={cn('input-base h-10 flex-1 font-mono text-xs')} />
+        <input
+          type="color" aria-label={`${label} swatch`}
+          value={valid ? value : '#6B2BE0'} onChange={(e) => onChange(e.target.value)}
+          className="h-10 w-11 flex-shrink-0 cursor-pointer rounded-xl border border-border bg-white p-1 transition-colors duration-150 hover:border-primary-300"
+        />
+        <input
+          aria-label={`${label} hex value`}
+          value={value} onChange={(e) => onChange(e.target.value)}
+          className={cn('input-base h-10 min-w-0 flex-1 font-mono text-xs uppercase', !valid && value ? '!border-warning' : '')}
+        />
       </div>
     </div>
   )

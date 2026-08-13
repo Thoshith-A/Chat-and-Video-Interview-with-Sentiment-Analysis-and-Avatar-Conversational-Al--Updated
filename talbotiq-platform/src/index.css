@@ -1,12 +1,10 @@
-/* Inter must be first */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   BASE
+   BASE — Mimic violet system (inherited from the parent brand, Eightfold AI).
+   One family (Figtree), lavender-toned neutrals, violet primary, mint accents.
 ───────────────────────────────────────────────────────────────────────────── */
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
@@ -14,8 +12,8 @@
   html { font-size: 16px; scroll-behavior: smooth; }
 
   body {
-    font-family: 'Roboto', 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: #FBFAFE;   /* Mimic violet-tinted near-white */
+    font-family: 'Figtree', 'Roboto', system-ui, -apple-system, sans-serif;
+    background-color: #F7F5FB;   /* lavender-neutral app ground */
     color: #1B0B3B;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -25,14 +23,14 @@
 
   /* Typography */
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Figtree', 'Inter', system-ui, sans-serif;
+    font-family: 'Figtree', system-ui, sans-serif;
     color: #1B0B3B;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.028em;
     line-height: 1.2;
   }
 
   /* Selection */
-  ::selection { background: #F0E9FD; color: #6B2BE0; }
+  ::selection { background: #E0D4FB; color: #4A1BA8; }
 
   /* Focus */
   :focus-visible {
@@ -45,7 +43,7 @@
   input[type='range']::-webkit-slider-runnable-track {
     height: 4px;
     border-radius: 2px;
-    background: #e2e8f0;
+    background: #E7E2F2;
   }
   input[type='range']::-webkit-slider-thumb {
     -webkit-appearance: none;
@@ -71,8 +69,17 @@
   /* Scrollbar */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  ::-webkit-scrollbar-thumb { background: #D2CBE4; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9D93B8; }
+
+  /* Reduced motion — collapse every animation and transition */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -85,43 +92,43 @@
     height: 44px;
     padding: 0 14px;
     font-size: 0.9rem;
-    font-family: 'Roboto', 'Inter', sans-serif;
-    color: #0f172a;
+    font-family: 'Figtree', 'Roboto', sans-serif;
+    color: #1B0B3B;
     background: #ffffff;
-    border: 1.5px solid #dde8e0;
-    border-radius: 10px;
+    border: 1.5px solid #948BAB;
+    border-radius: 12px;
     outline: none;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  .input-base::placeholder { color: #94a3b8; }
-  .input-base:hover  { border-color: #E0D4FB; }
-  .input-base:focus  { border-color: #6B2BE0; box-shadow: 0 0 0 3px rgba(107,43,224,0.1); }
+  .input-base::placeholder { color: #645C7B; }
+  .input-base:hover  { border-color: #C9B3F7; }
+  .input-base:focus  { border-color: #6B2BE0; box-shadow: 0 0 0 3px rgba(107,43,224,0.12); }
 
   .textarea-base {
     width: 100%;
-    padding: 10px 12px;
+    padding: 10px 13px;
     font-size: 0.875rem;
-    font-family: 'Roboto', 'Inter', sans-serif;
-    color: #0f172a;
+    font-family: 'Figtree', 'Roboto', sans-serif;
+    color: #1B0B3B;
     background: #ffffff;
-    border: 1.5px solid #e2e8f0;
-    border-radius: 8px;
+    border: 1.5px solid #948BAB;
+    border-radius: 12px;
     outline: none;
     resize: vertical;
     min-height: 96px;
     line-height: 1.6;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  .textarea-base::placeholder { color: #94a3b8; }
-  .textarea-base:hover  { border-color: #cbd5e1; }
-  .textarea-base:focus  { border-color: #6B2BE0; box-shadow: 0 0 0 3px rgba(107,43,224,0.1); }
+  .textarea-base::placeholder { color: #645C7B; }
+  .textarea-base:hover  { border-color: #C9B3F7; }
+  .textarea-base:focus  { border-color: #6B2BE0; box-shadow: 0 0 0 3px rgba(107,43,224,0.12); }
 
   /* ── Label ──────────────────────────────────────────────────────────────── */
   .field-label {
     display: block;
     font-size: 0.75rem;
     font-weight: 600;
-    color: #475569;
+    color: #5D5578;
     letter-spacing: 0.025em;
     text-transform: uppercase;
     margin-bottom: 6px;
@@ -130,15 +137,16 @@
   /* ── Card ───────────────────────────────────────────────────────────────── */
   .card {
     background: #ffffff;
-    border: 1px solid #dde8e0;
+    border: 1px solid #E7E2F2;
     border-radius: 16px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+    box-shadow: 0 1px 3px rgba(27,11,59,0.05), 0 1px 2px rgba(27,11,59,0.03);
   }
   .card-hover {
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
   }
   .card-hover:hover {
-    box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 6px -2px rgb(0 0 0 / 0.05);
+    border-color: #CDB8F5;
+    box-shadow: 0 4px 12px -2px rgb(27 11 59 / 0.08), 0 2px 6px -2px rgb(27 11 59 / 0.05);
     transform: translateY(-1px);
   }
 
@@ -148,7 +156,7 @@
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #6B2BE0;   /* Mimic violet brand */
+    color: #6B2BE0;
   }
 
   /* ── Pill / kicker ──────────────────────────────────────────────────────── */
@@ -157,13 +165,13 @@
     align-items: center;
     gap: 5px;
     font-size: 0.6875rem;
-    font-weight: 600;
-    letter-spacing: 0.06em;
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     background: #F0E9FD;
-    color: #6B2BE0;
+    color: #4A1BA8;
     border: 1px solid #E0D4FB;
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: 9999px;
   }
 
@@ -172,20 +180,20 @@
     display: inline-block;
     width: 6px; height: 6px;
     border-radius: 50%;
-    background: #16a34a;
+    background: #0F7A5F;
     animation: pulse 2.5s ease-in-out infinite;
   }
 
   /* ── Status badge ───────────────────────────────────────────────────────── */
-  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 600; }
-  .badge-success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-  .badge-warning { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-  .badge-danger  { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-  .badge-neutral { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
-  .badge-info    { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 9999px; font-size: 0.6875rem; font-weight: 600; letter-spacing: -0.005em; }
+  .badge-success { background: #E4F6F0; color: #0F7A5F; border: 1px solid #B8E8D8; }
+  .badge-warning { background: #FDF3E2; color: #8F5A00; border: 1px solid #F5D9A8; }
+  .badge-danger  { background: #fef2f2; color: #C1332B; border: 1px solid #fecaca; }
+  .badge-neutral { background: #F3F1F9; color: #5D5578; border: 1px solid #E7E2F2; }
+  .badge-info    { background: #F0E9FD; color: #6B2BE0; border: 1px solid #E0D4FB; }
 
   /* ── Divider ────────────────────────────────────────────────────────────── */
-  .divider { width: 100%; height: 1px; background: #e2e8f0; }
+  .divider { width: 100%; height: 1px; background: #E7E2F2; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -198,9 +206,13 @@
 
   .text-balance { text-wrap: balance; }
 
-  /* Subtle grid background for hero sections */
-  .bg-grid {
-    background-image: radial-gradient(circle, #e2e8f0 1px, transparent 1px);
-    background-size: 24px 24px;
+  /* Atmosphere for the full-screen auth surfaces. Two large, soft violet
+     washes — not a tiled hairline grid, which reads as graph paper and is a
+     generic "generated UI" tell. Fixed size so it never repeats. */
+  .bg-brand-wash {
+    background-image:
+      radial-gradient(60rem 40rem at 12% -10%, rgba(107, 43, 224, 0.10), transparent 60%),
+      radial-gradient(50rem 34rem at 92% 108%, rgba(196, 44, 147, 0.08), transparent 62%);
+    background-repeat: no-repeat;
   }
 }

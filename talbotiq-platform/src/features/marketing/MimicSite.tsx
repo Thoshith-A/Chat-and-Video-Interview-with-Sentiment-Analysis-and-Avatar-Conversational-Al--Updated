@@ -1,98 +1,137 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   DIRECTION CONTRACT — /mimic marketing site (Persuade)
+
+   THESIS: This page proves the scoring mechanism instead of asserting outcomes.
+   It refuses the category default — a hero metric band of borrowed customer
+   statistics — because none of ours are real, and shows the rubric marking a
+   real answer instead.
+   OWN-WORLD: Inherited from the parent brand, Eightfold AI, as shipped. Pale
+   lavender ground, a violet→magenta gradient owning whole fields, mint-green
+   primary actions on dark ink, fully-rounded pill controls, eyebrow pills above
+   headings, Figtree throughout, drawn icons only. (An earlier pass rebased this
+   on blue from a text description of the parent site; that was wrong.)
+   STORY: A mid-market recruiter understands within one viewport that every
+   applicant gets interviewed and scored on one rubric, sees the scoring shown
+   rather than claimed, and books a demo.
+   FIRST VIEWPORT: Headline left at 68px with sub and two actions; right, a real
+   Sessions frame with scored candidates, labelled sample data. Primary action
+   sits above the fold on the left.
+   FORM: Parent-brand inheritance — pinned by the user, so no concept roll ran.
+   FINISH: unreviewed and undocumented is unfinished; this build ends with the
+   finish review, the verdict, and DESIGN.md.
+   ══════════════════════════════════════════════════════════════════════════ */
+
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import './mimicSite.css'
 import { MarketingLayout } from './MarketingLayout'
-import { CountUp } from './motion'
+import { Magnetic, Parallax, Reveal } from './motion'
+import { Ico } from './icons'
 
-/* Mimic marketing site — a faithful React implementation of the Claude Design
- * doc (Mimic.dc.html). Public route (pre-login). All styling is scoped under
- * `.mimic-site`. Content + figures match the design doc verbatim (per the
- * user's request); the sample stats/logos/testimonial are illustrative and
- * to be replaced with real data before public launch. */
-
-const Mark = ({ stroke = '#fff' }: { stroke?: string }) => (
-  <svg viewBox="0 0 32 32" aria-hidden="true">
-    <path d="M7 21V11l5 6 4-6 4 6 5-6v10" fill="none" stroke={stroke} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-const Check = ({ color = 'currentColor', size = 20 }: { color?: string; size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
-)
-
-
+/* ── Interview formats. Six real tracks; the sixth card states the rule the
+      other five obey, so it spans the row rather than repeating the pattern. */
 const TRACKS = [
-  { name: 'Conversational chat', tag: 'Async', desc: 'A text interview candidates finish on a phone in minutes. Best for hourly and high-volume reqs.', meta: ['No scheduling', 'Mobile-first'], bg: '#F0E9FD', dot: '#6B2BE0' },
-  { name: 'Voice screening', tag: 'Async', desc: 'Spoken answers, transcribed and scored — tone, pacing and content assessed together.', meta: ['Transcription', 'Signal analysis'], bg: '#E6F7F2', dot: '#2FBF9F' },
-  { name: 'AI video avatar', tag: 'Async', desc: 'A face-to-face round with a configured persona that reacts, follows up and probes shallow answers.', meta: ['Personas', 'Replicas'], bg: '#FCE9F4', dot: '#C42C93' },
-  { name: 'Live two-way call', tag: 'Live', desc: 'A real interviewer in the room, with Mimic taking notes, scoring the rubric and recording consentfully.', meta: ['Host room', 'Star rating'], bg: '#EDE7FA', dot: '#4A1BA8' },
-  { name: 'Timed Q&A', tag: 'Async', desc: 'Per-question timers for skills that need pressure — support triage, trading floors, dispatch.', meta: ['Per-Q timer', 'Integrity checks'], bg: '#FDEBE9', dot: '#D53927' },
-  { name: 'Résumé-adaptive by default', tag: 'Every track', desc: "Each interview reads the candidate's résumé first and rewrites its own follow-ups around what they claim.", meta: ['Auto-tailored', 'Same rubric'], bg: '#1B0B3B', dot: '#B98CFF', dark: true },
+  { name: 'Conversational chat', tag: 'Async', icon: 'chat' as const,
+    desc: 'A text interview candidates finish on a phone in minutes. Best for hourly and high-volume roles.',
+    meta: ['No scheduling', 'Mobile-first'], bg: '#F3EDFD', fg: '#6B2BE0' },
+  { name: 'Voice screening', tag: 'Async', icon: 'mic' as const,
+    desc: 'A spoken conversation with an AI interviewer. Answers are transcribed, then scored on content and delivery together.',
+    meta: ['Live transcript', 'Barge-in'], bg: '#FCEBF6', fg: '#C42C93' },
+  { name: 'AI video avatar', tag: 'Async', icon: 'video' as const,
+    desc: 'A configured presenter asks each question on camera, reacts to the answer, and follows up when one is thin.',
+    meta: ['Personas', 'Replicas'], bg: '#EDF0FD', fg: '#5B6FE8' },
+  { name: 'Live two-way call', tag: 'Live', icon: 'users' as const,
+    desc: 'Your interviewer leads a real video call. Mimic records it with consent, transcribes it and scores the same rubric.',
+    meta: ['Host room', 'Star rating'], bg: '#E4F6F0', fg: '#0F7A5F' },
+  { name: 'Timed Q&A', tag: 'Async', icon: 'clock' as const,
+    desc: 'Preparation and answer timers on every question, identical for every candidate. For work that happens under a clock.',
+    meta: ['Per-question timer', 'Integrity checks'], bg: '#E9E2FB', fg: '#4A1BA8' },
 ]
+
+/* ── The five steps of the real workflow, with the actual route each lives on. */
 const STEPS = [
-  { t: 'Configure once', r: '/templates/senior-rn-nights', b: 'Pick the track, the question source, the rubric weights and the timing. Save it as a template your whole team reuses.' },
-  { t: 'Invite in bulk', r: '/sessions/new', b: 'Drop in a CSV or paste an ATS export. Mimic parses every résumé, personalises the email and sends the links.' },
-  { t: 'Interview on their schedule', r: '/take/:sessionId', b: 'Candidates interview at 11pm on a phone if that is what works. Questions adapt live to what the résumé claimed.' },
-  { t: 'Score every answer', r: '/sessions/:id/report', b: 'One rubric, applied identically. Each dimension cites the answer it came from, with transcript and signal analysis.' },
-  { t: 'Decide with a shortlist', r: '/pipelines/:id', b: 'Drag candidates through rounds, or auto-advance everyone above a threshold. Export the board when you are done.' },
+  { t: 'Configure once', r: 'Templates',
+    b: 'Pick the format, where questions come from, the rubric weights and the timing. Save it as a template your whole team reuses.',
+    d: ['Six interview formats on one configuration', 'Weighted criteria you define, rescaled automatically', 'Branding and integrity rules per template'] },
+  { t: 'Invite in bulk', r: 'Sessions → Invite candidates',
+    b: 'Drop in a spreadsheet or an ATS export. Mimic reads every address, personalises each email and sends a link bound to that candidate.',
+    d: ['CSV, Excel, PDF, DOCX or plain text', 'Each link opens only for the address it was sent to', 'Test the exact email on yourself before sending'] },
+  { t: 'Interview on their schedule', r: 'The candidate’s link',
+    b: 'Candidates interview at eleven at night on a phone if that is what works. Adaptive interviews read their résumé and ask about what it claims.',
+    d: ['No scheduling, no app to install', 'Progress survives a refresh or a dropped connection', 'Timing is measured server-side, so it cannot be extended'] },
+  { t: 'Score every answer', r: 'Report',
+    b: 'One rubric, applied identically. Each criterion carries the answer it came from, alongside the transcript and delivery metrics.',
+    d: ['Per-question breakdown with written feedback', 'Speech metrics computed from the real transcript', 'Marked plainly when scoring ran without AI'] },
+  { t: 'Decide with a shortlist', r: 'Pipelines',
+    b: 'Drag candidates through rounds, or advance everyone above a threshold at once. Every move is written to an audit history.',
+    d: ['Drag-to-advance, or score-threshold and top-N rules', 'Rejection emails are off by default', 'Export the selected list as CSV'] },
 ]
+
+/* ── Sample rows for the hero frame. Synthetic, and labelled as such on screen. */
+const HERO_ROWS = [
+  { in: 'AR', name: 'Amara Reyes',  tag: 'AI avatar · Scored',  sc: '92', bg: '#F3EDFD', fg: '#6B2BE0', pc: '#0F7A5F', pb: '#E4F6F0', scC: '#0F7A5F' },
+  { in: 'JT', name: 'Jonas Thiel',  tag: 'Two-way · Scored',    sc: '88', bg: '#E4F6F0', fg: '#0F7A5F', pc: '#0F7A5F', pb: '#E4F6F0', scC: '#0F7A5F' },
+  { in: 'PK', name: 'Priya Kaur',   tag: 'Voice · In progress', sc: '—',  bg: '#FCEBF6', fg: '#C42C93', pc: '#6B2BE0', pb: '#F3EDFD', scC: '#A79ABF' },
+  { in: 'MO', name: 'Michael Osei', tag: 'Chatbot · Invited',   sc: '—',  bg: '#EDF0FD', fg: '#5B6FE8', pc: '#645C7E', pb: '#FAF7FE', scC: '#A79ABF' },
+  { in: 'LN', name: 'Lena Novák',   tag: 'Timed Q&A · Scored',  sc: '71', bg: '#E9E2FB', fg: '#4A1BA8', pc: '#8F5A00', pb: '#FDF3E2', scC: '#8F5A00' },
+]
+
+/* ── The rubric, dramatised. These are the product's six real default criteria
+      with their real default weights; the answer and scores are synthetic. */
+const RUBRIC = [
+  { k: 'Communication Clarity',      v: 88 },
+  { k: 'Relevance to Question',      v: 91 },
+  { k: 'Technical / Domain Depth',   v: 79 },
+  { k: 'Structure & Conciseness',    v: 84 },
+  { k: 'Problem-Solving',            v: 86 },
+  { k: 'Professionalism / Confidence', v: 90 },
+]
+
+/* ── Real client logos only. Three is what we have; three is what we show. */
 type ClientLogo = { name: string; srcs: string[]; h?: number }
-// Real client logos. Save each file (any of these formats) under /public/mimic-logos/
-// and it renders automatically: total-it-global.(png|svg|jpg|webp), aisling.(…).
-// `h` overrides the row height per logo so square marks read at the same visual
-// size as wide wordmarks. Until a file exists the marquee falls back to text.
 const withExts = (base: string) => ['png', 'svg', 'jpg', 'jpeg', 'webp'].map((e) => `${base}.${e}`)
 const CLIENTS: ClientLogo[] = [
   { name: 'Total IT Global', srcs: withExts('/mimic-logos/total-it-global') },
-  { name: 'Aisling', srcs: withExts('/mimic-logos/aisling'), h: 52 },
+  { name: 'Aisling', srcs: withExts('/mimic-logos/aisling'), h: 46 },
   { name: 'TalbotIQ', srcs: ['/talbotiq-logo.png'] },
 ]
-// Repeated so the sliding row stays full; the marquee doubles this for a seamless loop.
-const LOGOS: ClientLogo[] = [...CLIENTS, ...CLIENTS, ...CLIENTS]
 function LogoSlot({ name, srcs, h }: ClientLogo) {
   const [i, setI] = useState(0)
   if (i >= srcs.length) return <span className="logo-slot">{name.toUpperCase()}</span>
-  return <span className="logo-slot"><img src={srcs[i]} alt={name} loading="lazy" onError={() => setI(i + 1)} style={h ? { height: `${h}px`, maxWidth: 'none' } : undefined} /></span>
+  return (
+    <span className="logo-slot">
+      <img src={srcs[i]} alt={name} loading="lazy" onError={() => setI(i + 1)}
+        style={h ? { height: `${h}px`, maxWidth: 'none' } : undefined} />
+    </span>
+  )
 }
-const HERO_PROOF = [
-  { n: '1.3 days', l: 'Median time to shortlist' },
-  { n: '62%', l: 'Recruiter hours returned' },
-  { n: '340k', l: 'Interviews scored' },
-]
-const OUTCOMES = [
-  { n: '33%', t: 'Faster time-to-fill', d: 'Screening runs the night applications land, not the week after.' },
-  { n: '500+', t: 'Candidates per req, interviewed', d: 'Volume stops being a staffing question.' },
-  { n: '100%', t: 'Answers scored against one rubric', d: 'Every candidate measured the same way, evidence attached.' },
-  { n: '4 min', t: 'To configure a new round', d: 'Template, question set, invite list, send.' },
-]
-const STORY_STATS = [
-  { n: '8,400', l: 'Applicants screened in one quarter' },
-  { n: '-71%', l: 'Recruiter hours per hire' },
-  { n: '4.6/5', l: 'Candidate experience rating' },
-]
+
+/* ── Structural commitments. Every one of these is true of the product and
+      verifiable inside it — which is why they replaced the certification row. */
 const TRUST = [
-  { tag: 'Independently audited', t: 'Bias testing you can read', d: 'Adverse-impact testing is run by a third party and the results are published, not summarised. Every rubric dimension is reported separately.' },
-  { tag: 'Human-in-the-loop', t: 'Mimic never rejects anyone', d: 'Scores are recommendations with evidence attached. Advancing, rejecting and overriding are recruiter actions, and every one is logged.' },
-  { tag: 'Enterprise controls', t: 'Your data stays yours', d: 'Regional residency, configurable retention, GDPR purge on request, SSO and role-based access. Candidate data is never used to train models.' },
+  { icon: 'shield' as const, t: 'Mimic never rejects anyone',
+    d: 'A score is a recommendation with its evidence attached. Advancing, rejecting and overriding are recruiter actions, and the product has no path that removes a candidate on its own.' },
+  { icon: 'scale' as const, t: 'One rubric, applied identically',
+    d: 'You define the criteria and their weights once. Every candidate for that role is measured against the same set, which is what makes two scores comparable at all.' },
+  { icon: 'history' as const, t: 'Every decision is written down',
+    d: 'Who advanced or rejected whom, when, on what basis, and whether the email sent — recorded per candidate and readable on the board.' },
 ]
-const BADGES = ['SOC 2 Type II', 'ISO 27001', 'ISO 42001', 'GDPR ready', 'WCAG 2.2 AA', 'EEOC-aligned']
-const RESOURCES = [
-  { kind: 'Benchmark report', t: 'What 340,000 scored interviews say about screening accuracy', bg: 'linear-gradient(140deg,#2A1259,#6B2BE0)' },
-  { kind: 'Playbook', t: 'Designing a rubric your hiring managers will actually trust', bg: 'linear-gradient(140deg,#6B2BE0,#C42C93)' },
-  { kind: "Buyer's guide", t: 'Twelve questions to ask any AI interview vendor', bg: 'linear-gradient(140deg,#38206B,#C42C93)' },
-]
-const HERO_ROWS = [
-  { in: 'AR', name: 'Amara Reyes', tag: 'AI avatar · Scored', sc: '92', bg: '#F0E9FD', fg: '#6B2BE0', pc: '#0F7A66', pb: '#E6F7F2', scC: '#0F7A66' },
-  { in: 'JT', name: 'Jonas Thiel', tag: 'Two-way · Scored', sc: '88', bg: '#E6F7F2', fg: '#0F7A66', pc: '#0F7A66', pb: '#E6F7F2', scC: '#0F7A66' },
-  { in: 'PK', name: 'Priya Kaur', tag: 'Voice · In progress', sc: '—', bg: '#EDE7FA', fg: '#4A1BA8', pc: '#6B2BE0', pb: '#F0E9FD', scC: '#ADA6C0' },
-  { in: 'MO', name: 'Michael Osei', tag: 'Chatbot · Invited', sc: '—', bg: '#FCE9F4', fg: '#C42C93', pc: '#7C7595', pb: '#F8F6FD', scC: '#ADA6C0' },
-  { in: 'LN', name: 'Lena Novák', tag: 'Timed Q&A · Scored', sc: '71', bg: '#F0E9FD', fg: '#6B2BE0', pc: '#0F7A66', pb: '#E6F7F2', scC: '#4A1BA8' },
-]
+
 const FAQS = [
-  { q: 'Does Mimic reject candidates automatically?', a: 'No. Every score is a recommendation with the evidence behind it. Advancing, rejecting and overriding are recruiter actions, and every one is logged. Mimic never rejects anyone on its own.' },
-  { q: 'How do you keep scoring fair?', a: 'Every candidate is measured against one rubric, and each dimension cites the exact answer it came from. Adverse-impact testing is run by a third party and reported per dimension, and a human makes every decision.' },
-  { q: 'How long does it take to go live?', a: 'You can build a reusable interview template in minutes and send your first invitations the same day. Most teams are running a live round within a week; larger rollouts scale from there.' },
-  { q: 'Does Mimic work with our ATS?', a: 'Invite candidates from a CSV, an ATS export, or a single shareable link — so you can start today with no integration. Direct ATS connectors are available for enterprise plans; tell us your stack in the demo.' },
-  { q: 'Is candidate data secure and compliant?', a: 'Mimic supports regional data residency, configurable retention, GDPR purge on request, SSO and role-based access, and is SOC 2 Type II and ISO 27001 aligned. Candidate data is never used to train models.' },
-  { q: 'What does Mimic cost?', a: "Mimic is priced for enterprise hiring by volume — you pay for interview capacity, not per seat. Book a demo and we'll scope pricing to your req load." },
+  { q: 'Does Mimic reject candidates automatically?',
+    a: 'No. Every score is a recommendation with the evidence behind it. Advancing, rejecting and overriding are recruiter actions, and each one is written to that candidate’s history. There is no automatic rejection anywhere in the product.' },
+  { q: 'How do you keep scoring fair?',
+    a: 'Every candidate for a role is measured against one rubric that you define, and each criterion carries the answer it was derived from. The overall score is calculated by the platform from your weights — not written by the language model — so the same answers always produce the same number.' },
+  { q: 'How long does it take to go live?',
+    a: 'You can build a reusable interview template and send your first invitations in the same sitting. There is nothing to install on your side and nothing for candidates to download.' },
+  { q: 'Does Mimic work with our ATS?',
+    a: 'You can start today with no integration at all: invite from a CSV, an ATS export, or a single shareable link. Tell us which ATS you run during the demo and we will confirm exactly what an integration would look like for you.' },
+  { q: 'What do candidates actually experience?',
+    a: 'They open a link, confirm they are ready, and interview in the browser — on a phone if that is what they have. They are told when AI is involved and consent before a recorded round. Their progress survives a refresh, and they never see scores.' },
+  { q: 'How is candidate data handled?',
+    a: 'Ask us directly, and we will walk your security and legal reviewers through where candidate data sits, who can reach it and how long it is kept — before you commit to anything. We do not publish certification badges we cannot evidence.' },
+  { q: 'What does Mimic cost?',
+    a: 'Pricing follows interview volume rather than seats. Tell us your monthly applicant load in the demo and we will scope it to that.' },
 ]
 
 type FormState = { firstName: string; lastName: string; email: string; hiresPerYear: string }
@@ -106,10 +145,8 @@ export default function MimicSite() {
   const [submitted, setSubmitted] = useState(false)
   const [formError, setFormError] = useState('')
 
-  // Per-route SEO head. A single-page app shares one <head>, so set the marketing
-  // page's own title/meta/OG/canonical + JSON-LD on mount and restore on unmount.
-  // (Client-rendered — fine for JS-executing crawlers; a prerender/SSR pass is the
-  // follow-up for full static SEO. Tracked in the delivery notes.)
+  // Per-route SEO head. A single-page app shares one <head>, so set this page's
+  // title/meta/OG/canonical + JSON-LD on mount and restore on unmount.
   useEffect(() => {
     const prevTitle = document.title
     document.title = 'Mimic by TalbotIQ — AI Interviews for Every Candidate'
@@ -125,7 +162,8 @@ export default function MimicSite() {
     meta('meta[property="og:description"]', 'property', 'og:description', desc)
     meta('meta[property="og:type"]', 'property', 'og:type', 'website')
     meta('meta[name="twitter:card"]', 'name', 'twitter:card', 'summary_large_image')
-    const canonical = document.createElement('link'); canonical.rel = 'canonical'; canonical.href = 'https://mimic.talbotiq.com/'; document.head.appendChild(canonical); added.push(canonical)
+    const canonical = document.createElement('link'); canonical.rel = 'canonical'
+    canonical.href = 'https://mimic.talbotiq.com/'; document.head.appendChild(canonical); added.push(canonical)
     const ld = document.createElement('script'); ld.type = 'application/ld+json'
     ld.textContent = JSON.stringify({ '@context': 'https://schema.org', '@graph': [
       { '@type': 'Organization', name: 'TalbotIQ', brand: { '@type': 'Brand', name: 'Mimic' }, url: 'https://mimic.talbotiq.com/' },
@@ -136,7 +174,6 @@ export default function MimicSite() {
     document.head.appendChild(ld); added.push(ld)
     return () => { document.title = prevTitle; added.forEach((el) => el.remove()) }
   }, [])
-
 
   const valid = (k: keyof FormState, v: string) =>
     k === 'email' ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim()) : v.trim().length > 0
@@ -160,7 +197,7 @@ export default function MimicSite() {
       if (!res.ok) throw new Error('bad status')
       setSubmitted(true)
     } catch {
-      setFormError("Something went wrong sending that. Please try again, or email sales@talbotiq.com.")
+      setFormError('Something went wrong sending that. Please try again, or email sales@talbotiq.com.')
     } finally {
       setSubmitting(false)
     }
@@ -169,167 +206,373 @@ export default function MimicSite() {
   return (
     <MarketingLayout>
       <main id="top">
-        {/* HERO */}
+
+        {/* ── HERO ── */}
         <section className="hero" aria-labelledby="hero-h1">
+          {/* WebGL layer intentionally NOT mounted here — see three/HeroCanvas.tsx.
+              This hero's composition is already resolved (type left, product frame
+              right) and has no negative space for a scene; three attempts at one
+              all competed with the headline instead of supporting it. The scene
+              needs a section of its own, or a hero rebuilt to make room for it.
+              Pending that decision the canvas stays unmounted. */}
           <div className="wrap hero-in">
             <div>
-              <span className="pill">AI interviews · every candidate</span>
-              <h1 id="hero-h1">Screening, decided.</h1>
-              <p className="sub">Mimic interviews and scores every applicant the day they apply — across chat, voice, AI video and a live round — on one rubric, with the evidence attached.</p>
+              <span className="eyebrow">AI native interview screening</span>
+              <h1 id="hero-h1">Screening intelligence, human-decided.</h1>
+              <p className="sub">
+                Mimic interviews every applicant the day they apply — across chat, voice, AI video
+                and a live round — and scores every answer against one rubric you define, with the
+                evidence attached.
+              </p>
               <div className="hero-cta">
-                <a className="btn btn-light" href="#demo">Book a demo</a>
-                <a className="btn btn-outline-l" href="#how">See how scoring works</a>
+                {/* Magnetic is pointer-gated and capped at ~6px — enough to feel
+                    responsive under the cursor, not enough to become a toy. */}
+                <Magnetic><a className="btn btn-primary btn-lg" href="#demo">Book a demo</a></Magnetic>
+                <Magnetic><a className="btn btn-ghost btn-lg" href="#scoring">See how scoring works</a></Magnetic>
               </div>
-              <div className="proof">
-                {HERO_PROOF.map((p) => (<div key={p.l}><div className="n"><CountUp value={p.n} /></div><div className="l">{p.l}</div></div>))}
-              </div>
+              <p className="hero-note">
+                <Ico n="check" />
+                Candidates interview in the browser. No scheduling, no app to install.
+              </p>
             </div>
-            <div className="card-float" role="img" aria-label="Sample Mimic sessions workspace showing scored candidates">
-              <div className="cf-head"><span className="t">Sessions · Senior RN · Nights</span><span className="sample">Sample data</span></div>
+
+            {/* Gentle parallax on the product frame — the hero's only depth
+                cue now that the WebGL layer is unmounted. The wrapper becomes
+                the grid cell; .frame fills it, so the layout is unchanged. */}
+            <Parallax strength={22}>
+            <div className="frame" role="img" aria-label="The Mimic sessions screen, showing five candidates with their interview format, status and score. Sample data.">
+              <div className="fr-top">
+                <span className="t">Sessions · Senior RN · Nights</span>
+                <span className="ph">Sample data</span>
+              </div>
               {HERO_ROWS.map((r) => (
                 <div className="strow" key={r.name}>
-                  <span className="cand"><span className="ci" style={{ background: r.bg, color: r.fg }}>{r.in}</span><span className="nm">{r.name}</span></span>
+                  <span className="cand">
+                    <span className="ci" style={{ background: r.bg, color: r.fg }}>{r.in}</span>
+                    <span className="nm">{r.name}</span>
+                  </span>
                   <span className="pill-s" style={{ color: r.pc, background: r.pb }}>{r.tag}</span>
                   <span className="sc" style={{ color: r.scC }}>{r.sc}</span>
                 </div>
               ))}
             </div>
+            </Parallax>
           </div>
         </section>
 
-        {/* LOGOS */}
+        {/* ── CLIENTS ── */}
         <section className="logos" aria-label="Customers">
           <div className="wrap">
-            <h2>Talent teams screening at volume already run on Mimic.</h2>
-            <div className="marq" aria-hidden="true"><div className="marq-track">{LOGOS.concat(LOGOS).map((l, i) => <LogoSlot key={l.name + i} name={l.name} srcs={l.srcs} h={l.h} />)}</div></div>
-          </div>
-        </section>
-
-        {/* OUTCOMES */}
-        <section className="section" id="how" aria-labelledby="out-h">
-          <div className="wrap">
-            <div className="sec-head">
-              <span className="eyebrow" style={{ color: 'var(--m-violet)' }}>The outcome</span>
-              <h2 className="h2" id="out-h" style={{ marginTop: 12 }}>The first round stops being the bottleneck.</h2>
-              <p className="lede">Applications arrive around the clock. Mimic interviews them as they land and hands your team a ranked, evidence-backed shortlist — not a queue.</p>
-            </div>
-            <div className="grid4">
-              {OUTCOMES.map((o) => (<div className="ocell" key={o.t}><div className="n"><CountUp value={o.n} /></div><div className="t">{o.t}</div><div className="d">{o.d}</div></div>))}
+            <p className="lead">Teams already screening with Mimic</p>
+            <div className="logo-row">
+              {CLIENTS.map((l) => <LogoSlot key={l.name} name={l.name} srcs={l.srcs} h={l.h} />)}
             </div>
           </div>
         </section>
 
-        {/* TRACKS */}
-        <section className="section" id="platform" aria-labelledby="tr-h">
+        {/* ── THE MECHANISM — proof by demonstration, not by borrowed statistic ── */}
+        <section className="section" id="scoring" aria-labelledby="mech-h">
           <div className="wrap">
             <div className="sec-head">
-              <span className="eyebrow" style={{ color: 'var(--m-violet)' }}>Interview tracks</span>
-              <h2 className="h2" id="tr-h" style={{ marginTop: 12 }}>One configuration. Five ways to meet a candidate.</h2>
-              <p className="lede">Pick the format that fits the role. Every track reads the résumé first and scores against the same rubric.</p>
+              <span className="eyebrow">How scoring works</span>
+              <h2 className="h2" id="mech-h">A score you can check, line by line.</h2>
+              <p className="lede">
+                Most screening tools hand you a number. Mimic hands you the number, the criteria it
+                came from, and the sentence in the candidate’s own answer that earned it.
+              </p>
             </div>
-            <div className="grid3">
+
+            <div className="mech">
+              <Reveal>
+                <div className="mech-card">
+                  <div className="mech-q">
+                    <span className="lbl">Question 3 of 6</span>
+                    <p>Tell me about a time you had to de-escalate a situation on a night shift with no senior nurse on the floor.</p>
+                  </div>
+                  <div className="mech-a">
+                    <span className="lbl">Candidate answer</span>
+                    <p>
+                      “We had a post-op patient becoming agitated around 2am and the on-call was forty
+                      minutes out. <mark>I moved him to the quiet bay first so the ward settled</mark>, then
+                      checked his chart for the analgesia timing — he was overdue.{' '}
+                      <mark>I called the on-call with the drug chart already in front of me</mark> so we
+                      could agree a dose in one conversation instead of three, and I stayed with him
+                      until it took. <mark>Afterwards I wrote it up and flagged the gap in the handover</mark>{' '}
+                      so the day team knew to watch the timing.”
+                    </p>
+                  </div>
+                  <div className="mech-scores">
+                    <span className="lbl">Scored against your rubric</span>
+                    {RUBRIC.map((k) => (
+                      <div className="kpi" key={k.k}>
+                        <div>
+                          <div className="kn">{k.k}</div>
+                          <div className="track"><div className="fill" style={{ width: `${k.v}%` }} /></div>
+                        </div>
+                        <div className="kv" style={{ color: k.v >= 85 ? '#0F7A5F' : k.v >= 70 ? '#8F5A00' : '#C1332B' }}>{k.v}</div>
+                      </div>
+                    ))}
+                    <div className="mech-total">
+                      <span className="lab">Overall, weighted</span>
+                      <span className="val">
+                        <span className="num">86</span>
+                        <span className="rec">Strong Yes</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </Reveal>
+
+              <div>
+                <ul className="mech-points">
+                  <li>
+                    <span className="ico"><Ico n="quote" /></span>
+                    <div>
+                      <h3>The evidence is part of the score</h3>
+                      <p>
+                        Each criterion links back to the passage it was drawn from. A hiring manager
+                        who disagrees with a number can read the sentence behind it in a few seconds
+                        rather than taking the score on trust.
+                      </p>
+                    </div>
+                  </li>
+                  <li>
+                    <span className="ico"><Ico n="scale" /></span>
+                    <div>
+                      <h3>You set the criteria and the weights</h3>
+                      <p>
+                        Six criteria ship as a starting point. Rename them, switch them off, add your
+                        own, and set what each one is worth — the weights rescale to 100% as you type,
+                        so the arithmetic is always honest.
+                      </p>
+                    </div>
+                  </li>
+                  <li>
+                    <span className="ico"><Ico n="calc" /></span>
+                    <div>
+                      <h3>The platform does the arithmetic, not the model</h3>
+                      <p>
+                        The language model judges individual answers. The overall score is computed
+                        from your weights in ordinary code, which is why the same answers always
+                        produce the same number.
+                      </p>
+                    </div>
+                  </li>
+                  <li>
+                    <span className="ico"><Ico n="alert" /></span>
+                    <div>
+                      <h3>It tells you when it is unsure</h3>
+                      <p>
+                        If an interview captured no answers, the report says <em>not evaluated</em>{' '}
+                        rather than showing zeros. If it ran without AI, it says so on the report. A
+                        degraded result is never dressed up as a real one.
+                      </p>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── FORMATS ── */}
+        <section className="section tinted" id="platform" aria-labelledby="tr-h">
+          <div className="wrap">
+            <div className="sec-head">
+              <span className="eyebrow">Interview formats</span>
+              <h2 className="h2" id="tr-h">Six ways to meet a candidate.</h2>
+              <p className="lede">
+                Pick the format that fits the role. Every one of them reads the candidate’s résumé
+                first and scores against the same rubric, so results compare directly across formats.
+              </p>
+            </div>
+            <div className="tracks">
               {TRACKS.map((t) => (
-                <article className={`track${t.dark ? ' dark' : ''}`} key={t.name}>
-                  <div className="top"><span className="ic" style={{ background: t.dark ? 'rgba(255,255,255,.08)' : t.bg }}><i style={{ background: t.dot }} /></span><span className="tag">{t.tag}</span></div>
-                  <h3>{t.name}</h3><p>{t.desc}</p>
+                <article className="track" key={t.name}>
+                  <div className="top">
+                    <span className="ic" style={{ background: t.bg, color: t.fg }}><Ico n={t.icon} /></span>
+                    <span className="tag">{t.tag}</span>
+                  </div>
+                  <h3>{t.name}</h3>
+                  <p>{t.desc}</p>
                   <div className="meta">{t.meta.map((m) => <span key={m}>{m}</span>)}</div>
                 </article>
               ))}
+              <article className="track wide">
+                <div>
+                  <h3>Résumé-adaptive, on every track</h3>
+                  <p>
+                    Each interview reads the candidate’s own résumé before it starts and rewrites its
+                    follow-ups around what that résumé actually claims — then scores the result on the
+                    same rubric as everyone else applying for the role.
+                  </p>
+                </div>
+                <div className="meta">
+                  <span>Auto-tailored per candidate</span>
+                  <span>One rubric</span>
+                </div>
+              </article>
             </div>
           </div>
         </section>
 
-        {/* PROCESS */}
+        {/* ── PROCESS ── */}
         <section className="process" id="process" aria-labelledby="pr-h">
           <div className="wrap">
-            <div className="sec-head"><span className="eyebrow" style={{ color: '#B98CFF' }}>How it works</span><h2 className="h2" id="pr-h" style={{ color: '#fff', marginTop: 12 }}>Invite. Interview. Score. Shortlist.</h2></div>
+            <div className="sec-head">
+              <span className="eyebrow on-dark">How it works</span>
+              <h2 className="h2" id="pr-h">Invite. Interview. Score. Shortlist.</h2>
+              <p className="lede">Four things happen without you. The fifth is the decision, which stays yours.</p>
+            </div>
             <div className="proc-grid">
               <div className="steps" role="tablist" aria-label="How Mimic works">
                 {STEPS.map((s, i) => (
-                  <button className="step" role="tab" aria-selected={i === step} key={s.t} onClick={() => setStep(i)}>
-                    <span className="num">0{i + 1}</span><h3>{s.t}</h3><p>{s.b}</p>
+                  <button className="step" role="tab" aria-selected={i === step} key={s.t}
+                    id={`step-tab-${i}`} aria-controls="step-panel" onClick={() => setStep(i)}>
+                    <span className="num">{i + 1}</span>
+                    <span>
+                      <h3>{s.t}</h3>
+                      <p>{s.b}</p>
+                    </span>
                   </button>
                 ))}
               </div>
-              <div className="proc-panel" role="tabpanel"><span className="route">{STEPS[step].r}</span><h3>{STEPS[step].t}</h3><p>{STEPS[step].b}</p></div>
+              <div className="proc-panel" role="tabpanel" id="step-panel" aria-labelledby={`step-tab-${step}`}>
+                <span className="where"><Ico n="pin" />{STEPS[step].r}</span>
+                <h3>{STEPS[step].t}</h3>
+                <p>{STEPS[step].b}</p>
+                <div className="detail">
+                  {STEPS[step].d.map((d) => (
+                    <div key={d}><Ico n="check" />{d}</div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* SHOWCASE */}
+        {/* ── WORKSPACE ── */}
         <section className="section showcase" aria-labelledby="sh-h">
           <div className="wrap">
-            <div className="sec-head"><span className="eyebrow" style={{ color: 'var(--m-violet)' }}>The product</span><h2 className="h2" id="sh-h" style={{ marginTop: 12 }}>Two sides of the same interview.</h2><p className="lede">The site you're reading, and the workspace your team lives in — Sessions, pipelines, reports and an avatar studio, all on one rubric.</p></div>
             <div className="two">
               <div>
+                <span className="eyebrow">The product</span>
+                <h2 className="h2" id="sh-h">The workspace your team lives in.</h2>
                 <ul className="featlist">
-                  <li><Check color="var(--m-teal)" />Bulk invitations from a CSV, an ATS export, or one shareable link.</li>
-                  <li><Check color="var(--m-teal)" />Multi-round pipelines with drag-to-advance and quick-advance rules.</li>
-                  <li><Check color="var(--m-teal)" />One rubric across every track, so scores compare directly.</li>
-                  <li><Check color="var(--m-teal)" />Analytics by role, template, track and recruiter.</li>
+                  <li><Ico n="check" />Bulk invitations from a spreadsheet, an ATS export, or one shareable link.</li>
+                  <li><Ico n="check" />Multi-round pipelines with drag-to-advance and score-threshold rules.</li>
+                  <li><Ico n="check" />One rubric across every format, so scores compare directly.</li>
+                  <li><Ico n="check" />Analytics by role, template, format and recruiter.</li>
+                  <li><Ico n="check" />An assistant that answers questions and — with your confirmation — operates the product for you.</li>
                 </ul>
-                <a className="btn btn-primary" href="#demo" style={{ marginTop: 26 }}>See the workspace in a demo</a>
+                <a className="btn btn-primary" href="#demo" style={{ marginTop: 30 }}>See the workspace in a demo</a>
               </div>
-              <div className="app-mock" role="img" aria-label="Sample Mimic recruiter workspace: the Sessions screen">
+              <div className="app-mock" role="img" aria-label="The Mimic recruiter workspace showing the Sessions screen. Sample data.">
                 <div className="am-top">
-                  <span className="brand" style={{ fontSize: 14, color: '#fff' }}><span className="mk" style={{ width: 20, height: 20, borderRadius: 6 }}><Mark /></span>Mimic</span>
+                  <span className="brand" style={{ fontSize: 15 }}>
+                    <span className="mk"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 21V11l5 6 4-6 4 6 5-6v10" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
+                    Mimic
+                  </span>
                   <div className="am-tabs"><span className="on">Sessions</span><span>Pipelines</span><span>Analytics</span><span>Studio</span></div>
+                  <span className="ph" style={{ marginLeft: 'auto' }}>Sample data</span>
                 </div>
                 <div className="am-body">
-                  <div className="strow" style={{ borderColor: '#EEE9F8' }}><span className="cand"><span className="ci" style={{ background: '#F0E9FD', color: '#6B2BE0' }}>AR</span><span className="nm">Amara Reyes</span></span><span className="pill-s" style={{ color: '#0F7A66', background: '#E6F7F2' }}>Scored</span><span className="sc" style={{ color: '#0F7A66' }}>92</span></div>
-                  <div className="strow" style={{ borderColor: '#EEE9F8' }}><span className="cand"><span className="ci" style={{ background: '#E6F7F2', color: '#0F7A66' }}>DA</span><span className="nm">Devon Ako</span></span><span className="pill-s" style={{ color: '#0F7A66', background: '#E6F7F2' }}>Scored</span><span className="sc" style={{ color: '#0F7A66' }}>94</span></div>
-                  <div className="strow" style={{ borderColor: '#EEE9F8' }}><span className="cand"><span className="ci" style={{ background: '#FDEBE9', color: '#D53927' }}>SW</span><span className="nm">Sam Whitaker</span></span><span className="pill-s" style={{ color: '#C42C93', background: '#FCE9F4' }}>Scheduled</span><span className="sc" style={{ color: '#ADA6C0' }}>—</span></div>
+                  {HERO_ROWS.slice(0, 4).map((r) => (
+                    <div className="strow" key={r.name}>
+                      <span className="cand">
+                        <span className="ci" style={{ background: r.bg, color: r.fg }}>{r.in}</span>
+                        <span className="nm">{r.name}</span>
+                      </span>
+                      <span className="pill-s" style={{ color: r.pc, background: r.pb }}>{r.tag}</span>
+                      <span className="sc" style={{ color: r.scC }}>{r.sc}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* TESTIMONIAL */}
-        <section className="section" aria-label="Customer story">
-          <div className="wrap quote-grid">
-            <div>
-              <blockquote>“We were losing good people to a two-week screening queue. Now every applicant is interviewed the same day and my team reads five reports instead of ninety.”</blockquote>
-              <div className="byline"><span className="ph-photo">photo</span><div><div style={{ fontSize: 14, fontWeight: 700 }}>Dana Whitfield</div><div style={{ fontSize: '12.5px', color: 'var(--m-ink2)', fontWeight: 500 }}>VP Talent Acquisition, Meridian Health</div></div></div>
-            </div>
-            <div className="story">
-              {STORY_STATS.map((s) => (<div className="row" key={s.l}><span className="n">{s.n}</span><span className="l">{s.l}</span></div>))}
-            </div>
-          </div>
-        </section>
-
-        {/* TRUST */}
-        <section className="section" id="trust" aria-labelledby="trust-h">
+        {/* ── TRUST ── */}
+        <section className="section tinted" id="trust" aria-labelledby="trust-h">
           <div className="wrap">
-            <h2 className="h2" id="trust-h" style={{ maxWidth: '20ch' }}>Everyone claims responsible AI. Ours is auditable.</h2>
-            <div className="trust-grid">
-              {TRUST.map((t) => (<div className="tcard" key={t.t}><div className="tag">{t.tag}</div><h3>{t.t}</h3><p>{t.d}</p></div>))}
+            <div className="sec-head">
+              <span className="eyebrow">Responsible AI</span>
+              <h2 className="h2" id="trust-h">Built so a person always decides.</h2>
+              <p className="lede">
+                Three commitments that are structural rather than editorial — you can verify each one
+                inside the product on your first day.
+              </p>
             </div>
-            <div className="badges"><span style={{ fontSize: '12.5px', color: 'var(--m-muted)', fontWeight: 600, marginRight: 4 }}>Compliance:</span>{BADGES.map((b) => (<span className="badge" key={b}>{b}</span>))}</div>
+            <div className="trust-grid">
+              {TRUST.map((t) => (
+                <div className="tcard" key={t.t}>
+                  <span className="ico"><Ico n={t.icon} /></span>
+                  <h3>{t.t}</h3>
+                  <p>{t.d}</p>
+                </div>
+              ))}
+            </div>
+            <div className="tnote">
+              <Ico n="info" />
+              <p>
+                We do not display certification badges we cannot evidence. If your security or legal
+                review needs documentation, ask during the demo and we will tell you plainly what
+                exists today and what does not.
+              </p>
+            </div>
           </div>
         </section>
 
-        {/* RESOURCES */}
+        {/* ── RESOURCES ── */}
         <section className="section" id="resources" aria-labelledby="res-h">
           <div className="wrap">
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 30, gap: 20, flexWrap: 'wrap' }}>
-              <h2 className="h2" id="res-h" style={{ fontSize: 26 }}>Resources</h2>
-              <a href="#demo" style={{ fontSize: '13.5px', fontWeight: 700 }}>Talk to our team →</a>
+            <div className="sec-head">
+              <h2 className="h2" id="res-h">Start from something that works.</h2>
             </div>
-            <div className="res-grid">
-              {RESOURCES.map((r) => (<a className="rcard" href="#demo" key={r.t} style={{ background: r.bg }}><span className="kind">{r.kind}</span><h3>{r.t}</h3></a>))}
+            <div className="hub-cols" style={{ paddingTop: 36 }}>
+              <div className="hub-col">
+                <h2>Build your first round</h2>
+                <ul>
+                  <li><Link to="/mimic/resources/question-library">Interview question library<Ico n="arrow" /></Link></li>
+                  <li><Link to="/mimic/resources/rubric-templates">Rubric templates<Ico n="arrow" /></Link></li>
+                  <li><Link to="/mimic/platform/interview-templates">Interview templates<Ico n="arrow" /></Link></li>
+                </ul>
+              </div>
+              <div className="hub-col">
+                <h2>Understand the scoring</h2>
+                <ul>
+                  <li><Link to="/mimic/trust/how-mimic-scores">How Mimic scores<Ico n="arrow" /></Link></li>
+                  <li><Link to="/mimic/trust/human-in-the-loop">Human-in-the-loop review<Ico n="arrow" /></Link></li>
+                  <li><Link to="/mimic/platform/rubrics-scoring">Rubrics &amp; scoring<Ico n="arrow" /></Link></li>
+                </ul>
+              </div>
+              <div className="hub-col">
+                <h2>Fit it to your stack</h2>
+                <ul>
+                  <li><Link to="/mimic/resources/ats-integrations">ATS integrations<Ico n="arrow" /></Link></li>
+                  <li><Link to="/mimic/resources/roi-calculator">First-round ROI calculator<Ico n="arrow" /></Link></li>
+                  <li><Link to="/mimic/solutions">Solutions by use case<Ico n="arrow" /></Link></li>
+                </ul>
+              </div>
             </div>
           </div>
         </section>
 
-        {/* FAQ */}
-        <section className="section" id="faq" aria-labelledby="faq-h">
+        {/* ── FAQ ── */}
+        <section className="section tinted" id="faq" aria-labelledby="faq-h">
           <div className="wrap">
-            <div className="sec-head center"><span className="eyebrow" style={{ color: 'var(--m-violet)' }}>Questions, answered</span><h2 className="h2" id="faq-h" style={{ marginTop: 12 }}>The things buyers ask us first.</h2></div>
+            <div className="sec-head center">
+              <span className="eyebrow">Questions, answered</span>
+              <h2 className="h2" id="faq-h">The things buyers ask us first.</h2>
+            </div>
             <div className="faq">
               {FAQS.map((f, i) => (
                 <details key={f.q} open={i === 0}>
-                  <summary>{f.q}</summary>
+                  <summary>
+                    {f.q}
+                    <Ico n="chevron" className="chev" />
+                  </summary>
                   <p>{f.a}</p>
                 </details>
               ))}
@@ -337,34 +580,66 @@ export default function MimicSite() {
           </div>
         </section>
 
-        {/* CTA + FORM */}
+        {/* ── CTA ── */}
         <section className="cta" id="demo" aria-labelledby="cta-h">
           <div className="wrap cta-in">
             <div>
               <h2 id="cta-h">Give the first round back to your recruiters.</h2>
-              <p className="sub">See Mimic interview a candidate, score the answers against a rubric, and build a shortlist — on your own roles.</p>
+              <p className="sub">
+                Thirty minutes, on your own open roles. We will interview a candidate, score the
+                answers against a rubric you choose, and show you the shortlist that comes out.
+              </p>
               <div className="assure">
-                <span><Check color="#B98CFF" size={16} />30-minute walkthrough</span>
-                <span><Check color="#B98CFF" size={16} />Your roles, your rubric</span>
-                <span><Check color="#B98CFF" size={16} />No card required</span>
+                <span><Ico n="check" />30-minute walkthrough</span>
+                <span><Ico n="check" />Your roles, your rubric</span>
+                <span><Ico n="check" />No card required</span>
               </div>
             </div>
+
             {submitted ? (
               <div className="thanks" role="status" aria-live="polite">
-                <div className="tick"><Check color="#0F7A66" size={26} /></div>
-                <h3>Thanks — you're on the list.</h3>
-                <p>We'll be in touch within one business day to set up your walkthrough.</p>
+                <div className="tick"><Ico n="check" /></div>
+                <h3>Thanks — you’re on the list.</h3>
+                <p>We’ll be in touch within one business day to set up your walkthrough.</p>
               </div>
             ) : (
               <form className="demo" onSubmit={submit} noValidate>
                 <h3>Book a demo</h3>
-                <div className={`field${errors.firstName ? ' bad' : ''}`}><label htmlFor="fn">First name</label><input id="fn" autoComplete="given-name" value={form.firstName} aria-invalid={!!errors.firstName} onChange={(e) => setField('firstName', e.target.value)} onBlur={(e) => setErrors((x) => ({ ...x, firstName: !valid('firstName', e.target.value) }))} /><span className="err">Enter your first name.</span></div>
-                <div className={`field${errors.lastName ? ' bad' : ''}`}><label htmlFor="ln">Last name</label><input id="ln" autoComplete="family-name" value={form.lastName} aria-invalid={!!errors.lastName} onChange={(e) => setField('lastName', e.target.value)} onBlur={(e) => setErrors((x) => ({ ...x, lastName: !valid('lastName', e.target.value) }))} /><span className="err">Enter your last name.</span></div>
-                <div className={`field full${errors.email ? ' bad' : ''}`}><label htmlFor="em">Work email</label><input id="em" type="email" autoComplete="email" value={form.email} aria-invalid={!!errors.email} onChange={(e) => setField('email', e.target.value)} onBlur={(e) => setErrors((x) => ({ ...x, email: !valid('email', e.target.value) }))} /><span className="err">Enter a valid work email.</span></div>
-                <div className={`field full${errors.hiresPerYear ? ' bad' : ''}`}><label htmlFor="hy">Hires per year</label><input id="hy" inputMode="numeric" placeholder="e.g. 500–2,000" value={form.hiresPerYear} aria-invalid={!!errors.hiresPerYear} onChange={(e) => setField('hiresPerYear', e.target.value)} onBlur={(e) => setErrors((x) => ({ ...x, hiresPerYear: !valid('hiresPerYear', e.target.value) }))} /><span className="err">Roughly how many people do you hire a year?</span></div>
-                <div className="submit"><button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Book a demo'}</button></div>
+                <p className="fnote">Tell us where you are and we’ll tailor the session to your roles.</p>
+                <div className={`field${errors.firstName ? ' bad' : ''}`}>
+                  <label htmlFor="fn">First name</label>
+                  <input id="fn" autoComplete="given-name" value={form.firstName} aria-invalid={!!errors.firstName}
+                    onChange={(e) => setField('firstName', e.target.value)}
+                    onBlur={(e) => setErrors((x) => ({ ...x, firstName: !valid('firstName', e.target.value) }))} />
+                  <span className="err">Enter your first name.</span>
+                </div>
+                <div className={`field${errors.lastName ? ' bad' : ''}`}>
+                  <label htmlFor="ln">Last name</label>
+                  <input id="ln" autoComplete="family-name" value={form.lastName} aria-invalid={!!errors.lastName}
+                    onChange={(e) => setField('lastName', e.target.value)}
+                    onBlur={(e) => setErrors((x) => ({ ...x, lastName: !valid('lastName', e.target.value) }))} />
+                  <span className="err">Enter your last name.</span>
+                </div>
+                <div className={`field full${errors.email ? ' bad' : ''}`}>
+                  <label htmlFor="em">Work email</label>
+                  <input id="em" type="email" autoComplete="email" value={form.email} aria-invalid={!!errors.email}
+                    onChange={(e) => setField('email', e.target.value)}
+                    onBlur={(e) => setErrors((x) => ({ ...x, email: !valid('email', e.target.value) }))} />
+                  <span className="err">Enter a valid work email.</span>
+                </div>
+                <div className={`field full${errors.hiresPerYear ? ' bad' : ''}`}>
+                  <label htmlFor="hy">Hires per year</label>
+                  <input id="hy" inputMode="numeric" placeholder="e.g. 200–800" value={form.hiresPerYear}
+                    aria-invalid={!!errors.hiresPerYear}
+                    onChange={(e) => setField('hiresPerYear', e.target.value)}
+                    onBlur={(e) => setErrors((x) => ({ ...x, hiresPerYear: !valid('hiresPerYear', e.target.value) }))} />
+                  <span className="err">Roughly how many people do you hire a year?</span>
+                </div>
+                <div className="submit">
+                  <button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Book a demo'}</button>
+                </div>
                 {formError && <p className="err" style={{ display: 'block', gridColumn: '1 / -1', textAlign: 'center' }}>{formError}</p>}
-                <p className="form-note">By submitting you agree to be contacted about Mimic. <a href="#trust">Privacy</a>.</p>
+                <p className="form-note">By submitting you agree to be contacted about Mimic.</p>
               </form>
             )}
           </div>

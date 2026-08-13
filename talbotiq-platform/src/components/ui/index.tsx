@@ -6,14 +6,15 @@ export const cn = (...c: Parameters<typeof clsx>) => twMerge(clsx(c))
 
 /* ─── Button ─────────────────────────────────────────────────────────────── */
 interface BtnProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline'
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'outline' | 'mint'
   size?: 'xs' | 'sm' | 'md' | 'lg'
   loading?: boolean
   icon?: React.ReactNode
 }
 export function Button({ variant = 'primary', size = 'md', loading, icon, children, className, disabled, ...p }: BtnProps) {
+  // Pills — the brand's control shape, inherited from the parent (Eightfold).
   const base = [
-    'inline-flex items-center justify-center gap-2 font-semibold rounded-lg',
+    'inline-flex items-center justify-center gap-2 font-semibold rounded-full',
     'transition-all duration-150 focus-visible:outline-none focus-visible:ring-2',
     'focus-visible:ring-primary-700 focus-visible:ring-offset-2',
     'disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none',
@@ -21,15 +22,17 @@ export function Button({ variant = 'primary', size = 'md', loading, icon, childr
   ].join(' ')
 
   const variants = {
-    primary:  'bg-primary-700 text-white hover:bg-primary-600 active:bg-primary-800 shadow-xs hover:shadow-primary-sm',
-    secondary:'bg-white text-neutral-700 border border-border hover:border-neutral-300 hover:bg-neutral-50 active:bg-neutral-100',
+    primary:  'bg-primary-700 text-white hover:bg-primary-800 active:bg-primary-800 shadow-primary-sm hover:shadow-primary-md hover:-translate-y-px active:translate-y-0',
+    secondary:'bg-white text-neutral-800 border border-neutral-200 hover:border-primary-300 hover:bg-primary-50/60 active:bg-primary-50',
     ghost:    'bg-transparent text-neutral-500 hover:text-neutral-800 hover:bg-neutral-100 active:bg-neutral-200',
     danger:   'bg-danger-bg text-danger border border-danger-border hover:bg-red-100',
-    outline:  'bg-transparent text-primary-700 border-2 border-primary-700 hover:bg-primary-50 active:bg-primary-100',
+    outline:  'bg-transparent text-primary-700 border-[1.5px] border-primary-700 hover:bg-primary-50 active:bg-primary-100',
+    // The parent brand's signature action: mint fill, ink text.
+    mint:     'bg-mint text-neutral-900 hover:bg-mint-hover shadow-mint-sm hover:-translate-y-px active:translate-y-0',
   }
   const sizes = {
-    xs: 'h-7 px-2.5 text-xs',
-    sm: 'h-8 px-3.5 text-xs',
+    xs: 'h-7 px-3 text-xs',
+    sm: 'h-8 px-4 text-xs',
     md: 'h-10 px-5 text-sm',
     lg: 'h-12 px-7 text-base',
   }
@@ -200,13 +203,13 @@ export function SectionTitle({ children, className }: { children: React.ReactNod
 /* ─── PageHeader ─────────────────────────────────────────────────────────── */
 export function PageHeader({ kicker, title, description, action }: { kicker?: string; title: string; description?: string; action?: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-6 mb-8">
-      <div>
+    <div className="flex items-start justify-between gap-6 mb-9 flex-wrap">
+      <div className="min-w-0">
         {kicker && <span className="pill mb-3 inline-flex">{kicker}</span>}
-        <h1 className="text-3xl font-bold tracking-tight text-neutral-900 mt-1">{title}</h1>
+        <h1 className="font-display text-[28px] leading-tight font-extrabold tracking-[-0.03em] text-neutral-900 mt-1">{title}</h1>
         {description && <p className="text-neutral-500 mt-2 text-sm max-w-2xl leading-relaxed">{description}</p>}
       </div>
-      {action && <div className="flex-shrink-0">{action}</div>}
+      {action && <div className="flex-shrink-0 pt-1">{action}</div>}
     </div>
   )
 }
@@ -286,13 +289,13 @@ export function EmptyState({ icon, title, description, action }: { icon?: React.
   return (
     <div className="flex flex-col items-center justify-center py-20 gap-5 text-center">
       {icon && (
-        <div className="w-14 h-14 rounded-2xl bg-neutral-100 flex items-center justify-center text-2xl">
+        <div className="w-16 h-16 rounded-full bg-primary-50 border border-primary-100 text-primary-700 flex items-center justify-center text-2xl [&_svg]:w-7 [&_svg]:h-7">
           {icon}
         </div>
       )}
       <div>
-        <p className="font-semibold text-lg text-neutral-800">{title}</p>
-        {description && <p className="text-sm text-neutral-400 mt-2 max-w-sm mx-auto leading-relaxed">{description}</p>}
+        <p className="font-display font-bold text-lg text-neutral-900 tracking-[-0.02em]">{title}</p>
+        {description && <p className="text-sm text-neutral-500 mt-2 max-w-sm mx-auto leading-relaxed">{description}</p>}
       </div>
       {action}
     </div>
@@ -301,7 +304,7 @@ export function EmptyState({ icon, title, description, action }: { icon?: React.
 
 /* ─── Skeleton ───────────────────────────────────────────────────────────── */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse bg-neutral-100 rounded-lg', className)} />
+  return <div className={cn('animate-pulse bg-neutral-100 rounded-xl', className)} />
 }
 
 /* ─── Divider ────────────────────────────────────────────────────────────── */

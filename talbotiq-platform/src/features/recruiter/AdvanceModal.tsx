@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Badge, Button, Input, Modal, Toggle } from '@/components/ui'
+import { AlertTriangle, Info, Send } from 'lucide-react'
+import { Badge, Button, Input, Modal, Skeleton, Toggle, cn } from '@/components/ui'
 import { RichTextEditor } from './invite-email/RichTextEditor'
 import { TransitionEmailPreview, type TransitionEmailKind } from './TransitionEmailPreview'
 import { inviteEmailTemplatesApi, pipelinesApi } from '@/lib/api'
@@ -31,8 +32,34 @@ const KIND_TITLE: Record<AdvanceModalKind, (n: number, round: string) => string>
   rejection: (n) => `Move ${n} candidate${n === 1 ? '' : 's'} to Not advancing`,
 }
 
+const KIND_DESCRIPTION: Record<AdvanceModalKind, string> = {
+  advance: 'Review the email that goes out, then confirm. Nothing moves until you do.',
+  selected: 'Review the email that goes out, then confirm. Nothing moves until you do.',
+  rejection: 'Emailing is optional here — candidates can be moved without being contacted.',
+}
+
 function seedDraft(kind: AdvanceModalKind): InviteEmailTemplate {
   return { ...defaultTemplateFor(kind), id: 'draft', recruiterId: '', createdAt: '', updatedAt: '' } as InviteEmailTemplate
+}
+
+/** Loading shape for the modal body — mirrors the recipients list + email editor. */
+function AdvanceModalSkeleton() {
+  return (
+    <div className="space-y-5">
+      <div>
+        <Skeleton className="h-3 w-24" />
+        <Skeleton className="mt-2 h-24 w-full" />
+      </div>
+      <div>
+        <Skeleton className="h-3 w-16" />
+        <Skeleton className="mt-2 h-11 w-full" />
+      </div>
+      <div>
+        <Skeleton className="h-3 w-14" />
+        <Skeleton className="mt-2 h-40 w-full rounded-2xl" />
+      </div>
+    </div>
+  )
 }
 
 /**
@@ -131,62 +158,108 @@ export function AdvanceModal({
   }
 
   const title = KIND_TITLE[kind](candidates.length, targetRoundName)
+  const movedCount = results?.length ?? 0
+  const sentCount = results?.filter((r) => r.sent).length ?? 0
+  const failedCount = results?.filter((r) => r.error).length ?? 0
 
   return (
-    <Modal open={open} onClose={onClose} title={title} width="max-w-3xl">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      description={results ? 'Done — here’s what happened for each recipient.' : KIND_DESCRIPTION[kind]}
+      width="max-w-3xl"
+    >
       {!draft ? (
-        <p className="text-sm text-neutral-400">Loading email template…</p>
+        <AdvanceModalSkeleton />
       ) : results ? (
-        <div className="space-y-4">
-          <div className="text-sm font-semibold text-neutral-700">Results</div>
-          {results.some((r) => r.error) && (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="field-label mb-0">Results</span>
+            <span className="text-xs font-medium tabular-nums text-neutral-500">
+              {movedCount} moved · {sentCount} email{sentCount === 1 ? '' : 's'} sent
+              {failedCount > 0 ? ` · ${failedCount} failed` : ''}
+            </span>
+          </div>
+
+          {failedCount > 0 && (
             // The candidates WERE moved server-side; only email delivery failed.
             // Say so explicitly so a mail-server rejection doesn't look like the
             // whole action failed (and can't be un-done by mistake).
-            <p className="text-xs text-neutral-500">
-              Candidates were moved successfully. Some emails didn’t send — the reason is shown per recipient (this is a mail-server/Brevo delivery issue, not the advancement).
-            </p>
+            <div className="flex items-start gap-2.5 rounded-xl border border-primary-200 bg-primary-50 px-3.5 py-3">
+              <Info size={15} aria-hidden className="mt-0.5 shrink-0 text-primary-700" />
+              <p className="text-xs leading-relaxed text-neutral-700">
+                <span className="font-bold text-neutral-900">Every candidate was moved.</span> Only the email delivery failed — the reason is listed per recipient below. That&rsquo;s a mail-server (Brevo) issue, not the advancement, so there is nothing to redo here.
+              </p>
+            </div>
           )}
-          <div className="max-h-64 space-y-2 overflow-auto rounded-lg border border-border p-2 text-sm">
-            {results.map((r) => (
-              <div key={r.pipelineCandidateId} className="flex flex-col gap-0.5 border-b border-border/60 pb-2 last:border-0 last:pb-0">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="truncate text-neutral-700">{r.email}</span>
-                  {r.sent
-                    ? <Badge variant="success">Email sent</Badge>
-                    : r.error
-                      ? <Badge variant="warning">Moved · email failed</Badge>
-                      : <Badge variant="neutral">Moved</Badge>}
-                </div>
-                {r.error && <div className="break-words text-xs text-neutral-400">{r.error}</div>}
-              </div>
-            ))}
+
+          <div className="overflow-hidden rounded-xl border border-border">
+            <div className="flex items-center justify-between gap-3 border-b border-border bg-neutral-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-neutral-500">
+              <span>Recipient</span>
+              <span>Outcome</span>
+            </div>
+            <ul className="max-h-64 divide-y divide-border overflow-auto">
+              {results.map((r) => (
+                <li key={r.pipelineCandidateId} className="flex flex-col gap-1 bg-white px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="min-w-0 truncate font-mono text-xs text-neutral-700">{r.email}</span>
+                    {r.sent
+                      ? <Badge variant="success">Email sent</Badge>
+                      : r.error
+                        ? <Badge variant="warning">Moved · email failed</Badge>
+                        : <Badge variant="neutral">Moved</Badge>}
+                  </div>
+                  {r.error && <p className="break-words text-[11px] leading-snug text-neutral-400">{r.error}</p>}
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="flex justify-end">
+
+          <div className="flex justify-end border-t border-border pt-4">
             <Button onClick={onClose}>Close</Button>
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          <div>
-            <div className="mb-1 text-sm font-semibold text-neutral-700">Recipients ({candidates.length})</div>
-            <div className="max-h-24 overflow-auto rounded-lg border border-border p-2 text-sm">
-              {candidates.map((c) => (
-                <div key={c.pipelineCandidateId} className="truncate text-neutral-700">
-                  {c.candidateName ? `${c.candidateName} · ${c.candidateEmail}` : c.candidateEmail}
-                  {c.score != null ? ` · score ${c.score}` : ''}
-                </div>
-              ))}
+        <div className="space-y-5">
+          <section>
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <span className="field-label mb-0">Recipients</span>
+              <Badge variant="neutral" className="tabular-nums">{candidates.length}</Badge>
             </div>
-          </div>
+            <div className="overflow-hidden rounded-xl border border-border">
+              <div className="flex items-center justify-between gap-3 border-b border-border bg-neutral-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em] text-neutral-500">
+                <span>Candidate</span>
+                <span>Score</span>
+              </div>
+              <ul className="max-h-40 divide-y divide-border overflow-auto">
+                {candidates.map((c) => (
+                  <li key={c.pipelineCandidateId} className="flex items-center justify-between gap-3 bg-white px-3 py-2">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold text-neutral-900">{c.candidateName || c.candidateEmail}</span>
+                      {c.candidateName && <span className="block truncate font-mono text-[11px] text-neutral-400">{c.candidateEmail}</span>}
+                    </span>
+                    {c.score != null
+                      ? <span className="shrink-0 text-sm font-bold tabular-nums text-neutral-900">{c.score}</span>
+                      : <span title="No score yet" className="shrink-0 text-xs font-medium text-neutral-300">—</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
 
           {kind === 'rejection' && (
-            <Toggle
-              checked={rejectOptIn}
-              onChange={setRejectOptIn}
-              label="Send a rejection email"
-              description="Off by default — candidates can be moved to Not advancing silently."
-            />
+            <div className={cn(
+              'rounded-2xl border px-4 transition-colors duration-150',
+              rejectOptIn ? 'border-primary-200 bg-primary-50/70' : 'border-border bg-neutral-50',
+            )}>
+              <Toggle
+                checked={rejectOptIn}
+                onChange={setRejectOptIn}
+                label="Send a rejection email"
+                description="Off by default — candidates can be moved to Not advancing silently."
+              />
+            </div>
           )}
 
           {showEmailEditor && (
@@ -197,16 +270,21 @@ export function AdvanceModal({
                 onChange={(e) => setDraft({ ...draft, subject: e.target.value })}
               />
               <div>
-                <div className="mb-1 text-sm font-semibold text-neutral-700">Body</div>
+                <span className="field-label">Body</span>
                 <RichTextEditor value={draft.bodyHtml} onChange={(html) => setDraft({ ...draft, bodyHtml: html })} />
               </div>
               {!locked.ok && (
-                <Badge variant="warning">
-                  Missing required link — insert {'{{interview_link}}'} so the candidate can reach their next round
-                </Badge>
+                <div className="flex items-start gap-2.5 rounded-xl border border-warning-border bg-warning-bg px-3.5 py-3">
+                  <AlertTriangle size={15} aria-hidden className="mt-0.5 shrink-0 text-warning" />
+                  <p className="text-xs leading-relaxed text-warning">
+                    <span className="font-bold">Missing the required link.</span> Insert{' '}
+                    <code className="rounded bg-white/70 px-1 py-0.5 font-mono text-[11px]">{'{{interview_link}}'}</code>{' '}
+                    in the subject or body so the candidate can reach their next round.
+                  </p>
+                </div>
               )}
               <div>
-                <div className="mb-1 text-sm font-semibold text-neutral-700">Preview</div>
+                <span className="field-label">Preview</span>
                 <TransitionEmailPreview draft={draft} kind={kind} vars={sampleVars} origin={window.location.origin} />
               </div>
             </>
@@ -214,7 +292,14 @@ export function AdvanceModal({
 
           <div className="flex justify-end gap-2 border-t border-border pt-4">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button loading={sending} disabled={confirmDisabled} onClick={() => void confirm()}>{confirmLabel}</Button>
+            <Button
+              loading={sending}
+              disabled={confirmDisabled}
+              icon={showEmailEditor ? <Send size={14} /> : undefined}
+              onClick={() => void confirm()}
+            >
+              {confirmLabel}
+            </Button>
           </div>
         </div>
       )}

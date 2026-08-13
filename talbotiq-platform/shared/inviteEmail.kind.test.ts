@@ -21,8 +21,8 @@ const base: InviteEmailTemplate = {
   sender: { verifiedSenderEmail: '', fromName: 'TalbotIQ', replyTo: '' },
   subject: 'Interview invitation — {{role}}',
   bodyHtml: '<p>Hi {{candidate_name}},</p><p>{{interview_link}}</p>',
-  cta: { text: 'Start your interview', color: '#0d5c3a' },
-  branding: { companyName: 'TalbotIQ', accentColor: '#0d5c3a', footer: 'Sent via TalbotIQ.' },
+  cta: { text: 'Start your interview', color: '#6B2BE0' },
+  branding: { companyName: 'TalbotIQ', accentColor: '#6B2BE0', footer: 'Sent via TalbotIQ.' },
   deadlineText: '', createdAt: 'n', updatedAt: 'n',
 }
 
@@ -54,7 +54,7 @@ const inv = renderInviteEmail(base,
   { candidate_name: 'Ada', role: 'Senior Dev', recruiter_name: 'Rex', company: 'Acme', deadline: '' },
   { interviewLink: 'https://x/take/abc', candidateEmail: 'ada@x.com' })
 assert('invite subject substitutes role', inv.subject === 'Interview invitation — Senior Dev')
-assert('invite html has CTA anchor', inv.html.includes('background:#0d5c3a') && inv.html.includes('href="https://x/take/abc"'))
+assert('invite html has CTA anchor', inv.html.includes('background:#6B2BE0') && inv.html.includes('href="https://x/take/abc"'))
 assert('invite html has exact-email note', inv.html.includes('linked to <strong>ada@x.com</strong>'))
 assert('invite html has paste-link line', inv.html.includes('Or paste this link'))
 

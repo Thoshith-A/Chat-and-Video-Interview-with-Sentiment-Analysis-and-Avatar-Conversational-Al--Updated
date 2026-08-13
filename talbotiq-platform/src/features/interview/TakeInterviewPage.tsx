@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { Loader2, AlertTriangle } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
+import { Button, Skeleton } from '@/components/ui'
 import { useAuth } from '@/features/auth/AuthProvider'
 import { useInterviewClock } from './useInterviewClock'
 import { useIntegrityMonitor } from './useIntegrityMonitor'
@@ -19,7 +20,7 @@ import { VideoInterview } from './screens/VideoStage'
 import { Completion } from './screens/Completion'
 import type { BrandingConfig } from '@shared/types'
 
-const FALLBACK_BRANDING: BrandingConfig = { companyName: 'TalbotIQ', accentColor: '#0d5c3a' }
+const FALLBACK_BRANDING: BrandingConfig = { companyName: 'TalbotIQ', accentColor: '#6B2BE0' }
 
 type PreStep = 'track' | 'welcome' | 'resume' | 'systemcheck'
 
@@ -32,11 +33,33 @@ export default function TakeInterviewPage() {
   // Hooks must run unconditionally (before the early returns below).
   const integrity = useIntegrityMonitor(sessionId, clock.state?.integrity, clock.state?.status === 'in_progress')
 
-  // Initial load
+  // Initial load — skeleton mirrors the shell + pre-flight card that follow.
   if (clock.loading && !clock.state) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="animate-spin text-primary-700" size={28} />
+      <div className="flex min-h-screen flex-col bg-background">
+        <header className="border-b border-border bg-white/80 backdrop-blur-md">
+          <div className="mx-auto flex h-14 max-w-4xl items-center gap-2.5 px-5">
+            <Skeleton className="h-7 w-7 rounded-lg" />
+            <Skeleton className="h-3.5 w-28 rounded" />
+          </div>
+        </header>
+        <main className="flex flex-1 items-center justify-center px-5 py-10 sm:py-12">
+          <div
+            className="w-full max-w-2xl rounded-3xl border border-border bg-white p-8 shadow-lg sm:p-10"
+            role="status"
+            aria-label="Loading your interview"
+          >
+            <Skeleton className="h-6 w-28 rounded-full" />
+            <Skeleton className="mt-5 h-8 w-3/4 rounded-lg" />
+            <Skeleton className="mt-3 h-4 w-1/2 rounded" />
+            <div className="mt-8 space-y-3">
+              <Skeleton className="h-20 w-full rounded-2xl" />
+              <Skeleton className="h-20 w-full rounded-2xl" />
+              <Skeleton className="h-20 w-full rounded-2xl" />
+            </div>
+            <Skeleton className="mt-8 h-12 w-full rounded-full" />
+          </div>
+        </main>
       </div>
     )
   }
@@ -45,23 +68,26 @@ export default function TakeInterviewPage() {
   if (clock.error && !clock.state) {
     const wrongAccount = /different email/i.test(clock.error)
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-5">
-        <div className="max-w-sm rounded-2xl border border-border bg-white p-8 text-center shadow-sm">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-danger-bg text-danger">
-            <AlertTriangle size={22} />
+      <div className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
+        <div className="w-full max-w-md rounded-3xl border border-border bg-white p-8 text-center shadow-lg sm:p-10">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-danger-border bg-danger-bg text-danger">
+            <AlertTriangle size={22} strokeWidth={1.75} />
           </span>
-          <h1 className="mt-4 text-xl font-bold text-neutral-900">
-            {wrongAccount ? 'Signed in with a different account' : 'Interview not found'}
+          <h1 className="mt-5 font-display text-xl font-extrabold tracking-[-0.02em] text-balance text-neutral-900">
+            {wrongAccount ? 'Signed in with a different account' : 'We couldn’t open this interview'}
           </h1>
-          <p className="mt-2 text-sm text-neutral-500">
+          <p className="mt-2.5 text-sm leading-relaxed text-neutral-500">
             {clock.error}{wrongAccount ? '' : '. Please double-check your invite link.'}
           </p>
-          <button
+          <Button
             onClick={() => { void signOutUser() }}
-            className="mt-5 rounded-full bg-[#0d5c3a] px-5 py-2 text-sm font-semibold text-white hover:bg-[#0a4a2f]"
+            className="mt-6"
           >
-            Sign out &amp; switch account
-          </button>
+            {wrongAccount ? 'Sign out & switch account' : 'Sign out and try again'}
+          </Button>
+          <p className="mt-4 text-xs leading-relaxed text-neutral-400">
+            Still stuck? Reply to your invite email and the hiring team will send a fresh link.
+          </p>
         </div>
       </div>
     )

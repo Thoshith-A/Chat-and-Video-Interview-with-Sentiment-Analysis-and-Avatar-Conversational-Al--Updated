@@ -128,14 +128,14 @@ export interface InviteRenderOpts {
 }
 
 function ctaButton(tpl: InviteEmailTemplate, link: string): string {
-  const color = HEX.test(tpl.cta?.color || '') ? tpl.cta.color : '#0d5c3a'
+  const color = HEX.test(tpl.cta?.color || '') ? tpl.cta.color : '#6B2BE0'
   const text = escapeHtml(tpl.cta?.text || 'Start your interview')
   return `<a href="${escapeHtml(link)}" style="display:inline-block;background:${color};color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;font-family:Inter,Arial,sans-serif">${text}</a>`
 }
 
 /** The locked "use this exact email" note — always present, never removable. */
 export function exactEmailNote(candidateEmail: string): string {
-  return `<p style="background:#f0faf5;border:1px solid #dcf5e8;border-radius:8px;padding:10px 14px;color:#0a4a2e;font-size:13px;font-family:Inter,Arial,sans-serif">
+  return `<p style="background:#F5F0FE;border:1px solid #E0D4FB;border-radius:8px;padding:10px 14px;color:#4A1BA8;font-size:13px;font-family:Inter,Arial,sans-serif">
     <strong>Important:</strong> this invitation is linked to <strong>${escapeHtml(candidateEmail)}</strong>.
     Sign in — or create your candidate account — using this exact email address to open it.
   </p>`
@@ -170,25 +170,28 @@ export function renderEmailShell(
     ? `<p style="margin:16px 0">${ctaButton(tpl, link)}</p>` : ''
   const note = flags.includeNote && opts.candidateEmail ? exactEmailNote(opts.candidateEmail) : ''
   const pasteLink = flags.includeLink
-    ? `<p style="color:#64748b;font-size:13px">Or paste this link into your browser:<br>${escapeHtml(link)}</p>` : ''
+    ? `<p style="color:#645C7B;font-size:13px">Or paste this link into your browser:<br>${escapeHtml(link)}</p>` : ''
 
-  const accent = HEX.test(tpl.branding?.accentColor || '') ? tpl.branding.accentColor : '#0d5c3a'
+  const accent = HEX.test(tpl.branding?.accentColor || '') ? tpl.branding.accentColor : '#6B2BE0'
   const logo = tpl.branding?.logoUrl
     ? `<img src="${escapeHtml(tpl.branding.logoUrl)}" alt="${escapeHtml(tpl.branding.companyName || '')}" style="max-height:40px;margin-bottom:8px" />`
     : `<div style="font-weight:700;color:${accent};font-size:18px">${escapeHtml(tpl.branding?.companyName || 'TalbotIQ')}</div>`
   const footer = escapeHtml(tpl.branding?.footer || 'Sent via TalbotIQ.')
 
-  const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eff5f0;padding:24px 0;font-family:Inter,Arial,sans-serif">
+  // Shell tones mirror the in-app violet system so the email preview in the
+  // invite wizard and the delivered mail read as one surface. Figtree is the
+  // product face; the rest of the stack is what mail clients actually have.
+  const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F7F5FB;padding:24px 0;font-family:Figtree,Roboto,'Segoe UI',Arial,sans-serif">
   <tr><td align="center">
-    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #dde8e0;border-radius:16px;overflow:hidden">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border:1px solid #E7E2F2;border-radius:16px;overflow:hidden">
       <tr><td style="border-top:4px solid ${accent};padding:20px 28px 8px">${logo}</td></tr>
-      <tr><td style="padding:8px 28px;color:#0f172a;font-size:15px;line-height:1.6">
+      <tr><td style="padding:8px 28px;color:#1B0B3B;font-size:15px;line-height:1.6">
         ${bodyRendered}
         ${fallbackCta}
         ${note}
         ${pasteLink}
       </td></tr>
-      <tr><td style="padding:14px 28px 22px;color:#94a3b8;font-size:12px;border-top:1px solid #dde8e0">${footer}</td></tr>
+      <tr><td style="padding:14px 28px 22px;color:#645C7B;font-size:12px;border-top:1px solid #E7E2F2">${footer}</td></tr>
     </table>
   </td></tr>
 </table>`
@@ -266,10 +269,10 @@ export function defaultInviteEmailTemplate() {
       '<p><strong>{{recruiter_name}}</strong> has invited you to a screening interview for the <strong>{{role}}</strong> role at {{company}}.</p>' +
       "<p>When you're ready, open your interview, upload your résumé, and begin — it takes just a few minutes:</p>" +
       '<p>{{interview_link}}</p>',
-    cta: { text: 'Start your interview', color: '#0d5c3a' },
+    cta: { text: 'Start your interview', color: '#6B2BE0' },
     branding: {
       companyName: 'TalbotIQ',
-      accentColor: '#0d5c3a',
+      accentColor: '#6B2BE0',
       footer: 'Sent via TalbotIQ.',
     } as { companyName: string; accentColor: string; footer?: string; logoUrl?: string },
     deadlineText: '',
@@ -281,7 +284,7 @@ type EmailTemplateSeed = Omit<InviteEmailTemplate, 'id' | 'recruiterId' | 'creat
 /** Kind-appropriate default template. `defaultTemplateFor('invite')` === the invite default + kind. */
 export function defaultTemplateFor(kind: EmailKind): EmailTemplateSeed {
   const sender = { verifiedSenderEmail: '', fromName: 'TalbotIQ', replyTo: '' }
-  const branding = { companyName: 'TalbotIQ', accentColor: '#0d5c3a', footer: 'Sent via TalbotIQ.' } as {
+  const branding = { companyName: 'TalbotIQ', accentColor: '#6B2BE0', footer: 'Sent via TalbotIQ.' } as {
     companyName: string; accentColor: string; footer?: string; logoUrl?: string
   }
   if (kind === 'advance') {
@@ -293,7 +296,7 @@ export function defaultTemplateFor(kind: EmailKind): EmailTemplateSeed {
         '<p>Congratulations — you\'ve advanced to the <strong>{{round_name}}</strong> round for the <strong>{{role}}</strong> role at {{company}}.</p>' +
         '<p>Open your next interview to continue:</p>' +
         '<p>{{interview_link}}</p>',
-      cta: { text: 'Start next round', color: '#0d5c3a' }, branding, deadlineText: '',
+      cta: { text: 'Start next round', color: '#6B2BE0' }, branding, deadlineText: '',
     }
   }
   if (kind === 'selected') {
@@ -303,7 +306,7 @@ export function defaultTemplateFor(kind: EmailKind): EmailTemplateSeed {
       bodyHtml:
         '<p>Hi {{candidate_name}},</p>' +
         '<p>Congratulations — following your interviews for the <strong>{{role}}</strong> role at {{company}}, we\'re delighted to move you forward as a selected candidate. Our team will be in touch with next steps.</p>',
-      cta: { text: 'View details', color: '#0d5c3a' }, branding, deadlineText: '',
+      cta: { text: 'View details', color: '#6B2BE0' }, branding, deadlineText: '',
     }
   }
   if (kind === 'rejection') {
@@ -313,7 +316,7 @@ export function defaultTemplateFor(kind: EmailKind): EmailTemplateSeed {
       bodyHtml:
         '<p>Hi {{candidate_name}},</p>' +
         '<p>Thank you for taking the time to interview for the <strong>{{role}}</strong> role at {{company}}. After careful consideration we won\'t be moving forward at this time. We genuinely appreciate the effort you put in and wish you every success.</p>',
-      cta: { text: '', color: '#0d5c3a' }, branding, deadlineText: '',
+      cta: { text: '', color: '#6B2BE0' }, branding, deadlineText: '',
     }
   }
   return { ...defaultInviteEmailTemplate(), kind: 'invite' }

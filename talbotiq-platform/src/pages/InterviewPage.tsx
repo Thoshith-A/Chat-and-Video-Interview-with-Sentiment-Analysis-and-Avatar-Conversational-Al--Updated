@@ -323,34 +323,41 @@ export default function InterviewPage() {
   return (
     <div className="flex h-[calc(100vh-100px)]">
       {/* Avatar / video panel */}
-      <div ref={panelRef} className={cn('relative flex-1 bg-[#0c1a2e] flex flex-col items-center justify-center overflow-hidden', isFullscreen && 'fixed inset-0 z-[9999]')}>
+      <div ref={panelRef} className={cn('relative flex-1 bg-brand-black flex flex-col items-center justify-center overflow-hidden', isFullscreen && 'fixed inset-0 z-[9999]')}>
         {/* Exit fullscreen button — SOLID white chip so it never blends into the
             live video underneath (the old bg-white/10 ghost was invisible over
             bright frames). */}
         {isFullscreen && (
-          <button onClick={exitFs} className="fixed top-4 right-4 z-[10000] flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-[#0c1a2e] text-sm font-semibold shadow-xl hover:bg-neutral-200 transition-all">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          <button onClick={exitFs} className="fixed top-4 right-4 z-[10000] flex items-center gap-1.5 px-4 py-2 rounded-full bg-white text-brand-black text-sm font-semibold shadow-xl hover:bg-neutral-100 transition-colors duration-150">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
             Exit Full Screen
           </button>
         )}
 
-        {/* Progress bar */}
-        <div className="absolute top-0 left-0 right-0 h-[3px] bg-white/10 z-10">
-          <div className="h-full bg-gradient-to-r from-[#0d5c3a] to-[#f0c040] transition-all duration-500" style={{ width: `${((currentQ + 1) / Math.max(questions.length, 1)) * 100}%` }} />
+        {/* Progress bar — violet→magenta fill over the questions asked so far */}
+        <div
+          className="absolute top-0 left-0 right-0 h-[3px] bg-white/10 z-10"
+          role="progressbar"
+          aria-label="Interview progress"
+          aria-valuemin={0}
+          aria-valuemax={questions.length || 1}
+          aria-valuenow={Math.min(currentQ + 1, questions.length)}
+        >
+          <div className="h-full bg-brand-field transition-all duration-500" style={{ width: `${((currentQ + 1) / Math.max(questions.length, 1)) * 100}%` }} />
         </div>
 
-        {/* Full Screen button — SOLID white chip on the dark stage (the previous
-            #0a1b30 fill was near-identical to the #0c1a2e panel and blended in).
+        {/* Full Screen button — SOLID white chip on the dark stage; a tinted fill
+            reads as part of the brand-black panel and disappears.
             Hidden while fullscreen: the fixed Exit chip above replaces it. */}
         {!isFullscreen && (
-          <button onClick={enterFs} className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-4 py-2 bg-white rounded-full text-[#0c1a2e] text-xs font-semibold shadow-lg hover:bg-neutral-200 transition-all">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+          <button onClick={enterFs} className="absolute top-4 right-4 z-10 flex items-center gap-1.5 px-4 py-2 bg-white rounded-full text-brand-black text-xs font-semibold shadow-lg hover:bg-neutral-100 transition-colors duration-150">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
             Full Screen
           </button>
         )}
 
         {/* Tavus iframe or placeholder */}
-        <div className={cn('overflow-hidden shadow-2xl transition-all', isFullscreen ? 'fixed inset-0 rounded-none border-none bottom-[88px]' : 'w-[90%] max-w-[960px] h-[calc(100vh-320px)] min-h-[400px] mb-0 rounded-2xl border border-white/10')}>
+        <div className={cn('overflow-hidden shadow-xl transition-all', isFullscreen ? 'fixed inset-0 rounded-none border-none bottom-[88px]' : 'w-[90%] max-w-[960px] h-[calc(100vh-320px)] min-h-[400px] mb-0 rounded-3xl border border-brand-border')}>
           {conv.conversation_url ? (
             <iframe
               ref={iframeRef}
@@ -361,39 +368,47 @@ export default function InterviewPage() {
               allowFullScreen
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-[#152035] to-[#0c1a2e]">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#0d5c3a] to-[#1a8050] flex items-center justify-center border-2 border-white/20 shadow-lg" style={{ animation: 'pulse 3s ease-in-out infinite' }}>
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-gradient-to-b from-brand-card to-brand-black">
+              <div className="w-20 h-20 rounded-full bg-brand-field flex items-center justify-center border-2 border-white/15 shadow-lg animate-pulse-soft">
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </div>
-              <p className="font-semibold text-white text-lg">Demo Mode</p>
-              <p className="text-sm text-white/50 text-center px-8 max-w-xs">Live avatar appears here when connected to Tavus API</p>
+              <div className="text-center px-8">
+                <p className="font-display font-extrabold tracking-[-0.03em] text-white text-lg">Demo mode</p>
+                <p className="text-sm text-brand-gray mt-1.5 max-w-xs leading-relaxed">
+                  The live avatar appears here once a Tavus conversation is connected. Transcription and analysis still run.
+                </p>
+              </div>
             </div>
           )}
         </div>
 
         {/* Candidate control strip — no question text, no recruiter controls. The
             avatar speaks each question; only status + End Interview are shown. */}
-        <div className={cn('w-full flex items-center justify-between px-8 z-10 bg-[#0a1b30] border-t border-white/10', isFullscreen ? 'fixed bottom-0 left-0 right-0 h-[76px]' : 'h-[76px] flex-shrink-0')}>
+        <div className={cn('w-full flex items-center justify-between gap-4 px-8 z-10 bg-brand-card border-t border-brand-border', isFullscreen ? 'fixed bottom-0 left-0 right-0 h-[76px]' : 'h-[76px] flex-shrink-0')}>
           <div className="flex items-center gap-4 min-w-0">
-            <span className="flex items-center gap-2 text-sm font-semibold text-white">
-              <span className={cn('w-2.5 h-2.5 rounded-full', avatarSpeaking ? 'bg-[#f0c040] animate-pulse' : 'bg-[#3db36b] animate-pulse')} />
+            {/* Turn status — mint while the candidate has the floor, soft violet
+                while the interviewer is speaking. */}
+            <span className="flex items-center gap-2.5 text-sm font-semibold text-white" role="status" aria-live="polite">
+              <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0 animate-pulse-live', avatarSpeaking ? 'bg-brand-gold' : 'bg-mint')} />
               {avatarSpeaking ? 'Interviewer is speaking' : 'Listening — please answer'}
             </span>
-            <span className="hidden sm:inline text-white/20">·</span>
-            <span className="hidden sm:inline text-xs font-medium text-white/60">Question {Math.min(currentQ + 1, questions.length)} of {questions.length}</span>
+            <span className="hidden sm:block w-px h-5 bg-brand-border flex-shrink-0" aria-hidden="true" />
+            <span className="hidden sm:inline text-xs font-medium text-brand-gray whitespace-nowrap">
+              Question <span className="text-white font-semibold tabular-nums">{Math.min(currentQ + 1, questions.length)}</span> of <span className="tabular-nums">{questions.length}</span>
+            </span>
             {dgConnected && (
               <>
-                <span className="hidden md:inline text-white/20">·</span>
-                <span className="hidden md:flex items-center gap-1.5 text-[11px] font-medium text-white/60">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#3db36b]" />
+                <span className="hidden md:block w-px h-5 bg-brand-border flex-shrink-0" aria-hidden="true" />
+                <span className="hidden md:flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand-green-light whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-green-light flex-shrink-0" />
                   Transcribing
                 </span>
               </>
             )}
           </div>
           <button onClick={handleEndInterview}
-            className="flex items-center gap-2 px-5 h-11 rounded-full bg-red-600 text-white text-sm font-semibold shadow-lg shadow-red-600/25 hover:bg-red-700 transition-all">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            className="flex items-center gap-2 px-5 h-11 rounded-full bg-danger text-white text-sm font-semibold shadow-lg shadow-danger/25 hover:bg-red-700 transition-colors duration-150 flex-shrink-0">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
             End Interview
           </button>
         </div>

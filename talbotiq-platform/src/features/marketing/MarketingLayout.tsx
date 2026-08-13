@@ -1,15 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { NAV, type NavGroup } from './content'
+import { Ico } from './icons'
+import { ScrollProgress, useSmoothScroll } from './motion'
 import './mimicSite.css'
 
 const Mark = () => (
-  <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 21V11l5 6 4-6 4 6 5-6v10" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  <svg viewBox="0 0 32 32" aria-hidden="true">
+    <path d="M7 21V11l5 6 4-6 4 6 5-6v10" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
 )
 
-/** Shared marketing chrome — banner + accessible mega-menu + footer. Used by the
- *  home page and every inner marketing page so the nav is defined once. */
+/** Shared marketing chrome — announcement bar, accessible mega-menu and footer.
+ *  Used by the home page and every inner page so the navigation is defined once. */
 export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: { title: string; desc: string } }) {
+  // Site-wide scroll feel. Skipped entirely under prefers-reduced-motion, and
+  // the Lenis chunk is only fetched when it will actually be used.
+  useSmoothScroll()
   const [banner, setBanner] = useState(true)
   const [open, setOpen] = useState<string | null>(null)   // desktop mega-panel
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -42,49 +49,63 @@ export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: 
   // Click-outside + Escape close the desktop panel.
   useEffect(() => {
     const onDoc = (e: MouseEvent) => { if (navRef.current && !navRef.current.contains(e.target as Node)) setOpen(null) }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(null) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOpen(null); setMobileOpen(false) } }
     document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
   }, [])
   useEffect(() => () => { if (hideTimer.current) window.clearTimeout(hideTimer.current) }, [])
 
-  const enter = (k: string) => { if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => setOpen(k), 120) }
-  const leave = () => { if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => setOpen(null), 140) }
+  const enter = (k: string) => { if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => setOpen(k), 110) }
+  const leave = () => { if (hideTimer.current) window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => setOpen(null), 150) }
   const active = (g: NavGroup) => loc.pathname === g.to || loc.pathname.startsWith(g.to + '/')
 
   return (
     <div className="mimic-site">
+      <ScrollProgress />
       {banner && (
         <div className="banner" role="region" aria-label="Announcement">
-          <span>Mimic interviews every applicant the day they apply — no scheduling, no queue. <Link to="/mimic#demo">See it live →</Link></span>
-          <button type="button" aria-label="Dismiss announcement" onClick={() => setBanner(false)}>×</button>
+          <span>
+            Every applicant interviewed the day they apply.{' '}
+            <Link to="/mimic#scoring">See how the scoring works<Ico n="arrow" /></Link>
+          </span>
+          <button type="button" aria-label="Dismiss announcement" onClick={() => setBanner(false)}>
+            <Ico n="close" />
+          </button>
         </div>
       )}
 
       <header className="nav" ref={navRef}>
         <div className="wrap nav-in">
-          <Link className="brand" to="/mimic" aria-label="Mimic by TalbotIQ — home"><span className="mk"><Mark /></span>Mimic</Link>
+          <Link className="brand" to="/mimic" aria-label="Mimic by TalbotIQ — home">
+            <span className="mk"><Mark /></span>Mimic
+          </Link>
+
           <nav className="navlinks" aria-label="Primary" onMouseLeave={leave}>
             {NAV.map((g) => (
               <button key={g.key} type="button" aria-expanded={open === g.key} aria-haspopup="true"
                 className={active(g) ? 'is-active' : undefined}
                 onMouseEnter={() => enter(g.key)} onFocus={() => setOpen(g.key)}
-                onClick={() => setOpen(open === g.key ? null : g.key)}
-                onKeyDown={(e) => { if (e.key === 'Escape') setOpen(null) }}>
+                onClick={() => setOpen(open === g.key ? null : g.key)}>
                 {g.label}
-                <svg className="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+                <Ico n="chevron" className="caret" />
               </button>
             ))}
           </nav>
+
           <div className="nav-right">
             <Link className="signin" to="/login">Sign in</Link>
             <Link className="btn btn-primary" to="/mimic#demo">Book a demo</Link>
-            <button className="navtoggle" type="button" aria-label="Menu" aria-expanded={mobileOpen} onClick={() => setMobileOpen((o) => !o)}>Menu</button>
+            <button className="navtoggle" type="button" aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileOpen} onClick={() => setMobileOpen((o) => !o)}>
+              <Ico n={mobileOpen ? 'close' : 'menu'} />
+            </button>
           </div>
         </div>
 
         {open && (
-          <div className="mega open" onMouseEnter={() => { if (hideTimer.current) window.clearTimeout(hideTimer.current) }} onMouseLeave={leave}>
+          <div className="mega open"
+            onMouseEnter={() => { if (hideTimer.current) window.clearTimeout(hideTimer.current) }}
+            onMouseLeave={leave}>
             <div className="wrap mega-in">
               {NAV.find((g) => g.key === open)!.columns.map((col) => (
                 <div key={col.title}>
@@ -100,8 +121,10 @@ export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: 
           <div className="mmenu">
             {NAV.map((g) => (
               <div key={g.key} className="macc">
-                <button type="button" aria-expanded={mobileGroup === g.key} onClick={() => setMobileGroup(mobileGroup === g.key ? null : g.key)}>
-                  {g.label}<span aria-hidden="true">{mobileGroup === g.key ? '–' : '+'}</span>
+                <button type="button" aria-expanded={mobileGroup === g.key}
+                  onClick={() => setMobileGroup(mobileGroup === g.key ? null : g.key)}>
+                  {g.label}
+                  <Ico n="chevron" />
                 </button>
                 {mobileGroup === g.key && (
                   <div className="macc-body">
@@ -115,8 +138,8 @@ export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: 
                 )}
               </div>
             ))}
-            <Link to="/login" style={{ display: 'block', padding: '12px 2px', fontWeight: 700, color: 'var(--m-ink)' }}>Sign in</Link>
-            <Link className="btn btn-primary" to="/mimic#demo" style={{ marginTop: 12 }}>Book a demo</Link>
+            <Link to="/login" style={{ display: 'block', padding: '16px 2px', fontWeight: 600, color: 'var(--mm-ink)' }}>Sign in</Link>
+            <Link className="btn btn-primary" to="/mimic#demo" style={{ width: '100%' }}>Book a demo</Link>
           </div>
         )}
       </header>
@@ -125,8 +148,11 @@ export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: 
 
       <footer className="foot">
         <div className="wrap">
-          <div className="foot-grid" style={{ gridTemplateColumns: '1.4fr repeat(5, 1fr)' }}>
-            <div className="foot-brand"><span className="brand" style={{ color: '#fff' }}><span className="mk"><Mark /></span>Mimic</span><p>AI interviews for every candidate. A TalbotIQ product.</p></div>
+          <div className="foot-grid">
+            <div className="foot-brand">
+              <span className="brand" style={{ color: '#fff' }}><span className="mk"><Mark /></span>Mimic</span>
+              <p>AI interviews for every candidate. A TalbotIQ product.</p>
+            </div>
             {NAV.map((g) => (
               <div key={g.key}>
                 <h4>{g.label}</h4>
@@ -136,7 +162,7 @@ export function MarketingLayout({ children, seo }: { children: ReactNode; seo?: 
           </div>
           <div className="foot-bottom">
             <span>© 2026 TalbotIQ. Mimic is a product of TalbotIQ.</span>
-            <span><Link to="/mimic/company" style={{ color: 'rgba(255,255,255,.7)' }}>Legal &amp; privacy</Link></span>
+            <span><Link to="/mimic/company/legal" style={{ color: 'rgba(255,255,255,.6)' }}>Legal &amp; privacy</Link></span>
           </div>
         </div>
       </footer>

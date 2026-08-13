@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Circle, Video } from 'lucide-react'
+import { Video, VideoOff } from 'lucide-react'
 
 interface Props {
   active: boolean // true during the answer phase
@@ -70,26 +70,42 @@ export function CameraRecorder({ active, accentColor }: Props) {
   }, [active])
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-border bg-neutral-900">
-      <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+    <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-brand-black shadow-sm">
+      {/* Base layer — a designed "no signal" ground the live stream paints over,
+          so a slow or blocked camera never reads as a broken black rectangle. */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 text-brand-gray" aria-hidden="true">
+        <VideoOff size={22} strokeWidth={1.75} />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Waiting for camera</span>
+      </div>
+
+      <video ref={videoRef} autoPlay muted playsInline className="relative h-full w-full object-cover" />
+
       {recording ? (
-        <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white">
-          <Circle size={9} className="animate-pulse fill-red-500 text-red-500" /> Rec
+        <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-danger px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em] text-white shadow-sm">
+          <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-live" aria-hidden="true" /> Recording
         </span>
       ) : (
-        <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-medium text-white/80">
-          <Video size={12} /> Preview
+        <span className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-brand-border bg-brand-card/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-brand-gold-light backdrop-blur-sm">
+          <Video size={12} strokeWidth={2} aria-hidden="true" /> Preview
         </span>
       )}
+
       {!active && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-sm text-white/90">
-          <span className="max-w-xs px-4">
-            The avatar will ask the question during preparation. Recording starts automatically when the
-            answer timer begins.
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3.5 bg-brand-black/70 px-6 text-center backdrop-blur-[2px]">
+          <span
+            className="flex h-12 w-12 items-center justify-center rounded-full border"
+            style={{ borderColor: `${accentColor}66`, background: `${accentColor}24`, color: '#E4D8FB' }}
+          >
+            <Video size={20} strokeWidth={1.75} aria-hidden="true" />
           </span>
+          <p className="max-w-xs text-sm leading-relaxed text-brand-gold-light">
+            The avatar asks the question during preparation.
+            <span className="mt-1 block text-brand-gray">Recording starts automatically when the answer timer begins.</span>
+          </p>
         </div>
       )}
-      <span className="absolute bottom-2 right-3 text-[10px] text-white/40" style={{ color: accentColor }}>
+
+      <span className="absolute bottom-2.5 right-3.5 font-mono text-[10px] uppercase tracking-[0.16em] text-brand-gray/60">
         scaffold
       </span>
     </div>

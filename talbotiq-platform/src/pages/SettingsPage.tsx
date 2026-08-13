@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import toast from 'react-hot-toast'
-import { Button, Card, Toggle, PageHeader, Input } from '@/components/ui'
+import { PlugZap, Server, SlidersHorizontal, Video, Webhook, XCircle } from 'lucide-react'
+import { Button, Card, Toggle, PageHeader, Input, cn } from '@/components/ui'
 import { useAppStore } from '@/store/useAppStore'
 import { tavus } from '@/services/tavus'
 import { settingsApi } from '@/lib/api'
@@ -24,6 +25,31 @@ const SERVER_KEYS = [
 ] as const
 
 type StatusMap = { deepgram: boolean; hume: boolean; gemini: boolean; rekognition: boolean }
+
+/* ─── local presentational pieces ────────────────────────────────────────── */
+
+/** One panel head: icon plate, title, a single calm line of context. */
+function PanelHead({ icon, title, children }: { icon: ReactNode; title: string; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3.5 px-6 py-5">
+      <span className="mt-px flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-primary-100 bg-primary-50 text-primary-700" aria-hidden>
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <h2 className="font-display text-[15px] font-bold leading-tight tracking-[-0.02em] text-neutral-900">{title}</h2>
+        <p className="mt-1.5 text-xs leading-relaxed text-neutral-500">{children}</p>
+      </div>
+    </div>
+  )
+}
+
+/** Live result of the last connection test. */
+function ConnChip({ state }: { state: 'idle' | 'testing' | 'ok' | 'fail' }) {
+  if (state === 'ok')      return <span className="badge badge-success"><span className="live-dot" />Connected</span>
+  if (state === 'fail')    return <span className="badge badge-danger"><XCircle size={11} aria-hidden />Failed</span>
+  if (state === 'testing') return <span className="badge badge-neutral animate-pulse">Testing…</span>
+  return null
+}
 
 export default function SettingsPage() {
   const store = useAppStore()
@@ -81,111 +107,126 @@ export default function SettingsPage() {
         kicker="Platform Config"
         title="Settings"
         description="Manage API credentials, webhook endpoints, and platform behaviour."
-        action={<Button onClick={() => void save()} loading={saving}>Save Settings</Button>}
+        action={<Button onClick={() => void save()} loading={saving}>Save settings</Button>}
       />
 
-      {/* Tavus (runtime key) */}
-      <Card className="mb-5 divide-y divide-border">
-        <div className="px-6 py-4">
-          <h3 className="text-sm font-semibold text-neutral-800">Tavus — Avatar</h3>
-          <p className="text-xs text-neutral-400 mt-0.5">The single source of truth for your Tavus key — saving applies it everywhere at once (this browser, candidate interviews, and any applied avatar config). Never compiled into the app bundle.</p>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="field-label">Tavus API Key</label>
-              {connState === 'ok' && <span className="text-xs font-medium text-success flex items-center gap-1.5"><span className="live-dot" />Connected</span>}
-              {connState === 'fail' && <span className="text-xs font-medium text-danger">✕ Failed</span>}
-              {connState === 'testing' && <span className="text-xs font-medium text-neutral-400 animate-pulse">Testing…</span>}
+      <div className="space-y-5">
+        {/* Tavus (runtime key) */}
+        <Card className="divide-y divide-border">
+          <PanelHead icon={<Video size={17} />} title="Tavus — Avatar">
+            The single source of truth for your Tavus key — saving applies it everywhere at once (this browser,
+            candidate interviews, and any applied avatar config). Never compiled into the app bundle.
+          </PanelHead>
+          <div className="space-y-5 px-6 py-5">
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label htmlFor="tavus-api-key" className="field-label mb-0">Tavus API Key</label>
+                <ConnChip state={connState} />
+              </div>
+              <div className="relative">
+                <input
+                  id="tavus-api-key"
+                  type={showTavus ? 'text' : 'password'}
+                  value={tavusKey}
+                  onChange={e => setTavusKeyLocal(e.target.value)}
+                  placeholder="ta_xxxxxxxxxxxxxxxxxxxxxxxx"
+                  className="input-base pr-16 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowTavus(s => !s)}
+                  aria-label={showTavus ? 'Hide the Tavus API key' : 'Show the Tavus API key'}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-2.5 py-1 text-[11px] font-semibold text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-800"
+                >
+                  {showTavus ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-neutral-500">Required — find it at tavus.io → Settings → API Keys.</p>
             </div>
-            <div className="relative">
-              <input
-                type={showTavus ? 'text' : 'password'}
-                value={tavusKey}
-                onChange={e => setTavusKeyLocal(e.target.value)}
-                placeholder="ta_xxxxxxxxxxxxxxxxxxxxxxxx"
-                className="input-base font-mono text-xs pr-14"
-              />
-              <button type="button" onClick={() => setShowTavus(s => !s)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-neutral-400 hover:text-neutral-700 transition-colors">
-                {showTavus ? 'Hide' : 'Show'}
-              </button>
-            </div>
-            <p className="text-xs text-neutral-400 mt-1">Required — from tavus.io → Settings → API Keys</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={testConnection} loading={connState === 'testing'}>
-            Test Tavus Connection
-          </Button>
-        </div>
-      </Card>
 
-      {/* Gemini — shared server key (frozen recruiter module, reused) */}
-      <div className="mb-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" onClick={testConnection} loading={connState === 'testing'} icon={<PlugZap size={14} />}>
+                Test connection
+              </Button>
+              {connState === 'fail' && (
+                <p className="text-xs text-danger">Tavus rejected the key or was unreachable — check the key, then test again.</p>
+              )}
+              {connState === 'ok' && (
+                <p className="text-xs text-neutral-500">Key verified. Save settings to apply it everywhere.</p>
+              )}
+            </div>
+          </div>
+        </Card>
+
+        {/* Gemini — shared server key (frozen recruiter module, reused) */}
         <GeminiKeyCard />
+
+        {/* Server-managed analysis providers (hybrid — keys live in server env) */}
+        <Card className="divide-y divide-border">
+          <PanelHead icon={<Server size={17} />} title="Analysis providers — server-side">
+            These keys stay on the server (set in its environment) and are proxied via{' '}
+            <span className="font-mono text-neutral-600">/api/avatar/*</span> — never exposed to the browser.
+          </PanelHead>
+          <ul className="divide-y divide-border">
+            {SERVER_KEYS.map(f => {
+              const configured = !!status?.[f.key as keyof StatusMap]
+              return (
+                <li key={f.key} className="flex items-start justify-between gap-4 px-6 py-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-neutral-900">{f.label}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-neutral-500">{f.hint}</p>
+                    {!configured && (
+                      <p className="mt-1.5 text-[11px] text-neutral-400">
+                        Set <span className="font-mono text-neutral-500">{f.env}</span> in the server environment.
+                      </p>
+                    )}
+                  </div>
+                  <span className={cn('badge flex-shrink-0', configured ? 'badge-success' : 'badge-neutral', status === null && 'animate-pulse')}>
+                    <span className={cn('h-1.5 w-1.5 rounded-full', configured ? 'bg-success' : 'bg-neutral-300')} aria-hidden />
+                    {status === null ? 'Checking…' : configured ? 'Configured' : 'Not set'}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </Card>
+
+        {/* Webhook */}
+        <Card className="divide-y divide-border">
+          <PanelHead icon={<Webhook size={17} />} title="Webhook delivery">
+            Receives real-time conversation events from Tavus.
+          </PanelHead>
+          <div className="px-6 py-5">
+            <Input
+              label="Webhook URL"
+              type="url"
+              value={webhook}
+              onChange={e => setWebhook(e.target.value)}
+              placeholder="https://api.yourcompany.com/webhook/tavus"
+              hint="Delivers conversation.started, conversation.ended, transcription, participant events, and errors."
+            />
+          </div>
+        </Card>
+
+        {/* Multi-tenant */}
+        <Card className="divide-y divide-border">
+          <PanelHead icon={<SlidersHorizontal size={17} />} title="Platform behaviour">
+            Multi-tenant and compliance configuration.
+          </PanelHead>
+          <div className="divide-y divide-border px-6 py-2">
+            <Toggle checked={whiteLabelMode} onChange={setWhiteLabelMode} label="White-label mode" description="Remove TalbotIQ branding from candidate-facing screens" />
+            <Toggle checked={gdprAuto} onChange={setGdprAuto} label="GDPR auto-purge" description="Automatically delete video and biometric data after 30 days" />
+            <Toggle checked={multiLang} onChange={setMultiLang} label="Multi-language avatar" description="Enable multilingual question delivery via Tavus" />
+          </div>
+        </Card>
       </div>
 
-      {/* Server-managed analysis providers (hybrid — keys live in server env) */}
-      <Card className="mb-5 divide-y divide-border">
-        <div className="px-6 py-4">
-          <h3 className="text-sm font-semibold text-neutral-800">Analysis Providers — Server-Side</h3>
-          <p className="text-xs text-neutral-400 mt-0.5">These keys stay on the server (set in its environment) and are proxied via <span className="font-mono">/api/avatar/*</span> — never exposed to the browser.</p>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          {SERVER_KEYS.map(f => {
-            const configured = !!status?.[f.key as keyof StatusMap]
-            return (
-              <div key={f.key} className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-neutral-800">{f.label}</p>
-                  <p className="text-xs text-neutral-400 mt-0.5">{f.hint}</p>
-                  {!configured && <p className="text-[11px] text-neutral-400 mt-1">Set <span className="font-mono">{f.env}</span> in the server environment.</p>}
-                </div>
-                <span className={`flex-shrink-0 flex items-center gap-1.5 text-xs font-medium ${configured ? 'text-success' : 'text-neutral-400'}`}>
-                  <span className={`w-2 h-2 rounded-full ${configured ? 'bg-success' : 'bg-neutral-300'}`} />
-                  {status === null ? 'Checking…' : configured ? 'Configured' : 'Not configured'}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      </Card>
-
-      {/* Webhook */}
-      <Card className="mb-5 divide-y divide-border">
-        <div className="px-6 py-4">
-          <h3 className="text-sm font-semibold text-neutral-800">Webhook Configuration</h3>
-          <p className="text-xs text-neutral-400 mt-0.5">Receives real-time conversation events from Tavus</p>
-        </div>
-        <div className="px-6 py-5">
-          <Input
-            label="Webhook URL"
-            type="url"
-            value={webhook}
-            onChange={e => setWebhook(e.target.value)}
-            placeholder="https://api.yourcompany.com/webhook/tavus"
-            hint="Receives: conversation.started, conversation.ended, transcription, participant events, errors"
-          />
-        </div>
-      </Card>
-
-      {/* Multi-tenant */}
-      <Card className="mb-8 divide-y divide-border">
-        <div className="px-6 py-4">
-          <h3 className="text-sm font-semibold text-neutral-800">Platform Settings</h3>
-          <p className="text-xs text-neutral-400 mt-0.5">Multi-tenant and compliance configuration</p>
-        </div>
-        <div className="px-6 py-2">
-          <Toggle checked={whiteLabelMode} onChange={setWhiteLabelMode} label="White-label Mode" description="Remove TalbotIQ branding from candidate-facing screens" />
-          <Toggle checked={gdprAuto} onChange={setGdprAuto} label="GDPR Auto-Purge" description="Automatically delete video and biometric data after 30 days" />
-          <Toggle checked={multiLang} onChange={setMultiLang} label="Multi-language Avatar" description="Enable multilingual question delivery via Tavus" />
-        </div>
-      </Card>
-
-      <div className="flex gap-3">
-        <Button onClick={save}>Save Settings</Button>
+      <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-border pt-6">
+        <Button onClick={save} loading={saving}>Save settings</Button>
         <Button variant="secondary" onClick={() => { if (confirm('Reset Tavus key and local preferences?')) { localStorage.removeItem('talbotiq-store'); location.reload() } }}>
-          Reset to Defaults
+          Reset to defaults
         </Button>
+        <p className="ml-auto hidden text-xs text-neutral-400 sm:block">Saving syncs the Tavus key to the server.</p>
       </div>
     </div>
   )

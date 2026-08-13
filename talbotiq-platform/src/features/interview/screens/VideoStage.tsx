@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion, AnimatePresence } from 'framer-motion'
-import { AlertTriangle, Circle, Send, FastForward, Loader2, Camera } from 'lucide-react'
+import { AlertTriangle, Send, FastForward, Loader2, Camera } from 'lucide-react'
 import { CircularCountdown } from '../components/CircularCountdown'
 import { useAnswerRecorder } from '../useAnswerRecorder'
 import { sessionsApi } from '@/lib/api'
@@ -16,6 +16,23 @@ interface Props {
   onSkipPrep: () => void
   onSubmitText: (answerText: string) => Promise<boolean>
   onIntegrity?: (type: string) => void
+}
+
+/** Inline banner — one shape for the warning and error notices below the stage. */
+function Notice({ tone, children, alert }: { tone: 'danger' | 'warning'; children: ReactNode; alert?: boolean }) {
+  const tones = {
+    danger: 'border-danger-border bg-danger-bg text-danger',
+    warning: 'border-warning-border bg-warning-bg text-warning',
+  }
+  return (
+    <div
+      role={alert ? 'alert' : undefined}
+      className={`flex items-start gap-2.5 rounded-2xl border px-4 py-3 text-sm font-medium leading-relaxed ${tones[tone]}`}
+    >
+      <AlertTriangle size={16} className="mt-0.5 flex-shrink-0" />
+      <span>{children}</span>
+    </div>
+  )
 }
 
 /**
@@ -89,6 +106,8 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
 
   if (!question) return null
 
+  const accent = branding.accentColor
+
   return (
     <motion.div
       initial={reduce ? false : { opacity: 0, x: 24 }}
@@ -99,10 +118,21 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
     >
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0">
-          <span className={`text-xs font-bold uppercase tracking-widest ${isAnswer ? 'text-success' : 'text-neutral-400'}`}>
-            {isAnswer ? 'Recording answer' : 'Preparation'}
-          </span>
-          <h2 className="mt-2 text-2xl font-bold leading-snug tracking-tight text-neutral-900">{question.text}</h2>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {isAnswer ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-success-border bg-success-bg px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-success">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" /> Recording answer
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full border border-border bg-neutral-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-neutral-500">
+                Preparation
+              </span>
+            )}
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 tabular-nums">
+              Question {Math.min(state.progress.current, total)} of {total}
+            </span>
+          </div>
+          <h2 className="mt-3 font-display text-2xl font-extrabold leading-snug tracking-[-0.03em] text-neutral-900">{question.text}</h2>
         </div>
         <div className="flex-shrink-0">
           <CircularCountdown
@@ -116,61 +146,88 @@ export function VideoStage({ sessionId, state, remaining, secondsLeft, busy, rec
       </div>
 
       {/* Camera stage */}
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-border bg-neutral-900">
+      <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border bg-brand-black shadow-lg">
         <video ref={videoEl} autoPlay muted playsInline className="h-full w-full object-cover" />
-        {rec.recording ? (
-          <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white">
-            <Circle size={9} className="animate-pulse fill-red-500 text-red-500" /> Rec
-          </span>
-        ) : (
-          <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-medium text-white/80">
-            <Camera size={12} /> {rec.ready ? 'Preview' : 'Starting camera…'}
-          </span>
-        )}
-        {!isAnswer && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-center text-sm text-white/90">
-            <span className="max-w-xs px-4">Read the question and get ready. Answer aloud — the timer starts your response.</span>
+
+        {/* camera warming up — placeholder for the frame that's about to arrive */}
+        {!rec.ready && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-brand-card">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full border border-brand-border bg-white/5 text-brand-gray">
+              <Camera size={22} />
+            </span>
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-sm font-medium text-brand-gray">Starting your camera…</span>
+              <span className="h-1.5 w-36 animate-pulse rounded-full bg-white/10" />
+            </div>
           </div>
         )}
+
+        {/* status chip */}
+        {rec.ready && (
+          rec.recording ? (
+            <span className="absolute left-3 top-3 z-5 flex items-center gap-1.5 rounded-full border border-white/10 bg-brand-black/70 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white backdrop-blur">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" /> Rec
+            </span>
+          ) : (
+            <span className="absolute left-3 top-3 z-5 flex items-center gap-1.5 rounded-full border border-white/10 bg-brand-black/60 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-white/80 backdrop-blur">
+              <Camera size={12} /> Preview
+            </span>
+          )
+        )}
+
+        {/* prep overlay */}
+        {!isAnswer && rec.ready && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-brand-black/55 px-6 text-center backdrop-blur-[2px]">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-brand-gold-light">Preparation time</p>
+            <p className="max-w-xs text-sm font-medium leading-relaxed text-white/90">
+              Read the question and get ready. Answer aloud — the timer starts your response.
+            </p>
+          </div>
+        )}
+
         {uploading && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/60 text-sm font-medium text-white">
-            <Loader2 size={18} className="animate-spin" /> Saving your answer…
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-brand-black/75 backdrop-blur-[2px]">
+            <Loader2 size={24} className="animate-spin text-brand-gold-light" />
+            <p className="text-sm font-medium text-white">Saving your answer…</p>
           </div>
         )}
       </div>
 
       {submitFailed && (
-        <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> Your answer may not have been submitted. If the interview advanced, that question could be missing its transcript.
-        </div>
+        <Notice tone="danger" alert>
+          We couldn’t confirm that your answer was submitted. If the interview has already moved on, that question may be
+          missing its transcript — let the hiring team know.
+        </Notice>
       )}
-      {rec.error && (
-        <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> {rec.error}
-        </div>
-      )}
+      {rec.error && <Notice tone="danger" alert>{rec.error}</Notice>}
       {warning && !uploading && (
-        <div className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger">
-          <AlertTriangle size={15} /> {secondsLeft}s left — your answer submits automatically.
-        </div>
+        <Notice tone="warning">
+          <span className="tabular-nums">{secondsLeft}s</span> left — your answer submits automatically.
+        </Notice>
       )}
 
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-neutral-400">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="text-xs leading-relaxed text-neutral-400">
           {isAnswer ? 'You can’t return to this question once you continue.' : 'Read the question and gather your thoughts.'}
         </p>
-        <div className="flex gap-2">
+        <div className="flex gap-2.5">
           {!isAnswer && timing.allowSkipPrep && (
-            <button onClick={onSkipPrep} disabled={busy || !rec.ready}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border-2 px-4 text-sm font-semibold transition-all disabled:opacity-50"
-              style={{ borderColor: branding.accentColor, color: branding.accentColor }}>
+            <button
+              onClick={onSkipPrep}
+              disabled={busy || !rec.ready}
+              className="inline-flex h-10 items-center gap-2 rounded-full border-[1.5px] px-5 text-sm font-semibold transition-all duration-150 hover:-translate-y-px disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-2"
+              style={{ borderColor: accent, color: accent }}
+            >
               <FastForward size={16} /> Start recording now
             </button>
           )}
           {isAnswer && timing.allowEarlySubmit && (
-            <button onClick={() => void doSubmit()} disabled={busy || uploading}
-              className="inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold text-white transition-all disabled:opacity-50"
-              style={{ background: branding.accentColor }}>
+            <button
+              onClick={() => void doSubmit()}
+              disabled={busy || uploading}
+              className="inline-flex h-10 items-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-md transition-all duration-150 hover:-translate-y-px hover:shadow-lg disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-2"
+              style={{ background: accent }}
+            >
               <Send size={16} /> Submit &amp; continue
             </button>
           )}

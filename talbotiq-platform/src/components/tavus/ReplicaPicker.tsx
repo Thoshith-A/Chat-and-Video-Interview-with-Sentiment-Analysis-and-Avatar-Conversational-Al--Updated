@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Ban, Check, ChevronDown, ScanFace } from 'lucide-react'
 import { cn } from '@/components/ui'
 import { cachedFaceUrl, warmFaceCache } from '@/lib/faceCache'
 import { getIdTokenOrNull } from '@/lib/firebase'
@@ -9,10 +10,11 @@ import type { TavusReplica } from '@/types/tavus.types'
  * ReplicaPicker — a visual avatar/face selector.
  *
  * Replaces the plain text `<Select>` of replica names with a picker that shows
- * the actual Tavus replica *face*. Each face is a still frame at rest and plays
- * its preview video when the cursor hovers it (desktop), so recruiters pick a
- * face by looking at it rather than reading an ID. On touch devices — where
- * there is no hover — the visible faces auto-play instead.
+ * the actual Tavus replica *face*. Each row pairs a live face thumbnail with the
+ * replica name and its id, and plays its preview video when the cursor hovers
+ * the row (desktop), so recruiters pick a face by looking at it rather than
+ * reading an ID. On touch devices — where there is no hover — the visible faces
+ * auto-play instead.
  */
 
 interface ReplicaPickerProps {
@@ -22,7 +24,7 @@ interface ReplicaPickerProps {
   onChange: (replicaId: string) => void
   label?: string
   hint?: string
-  /** Show a "None" tile (e.g. demo mode / inherit defaults). */
+  /** Show a "None" row (e.g. demo mode / inherit defaults). */
   includeNone?: boolean
   noneLabel?: string
   loading?: boolean
@@ -56,8 +58,12 @@ function useCanHover() {
 /* ── Placeholder shown when a replica has no preview video ──────────────────── */
 function PlaceholderFace() {
   return (
-    <div className="w-full h-full bg-gradient-to-br from-neutral-100 to-neutral-50 flex items-center justify-center text-neutral-300">
-      <svg width="40%" height="40%" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <div className="w-full h-full bg-neutral-100 flex items-center justify-center text-neutral-300">
+      <svg
+        width="46%" height="46%" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
+        aria-hidden="true"
+      >
         <circle cx="12" cy="8" r="4" />
         <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
       </svg>
@@ -76,7 +82,7 @@ function PlaceholderFace() {
  *   on permanently, piling up dozens of buffering videos until the tab crashed
  *   (out of memory). Now the number of live videos is capped to what's visible —
  *   and re-attaching on scroll-back is free because the media is local.
- * - Plays after a short hover-intent delay so quickly sweeping the grid never
+ * - Plays after a short hover-intent delay so quickly sweeping the list never
  *   kicks off a storm of playbacks.
  */
 function FaceMedia({ replica, play, token }: { replica: TavusReplica; play: boolean; token: string | null }) {
@@ -132,8 +138,8 @@ function FaceMedia({ replica, play, token }: { replica: TavusReplica; play: bool
   )
 }
 
-/* ── One selectable face tile ───────────────────────────────────────────────── */
-function FaceTile({
+/* ── One selectable face row ────────────────────────────────────────────────── */
+function FaceRow({
   replica,
   selected,
   canHover,
@@ -158,6 +164,8 @@ function FaceTile({
   return (
     <button
       type="button"
+      role="option"
+      aria-selected={selected}
       title={`${replica.replica_name} · ${replica.replica_id}`}
       onClick={() => onSelect(replica.replica_id)}
       onMouseEnter={() => setHover(true)}
@@ -165,41 +173,48 @@ function FaceTile({
       onFocus={() => setHover(true)}
       onBlur={() => setHover(false)}
       className={cn(
-        'group relative rounded-xl overflow-hidden border-2 text-left transition-all duration-150',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-1',
+        'w-full flex items-center gap-3 rounded-xl border px-2 py-2 text-left',
+        'transition-colors duration-150 focus-visible:outline-none',
+        'focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-1',
         selected
-          ? 'border-primary-700 shadow-primary-sm'
-          : 'border-transparent hover:border-primary-300',
+          ? 'border-primary-700 bg-primary-50'
+          : 'border-transparent hover:border-primary-200 hover:bg-neutral-50',
       )}
     >
-      <div className="relative aspect-[4/3] w-full overflow-hidden bg-neutral-100">
-        <div className={cn('absolute inset-0 transition-transform duration-300', hover && 'scale-[1.06]')}>
-          <FaceMedia replica={replica} play={play} token={token} />
-        </div>
-
-        {/* Name overlay */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent px-2.5 pt-6 pb-2">
-          <p className="text-xs font-semibold text-white truncate drop-shadow-sm">{replica.replica_name}</p>
-        </div>
-
-        {/* Top-left status / stock chip */}
-        {showStatus ? (
-          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wide bg-white/90 text-amber-700 px-1.5 py-0.5 rounded">
-            {replica.status}
-          </span>
-        ) : isStock ? (
-          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wide bg-white/85 text-neutral-600 px-1.5 py-0.5 rounded">
-            Stock
-          </span>
-        ) : null}
-
-        {/* Selected check */}
-        {selected && (
-          <span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-primary-700 text-white flex items-center justify-center shadow-sm">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5"><polyline points="20 6 9 17 4 12" /></svg>
-          </span>
+      <span
+        className={cn(
+          'relative h-11 w-11 flex-shrink-0 overflow-hidden rounded-lg border bg-neutral-100',
+          selected ? 'border-primary-300' : 'border-border',
         )}
-      </div>
+      >
+        <FaceMedia replica={replica} play={play} token={token} />
+      </span>
+
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className={cn('truncate text-sm font-semibold leading-tight', selected ? 'text-primary-800' : 'text-neutral-800')}>
+            {replica.replica_name}
+          </span>
+          {showStatus ? (
+            <span className={cn('badge flex-shrink-0 capitalize', replica.status === 'error' ? 'badge-danger' : 'badge-warning')}>
+              {replica.status}
+            </span>
+          ) : isStock ? (
+            <span className="badge badge-neutral flex-shrink-0">Stock</span>
+          ) : null}
+        </span>
+        <span className="mt-0.5 block truncate font-mono text-[11px] text-neutral-400">{replica.replica_id}</span>
+      </span>
+
+      <span
+        aria-hidden="true"
+        className={cn(
+          'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-150',
+          selected ? 'bg-primary-700 text-white' : 'bg-transparent text-transparent',
+        )}
+      >
+        <Check size={12} strokeWidth={3} />
+      </span>
     </button>
   )
 }
@@ -207,12 +222,25 @@ function FaceTile({
 /* ── Grouped section within the popover ─────────────────────────────────────── */
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2 px-0.5">
+    <div role="group" aria-label={title} className="border-t border-border pt-3 first:border-t-0 first:pt-0">
+      <div className="mb-1.5 flex items-center gap-2 px-2">
         <span className="text-[11px] font-bold uppercase tracking-wide text-neutral-500">{title}</span>
-        <span className="text-[11px] text-neutral-400">{count}</span>
+        <span className="text-[11px] tabular-nums text-neutral-400">{count}</span>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">{children}</div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  )
+}
+
+/* ── Skeleton row — matches the shape of a real face row ────────────────────── */
+function RowSkeleton() {
+  return (
+    <div className="flex items-center gap-3 px-2 py-2">
+      <div className="h-11 w-11 flex-shrink-0 animate-pulse rounded-lg bg-neutral-100" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="h-3 w-2/5 animate-pulse rounded bg-neutral-100" />
+        <div className="h-2.5 w-1/3 animate-pulse rounded bg-neutral-100" />
+      </div>
     </div>
   )
 }
@@ -294,37 +322,37 @@ export function ReplicaPicker({
           aria-haspopup="listbox"
           aria-expanded={open}
           className={cn(
-            'w-full flex items-center gap-3 text-left rounded-lg border-[1.5px] bg-white px-2.5 py-2 min-h-[44px] cursor-pointer',
-            'transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary-700/10',
-            open ? 'border-primary-700' : 'border-border hover:border-primary-200',
+            'w-full flex items-center gap-3 text-left rounded-xl border-[1.5px] bg-white px-2.5 py-1.5 min-h-[48px] cursor-pointer',
+            'transition-colors duration-150 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary-700/15',
+            open ? 'border-primary-700' : 'border-neutral-300 hover:border-primary-300',
           )}
         >
-          <div className="w-9 h-9 rounded-lg overflow-hidden bg-neutral-100 flex-shrink-0 border border-border">
+          <span className="h-9 w-9 flex-shrink-0 overflow-hidden rounded-lg border border-border bg-neutral-100">
             {selected ? <FaceMedia replica={selected} play={false} token={mediaToken} /> : <PlaceholderFace />}
-          </div>
+          </span>
 
-          <div className="min-w-0 flex-1">
+          <span className="min-w-0 flex-1">
             {selected ? (
               <>
-                <p className="text-sm font-medium text-neutral-800 truncate leading-tight">{selected.replica_name}</p>
-                <p className="text-[11px] text-neutral-400 font-mono truncate">{selected.replica_id}</p>
+                <span className="block truncate text-sm font-semibold leading-tight text-neutral-800">{selected.replica_name}</span>
+                <span className="block truncate font-mono text-[11px] text-neutral-400">{selected.replica_id}</span>
               </>
             ) : isCustomId ? (
               <>
-                <p className="text-sm font-medium text-neutral-800 truncate leading-tight">Custom replica ID</p>
-                <p className="text-[11px] text-neutral-400 font-mono truncate">{value}</p>
+                <span className="block truncate text-sm font-semibold leading-tight text-neutral-800">Custom replica ID</span>
+                <span className="block truncate font-mono text-[11px] text-neutral-400">{value}</span>
               </>
             ) : (
-              <p className="text-sm text-neutral-400">{includeNone ? noneLabel : 'Select a face…'}</p>
+              <span className="block truncate text-sm text-neutral-400">{includeNone ? noneLabel : 'Select a face…'}</span>
             )}
-          </div>
+          </span>
 
-          <svg
-            className={cn('text-neutral-400 flex-shrink-0 transition-transform', open && 'rotate-180')}
-            width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-          >
-            <polyline points="6 9 12 15 18 9" />
-          </svg>
+          <ChevronDown
+            aria-hidden="true"
+            size={14}
+            strokeWidth={2.5}
+            className={cn('flex-shrink-0 text-neutral-400 transition-transform duration-150', open && 'rotate-180')}
+          />
         </button>
 
         {/* ── Popover (portalled + fixed so it never gets clipped by a scroll ancestor) ── */}
@@ -338,46 +366,69 @@ export function ReplicaPicker({
               width: rect.width,
               maxHeight: `calc(100vh - ${rect.bottom + 24}px)`,
             }}
-            className="z-[60] min-w-[280px] rounded-xl border border-border bg-white shadow-xl animate-slide-up overflow-hidden flex flex-col"
+            className="z-[60] min-w-[300px] rounded-2xl border border-border bg-white shadow-xl animate-slide-up overflow-hidden flex flex-col"
           >
-            <div className="px-3.5 py-2.5 border-b border-border flex items-center justify-between flex-shrink-0">
-              <span className="text-xs font-semibold text-neutral-700">Choose a face</span>
-              <span className="text-[11px] text-neutral-400">{canHover ? 'Hover to preview ✨' : 'Tap to select'}</span>
+            <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-3.5 py-2.5">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-neutral-500">Choose a face</span>
+              <span className="text-[11px] text-neutral-400">{canHover ? 'Hover a row to preview' : 'Tap to select'}</span>
             </div>
 
-            <div className="overflow-y-auto p-3 space-y-4">
+            <div role="listbox" aria-label="Replicas" className="overflow-y-auto p-2 space-y-3">
               {loading ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {[...Array(6)].map((_, i) => (
-                    <div key={i} className="aspect-[4/3] rounded-xl bg-neutral-100 animate-pulse" />
-                  ))}
+                <div className="space-y-1">
+                  {[...Array(4)].map((_, i) => <RowSkeleton key={i} />)}
                 </div>
               ) : custom.length + stock.length === 0 ? (
-                <p className="text-sm text-neutral-400 text-center py-8">
-                  No replicas found.<br />Add your Tavus API key in Settings.
-                </p>
+                <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full border border-primary-100 bg-primary-50 text-primary-700">
+                    <ScanFace size={20} strokeWidth={1.75} aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-neutral-800">No replicas found</p>
+                    <p className="mt-1 text-xs leading-relaxed text-neutral-500">
+                      Add your Tavus API key in Settings, then your faces appear here.
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <>
                   {includeNone && (
                     <button
                       type="button"
+                      role="option"
+                      aria-selected={!value}
                       onClick={() => pick('')}
                       className={cn(
-                        'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all',
+                        'w-full flex items-center gap-3 rounded-xl border px-2 py-2 text-left',
+                        'transition-colors duration-150 focus-visible:outline-none',
+                        'focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-1',
                         !value
                           ? 'border-primary-700 bg-primary-50'
-                          : 'border-border hover:border-primary-300 hover:bg-neutral-50',
+                          : 'border-transparent hover:border-primary-200 hover:bg-neutral-50',
                       )}
                     >
-                      <span className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-400 flex-shrink-0 text-sm">∅</span>
-                      <span className="text-sm font-medium text-neutral-700">{noneLabel}</span>
+                      <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-neutral-50 text-neutral-400">
+                        <Ban size={17} strokeWidth={1.75} aria-hidden="true" />
+                      </span>
+                      <span className={cn('min-w-0 flex-1 truncate text-sm font-semibold', !value ? 'text-primary-800' : 'text-neutral-700')}>
+                        {noneLabel}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full transition-colors duration-150',
+                          !value ? 'bg-primary-700 text-white' : 'bg-transparent text-transparent',
+                        )}
+                      >
+                        <Check size={12} strokeWidth={3} />
+                      </span>
                     </button>
                   )}
 
                   {custom.length > 0 && (
                     <Section title="Your replicas" count={custom.length}>
                       {custom.map((r) => (
-                        <FaceTile key={r.replica_id} replica={r} selected={r.replica_id === value} canHover={canHover} onSelect={pick} token={mediaToken} />
+                        <FaceRow key={r.replica_id} replica={r} selected={r.replica_id === value} canHover={canHover} onSelect={pick} token={mediaToken} />
                       ))}
                     </Section>
                   )}
@@ -385,7 +436,7 @@ export function ReplicaPicker({
                   {stock.length > 0 && (
                     <Section title="Stock replicas" count={stock.length}>
                       {stock.map((r) => (
-                        <FaceTile key={r.replica_id} replica={r} selected={r.replica_id === value} canHover={canHover} onSelect={pick} token={mediaToken} />
+                        <FaceRow key={r.replica_id} replica={r} selected={r.replica_id === value} canHover={canHover} onSelect={pick} token={mediaToken} />
                       ))}
                     </Section>
                   )}

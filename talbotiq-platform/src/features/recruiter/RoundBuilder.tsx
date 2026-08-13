@@ -6,7 +6,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVertical, Plus, Trash2 } from 'lucide-react'
-import { Button, Input, Select } from '@/components/ui'
+import { Button, Input, Select, cn } from '@/components/ui'
 import type { RoundDef, TrackType } from '@shared/types'
 
 /** A RoundDef being edited client-side, keyed by a stable client id (not persisted; `index` is derived on submit). */
@@ -40,22 +40,49 @@ function RoundCard({ d, n, onChange, onRemove, canRemove }: {
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: d._id })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1, zIndex: isDragging ? 10 : undefined }
+  const modeLabel = ROUND_MODES.find((m) => m.value === d.mode)?.label
   return (
-    <div ref={setNodeRef} style={style} className="card p-4">
-      <div className="flex items-start gap-2">
-        <button {...attributes} {...listeners} className="mt-1 cursor-grab touch-none rounded p-1 text-neutral-300 hover:text-neutral-500 active:cursor-grabbing" aria-label="Drag to reorder round">
-          <GripVertical size={16} />
-        </button>
-        <div className="flex-1 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">Round {n}</span>
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'rounded-2xl border bg-white p-4 transition-shadow duration-150',
+        isDragging ? 'border-primary-300 shadow-lg' : 'border-border shadow-xs',
+      )}
+    >
+      <div className="flex items-start gap-3">
+        {/* Order rail */}
+        <div className="flex flex-shrink-0 flex-col items-center gap-1.5 pt-0.5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-50 text-sm font-bold tabular-nums text-primary-700">
+            {n}
+          </span>
+          <button
+            {...attributes} {...listeners}
+            className="cursor-grab touch-none rounded-lg p-1 text-neutral-300 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-500 active:cursor-grabbing"
+            aria-label="Drag to reorder round"
+          >
+            <GripVertical size={15} />
+          </button>
+        </div>
+
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-500">Round {n}</span>
+              {modeLabel && <span className="badge badge-info">{modeLabel}</span>}
+            </div>
             {canRemove && (
-              <button type="button" onClick={onRemove} className="text-neutral-400 hover:text-danger" aria-label="Remove round"><Trash2 size={15} /></button>
+              <button
+                type="button" onClick={onRemove} aria-label={`Remove round ${n}`}
+                className="rounded-lg p-1.5 text-neutral-400 transition-colors duration-150 hover:bg-danger-bg hover:text-danger"
+              >
+                <Trash2 size={15} />
+              </button>
             )}
           </div>
           <Input label="Round name" value={d.name} onChange={(e) => onChange({ name: e.target.value })} placeholder="e.g. Technical" />
           <Select label="Mode" value={d.mode} options={ROUND_MODES} onChange={(e) => onChange({ mode: e.target.value as TrackType })} />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <Select label="Advance rule" value={d.advanceRule?.kind ?? ''} options={[{ value: '', label: 'None' }, { value: 'threshold', label: 'Score ≥' }, { value: 'topN', label: 'Top N' }]}
               onChange={(e) => onChange({ advanceRule: e.target.value ? { kind: e.target.value as 'threshold' | 'topN', value: d.advanceRule?.value ?? (e.target.value === 'threshold' ? 60 : 5) } : undefined })} />
             {d.advanceRule && (

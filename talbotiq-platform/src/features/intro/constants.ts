@@ -1,7 +1,8 @@
 /**
  * Tunable constants + configurable defaults for the MIMIC AI intro.
- * Colours track the dark "AI Avatar Screening" brand tokens in tailwind.config.js
- * (brand.black / brand.gold / brand.green).
+ * Colours track the dark brand tokens in tailwind.config.js
+ * (brand.black / brand.gold / brand.green) — a violet-dark world since the
+ * 2026-08 rebrand onto the parent company's identity.
  */
 
 export type IntroTier = 'high' | 'med' | 'low'
@@ -24,7 +25,10 @@ export const DEFAULT_CONFIG: IntroConfig = {
   tagline: 'The Future of Interviews',
   heroText: 'MIMIC AI',
   heroMaterial: 'chrome', // polished metal reads most "Marvel/Fortune-500"
-  accentColor: '#f0c040', // brand.gold
+  // brand.gold — the token name is legacy; its value is the violet accent the
+  // rest of the product uses, so the light sweep, rim light and lens flare land
+  // in the same world as the app the film hands off to.
+  accentColor: '#B98CFF',
 }
 
 /** sessionStorage gate — the film plays once per browser session. */

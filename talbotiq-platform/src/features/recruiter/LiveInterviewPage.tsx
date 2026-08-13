@@ -1,11 +1,33 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, AlertTriangle, Disc, Square, UserPlus } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, AlertTriangle, Disc, Square, UserPlus, Users, RefreshCw } from 'lucide-react'
 import { sessionsApi } from '@/lib/api'
 import { uploadAnswerVideo } from '@/lib/storage'
 import { useDailyCall } from '@/features/interview/useDailyCall'
 import { DailyVideoTile } from '@/components/interview/DailyVideoTile'
+
+/* ── Shared call-room atoms (one language across every live stage) ────────── */
+
+/** 56px circular control. */
+const CONTROL =
+  'flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-150 ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-2 ' +
+  'focus-visible:ring-offset-brand-black disabled:opacity-60'
+const CONTROL_IDLE = 'border-brand-border bg-white/5 text-white hover:bg-white/10'
+const CONTROL_OFF = 'border-danger/50 bg-danger/20 text-red-300 hover:bg-danger/30'
+
+/** Breathing ring — the room's "we're working on it" signal. */
+function PulseRing({ children }: { children: ReactNode }) {
+  return (
+    <div className="relative flex h-24 w-24 items-center justify-center">
+      <span className="absolute h-20 w-20 animate-pulse rounded-full bg-primary/20" />
+      <span className="relative flex h-16 w-16 items-center justify-center rounded-full border border-brand-border bg-brand-card text-white">
+        {children}
+      </span>
+    </div>
+  )
+}
 
 /**
  * Recruiter's host screen for the live Two-way Interview (T6). Joins the Daily
@@ -148,18 +170,25 @@ export default function LiveInterviewPage() {
   /* ── hard error — couldn't open the room / join failed ── */
   if (hostError || dc.callState === 'error') {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-neutral-950 px-4 text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-danger-bg text-danger">
-          <AlertTriangle size={22} />
+      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-brand-black px-6 text-center">
+        <span className="flex h-16 w-16 items-center justify-center rounded-2xl border border-danger/40 bg-danger/15 text-red-300">
+          <AlertTriangle size={28} />
         </span>
-        <h1 className="text-xl font-bold text-white">We couldn’t start the interview room</h1>
-        <p className="max-w-md text-sm text-neutral-400">{hostError ?? dc.error ?? 'The call hit a connection problem.'}</p>
+        <div>
+          <h1 className="font-display text-xl font-extrabold tracking-[-0.03em] text-white">
+            We couldn’t start the interview room
+          </h1>
+          <p className="mx-auto mt-2.5 max-w-md text-sm leading-relaxed text-brand-gray">
+            {hostError ?? dc.error ?? 'The call hit a connection problem.'}
+          </p>
+        </div>
         <button
           onClick={() => setAttempt((a) => a + 1)}
-          className="mt-2 rounded-full bg-white/10 px-5 py-2 text-sm font-semibold text-white hover:bg-white/20"
+          className="inline-flex h-11 items-center gap-2 rounded-full bg-primary-700 px-6 text-sm font-semibold text-white shadow-primary-sm transition-all duration-150 hover:-translate-y-px hover:bg-primary-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-2 focus-visible:ring-offset-brand-black"
         >
-          Try again
+          <RefreshCw size={15} /> Try again
         </button>
+        <p className="text-xs text-brand-gray/80">The candidate stays in the waiting room until the room opens.</p>
       </div>
     )
   }
@@ -170,12 +199,19 @@ export default function LiveInterviewPage() {
         escape hatch in case finalize() is taking a while. ── */
   if (dc.callState === 'left') {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-neutral-950 text-neutral-300">
-        <Loader2 size={26} className="animate-spin" />
-        <p className="text-sm">The interview has ended — finalizing…</p>
+      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-brand-black px-6 text-center">
+        <PulseRing>
+          <Loader2 size={24} className="animate-spin" />
+        </PulseRing>
+        <div>
+          <p className="font-display text-lg font-bold tracking-[-0.02em] text-white">The interview has ended</p>
+          <p className="mt-1.5 text-sm text-brand-gray">
+            {hasRecordedRef.current ? 'Uploading the recording and finalizing the session…' : 'Finalizing the session…'}
+          </p>
+        </div>
         <button
           onClick={() => navigate(`/sessions/${id}/report`)}
-          className="mt-2 rounded-full bg-white/10 px-5 py-2 text-sm font-semibold text-white hover:bg-white/20"
+          className="inline-flex h-10 items-center gap-2 rounded-full border border-brand-border bg-white/5 px-5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-2 focus-visible:ring-offset-brand-black"
         >
           Go to report
         </button>
@@ -186,35 +222,67 @@ export default function LiveInterviewPage() {
   /* ── connecting — acquiring the room + joining as owner ── */
   if (dc.callState !== 'joined') {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-neutral-950 text-neutral-300">
-        <Loader2 size={26} className="animate-spin" />
-        <p className="text-sm">Starting the interview room…</p>
+      <div className="flex h-screen flex-col overflow-hidden bg-brand-black">
+        <header className="flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-brand-border bg-brand-card px-4">
+          <span className="flex items-center gap-2.5 font-display font-bold tracking-[-0.02em] text-white">
+            Live interview
+            <span className="flex items-center gap-1.5 rounded-full border border-brand-border bg-white/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-gold-light">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-gold" /> Starting
+            </span>
+          </span>
+          <span className="h-8 w-32 animate-pulse rounded-full bg-white/5" />
+        </header>
+
+        <div className="flex-1 p-4">
+          <div className="mx-auto flex h-full max-w-4xl flex-col items-center justify-center gap-6 rounded-3xl border border-brand-border bg-brand-card/60 px-6 text-center">
+            <PulseRing>
+              <Loader2 size={24} className="animate-spin" />
+            </PulseRing>
+            <div>
+              <p className="font-display text-lg font-bold tracking-[-0.02em] text-white" aria-live="polite">
+                Starting the interview room
+              </p>
+              <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-brand-gray">
+                Opening the room and connecting your camera and microphone. The candidate can knock as soon as it’s open.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-shrink-0 border-t border-brand-border bg-brand-black">
+          <div className="mx-auto flex max-w-3xl items-center justify-center gap-5 px-4 py-6">
+            <span className="h-14 w-14 animate-pulse rounded-full bg-white/5" />
+            <span className="h-14 w-14 animate-pulse rounded-full bg-white/5" />
+            <span className="h-16 w-16 animate-pulse rounded-full bg-white/5" />
+            <span className="h-14 w-14 animate-pulse rounded-full bg-white/5" />
+          </div>
+        </div>
       </div>
     )
   }
 
   /* ── the live room ── */
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-neutral-950">
-      <div className="flex h-[56px] flex-shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-neutral-950 px-4">
-        <span className="flex items-center gap-2 truncate font-bold text-white">
-          Live interview
-          <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live
+    <div className="relative flex h-screen flex-col overflow-hidden bg-brand-black">
+      <header className="flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-brand-border bg-brand-card px-4">
+        <span className="flex min-w-0 items-center gap-2.5 font-display font-bold tracking-[-0.02em] text-white">
+          <span className="truncate">Live interview</span>
+          <span className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-brand-border bg-white/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-green-light">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-green-light" /> Live
           </span>
           {recording && (
-            <span className="flex items-center gap-1.5 rounded-full bg-red-500/15 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-red-300">
+            <span className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-danger/40 bg-danger/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-red-300">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" /> Rec
             </span>
           )}
         </span>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-shrink-0 items-center gap-2">
           {waiting.map((w) => (
             <button
               key={w.id}
               onClick={() => void dc.admit(w.id)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3.5 py-1.5 text-sm font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/25"
+              className="inline-flex items-center gap-1.5 rounded-full bg-mint px-4 py-1.5 text-sm font-semibold text-neutral-900 shadow-mint-sm transition-all duration-150 hover:-translate-y-px hover:bg-mint-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint focus-visible:ring-offset-2 focus-visible:ring-offset-brand-card"
             >
               <UserPlus size={15} /> Admit {w.name || 'candidate'}
             </button>
@@ -222,58 +290,65 @@ export default function LiveInterviewPage() {
           <button
             onClick={handleEnd}
             disabled={ending}
-            className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-4 py-1.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/25 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-full border border-danger/40 bg-danger/15 px-4 py-1.5 text-sm font-semibold text-red-300 transition-colors duration-150 hover:bg-danger/25 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-card"
           >
             {ending ? <Loader2 size={15} className="animate-spin" /> : <PhoneOff size={15} />}
             End interview
           </button>
         </div>
-      </div>
+      </header>
 
       <div className="relative flex-1 p-4">
         <div className="mx-auto h-full max-w-4xl">
           {candidate ? (
             <DailyVideoTile participant={candidate} label="Candidate" />
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-white/15 bg-neutral-900/40 text-center text-neutral-400">
-              <Loader2 size={22} className="animate-spin" />
-              <p className="text-sm">
-                {waiting.length > 0 ? 'The candidate is waiting — admit them above.' : 'Waiting for the candidate to join…'}
-              </p>
+            <div className="flex h-full flex-col items-center justify-center gap-4 rounded-3xl border border-dashed border-brand-border bg-brand-card/50 px-6 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full border border-brand-border bg-white/5 text-brand-gold">
+                <Users size={24} />
+              </span>
+              <div>
+                <p className="font-display text-base font-bold tracking-[-0.02em] text-white">
+                  {waiting.length > 0 ? 'The candidate is in the waiting room' : 'Waiting for the candidate to join'}
+                </p>
+                <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-brand-gray">
+                  {waiting.length > 0
+                    ? 'Use Admit at the top of the room to let them in.'
+                    : 'They’ll knock as soon as they open their interview link — keep this room open.'}
+                </p>
+              </div>
             </div>
           )}
         </div>
         {dc.localParticipant && (
-          <div className="absolute bottom-4 right-6 w-40 shadow-lg sm:w-52">
+          <div className="absolute bottom-4 right-6 w-40 overflow-hidden rounded-2xl shadow-xl sm:w-52">
             <DailyVideoTile participant={dc.localParticipant} label="You" />
           </div>
         )}
       </div>
 
-      <div className="border-t border-white/10 bg-neutral-950">
-        <div className="mx-auto flex max-w-3xl items-center justify-center gap-4 px-4 py-5">
+      <div className="flex-shrink-0 border-t border-brand-border bg-brand-black">
+        <div className="mx-auto flex max-w-3xl items-center justify-center gap-5 px-4 py-6">
           <button
             onClick={dc.toggleMic}
             aria-pressed={dc.muted}
-            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/15 bg-white/5 text-white transition-all hover:bg-white/10"
+            className={`${CONTROL} ${dc.muted ? CONTROL_OFF : CONTROL_IDLE}`}
             aria-label={dc.muted ? 'Unmute microphone' : 'Mute microphone'}
           >
-            {dc.muted ? <MicOff size={22} className="text-red-400" /> : <Mic size={22} />}
+            {dc.muted ? <MicOff size={22} /> : <Mic size={22} />}
           </button>
           <button
             onClick={() => void handleToggleRecord()}
             aria-pressed={recording}
-            className={`flex h-14 w-14 items-center justify-center rounded-full border-2 transition-all ${
-              recording ? 'border-red-400/40 bg-red-500/20 text-red-300' : 'border-white/15 bg-white/5 text-white hover:bg-white/10'
-            }`}
-            aria-label={recording ? 'Stop recording' : 'Start recording'}
+            className={`${CONTROL} ${recording ? CONTROL_OFF : CONTROL_IDLE}`}
+            aria-label={recording ? 'Pause recording' : 'Start recording'}
           >
             {recording ? <Square size={20} /> : <Disc size={22} />}
           </button>
           <button
             onClick={handleEnd}
             disabled={ending}
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-danger text-white shadow-md transition-transform hover:scale-105 disabled:opacity-60"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-danger text-white shadow-lg transition-transform duration-150 hover:scale-105 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-black"
             aria-label="End interview"
           >
             <PhoneOff size={24} />
@@ -281,18 +356,27 @@ export default function LiveInterviewPage() {
           <button
             onClick={dc.toggleCam}
             aria-pressed={dc.camOff}
-            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/15 bg-white/5 text-white transition-all hover:bg-white/10"
+            className={`${CONTROL} ${dc.camOff ? CONTROL_OFF : CONTROL_IDLE}`}
             aria-label={dc.camOff ? 'Turn camera on' : 'Turn camera off'}
           >
-            {dc.camOff ? <VideoOff size={22} className="text-red-400" /> : <Video size={22} />}
+            {dc.camOff ? <VideoOff size={22} /> : <Video size={22} />}
           </button>
         </div>
       </div>
 
       {ending && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-neutral-950/90 text-neutral-200">
-          <Loader2 size={26} className="animate-spin" />
-          <p className="text-sm">{hasRecordedRef.current ? 'Uploading recording…' : 'Finalizing…'}</p>
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-5 bg-brand-black/90 px-6 text-center backdrop-blur-sm">
+          <PulseRing>
+            <Loader2 size={24} className="animate-spin" />
+          </PulseRing>
+          <div>
+            <p className="font-display text-lg font-bold tracking-[-0.02em] text-white" aria-live="polite">
+              {hasRecordedRef.current ? 'Uploading the recording…' : 'Finalizing the session…'}
+            </p>
+            <p className="mt-1.5 text-sm text-brand-gray">
+              Don’t close this tab — we’ll open the report as soon as it’s saved.
+            </p>
+          </div>
         </div>
       )}
     </div>

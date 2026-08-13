@@ -21,25 +21,28 @@ function fmt(s: number) {
 /** Accessible circular countdown. The ring is decorative; the live region announces time. */
 export function CircularCountdown({ remaining, total, phase, warningThreshold, accentColor, size = 140 }: Props) {
   const reduce = useReducedMotion()
-  const stroke = Math.max(4, Math.round(size * 0.057))
+  const stroke = Math.max(4, Math.round(size * 0.05))
+  // Hairline track under a bolder progress arc — the ring reads as a gauge,
+  // not a donut. Geometry (R, C, frac) is unchanged.
+  const trackStroke = Math.max(2, stroke - 2)
   const R = size / 2 - stroke - 8
   const C = 2 * Math.PI * R
   const frac = total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0
   const compact = size < 110
 
-  // Color: prep is calm (accent); answer shifts green → amber → red as time runs out.
+  // Color: prep is calm (accent); answer shifts success → warning → danger as time runs out.
   let color = accentColor
   const warning = phase === 'answer' && remaining <= warningThreshold
   if (phase === 'answer') {
-    if (remaining <= warningThreshold) color = '#dc2626'
-    else if (remaining <= total * 0.4) color = '#d97706'
-    else color = '#16a34a'
+    if (remaining <= warningThreshold) color = '#dc2626'      // danger token
+    else if (remaining <= total * 0.4) color = '#B45309'      // warning token
+    else color = '#0F7A5F'                                    // success token
   }
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke="#e2e8f0" strokeWidth={stroke} />
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden="true" focusable="false">
+        <circle cx={size / 2} cy={size / 2} r={R} fill="none" stroke="#E7E2F2" strokeWidth={trackStroke} />
         <circle
           cx={size / 2} cy={size / 2} r={R} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
           strokeDasharray={C}
@@ -53,11 +56,11 @@ export function CircularCountdown({ remaining, total, phase, warningThreshold, a
           warning && !reduce && 'animate-pulse',
         )}
       >
-        <span className="font-mono font-bold tabular-nums leading-none" style={{ color, fontSize: Math.round(size * 0.24) }}>
+        <span className="font-display font-extrabold tabular-nums leading-none tracking-[-0.02em]" style={{ color, fontSize: Math.round(size * 0.24) }}>
           {fmt(remaining)}
         </span>
         {!compact && (
-          <span className="mt-1 text-[10px] font-semibold uppercase tracking-widest text-neutral-400">
+          <span className="mt-2 text-[10px] font-bold uppercase leading-none tracking-[0.16em] text-neutral-400">
             {phase === 'prep' ? 'Prepare' : 'Answer'}
           </span>
         )}

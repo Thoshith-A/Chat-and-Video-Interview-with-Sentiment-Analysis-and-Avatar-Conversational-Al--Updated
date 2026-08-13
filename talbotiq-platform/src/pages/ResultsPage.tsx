@@ -2,8 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAppStore } from '@/store/useAppStore'
-import { Card, Button, StatCard, PageHeader, SectionTitle } from '@/components/ui'
+import { Card, Button, StatCard, PageHeader, SectionTitle, Skeleton, EmptyState } from '@/components/ui'
 import { cn } from '@/components/ui'
+import {
+  Check, AlertTriangle, Mic, TrendingUp, Radio, CalendarPlus, Download, Share2,
+  FileText, RotateCcw, Waves, Quote,
+} from 'lucide-react'
 import { useHumePoll } from '@/hooks/useHumeBatch'
 import { useGeminiAnalysis } from '@/hooks/useGeminiAnalysis'
 import { buildGeminiInput } from '@/services/analysisDataBuilder'
@@ -20,10 +24,28 @@ import { EmotionCategoryPanel } from '@/components/hume/EmotionCategoryPanel'
 import { EmotionHeatmap } from '@/components/hume/EmotionHeatmap'
 import { PerQuestionCard } from '@/components/hume/PerQuestionCard'
 
+// ── Brand score bands ───────────────────────────────────────────────────────
+// 85+ reads as the full violet→magenta signature, 75–84 as lavender-neutral,
+// below 75 as amber. Used by every score surface on the page so one number
+// always carries the same colour.
+const BAND = {
+  strong:   '#6B2BE0',
+  moderate: '#9D93B8',
+  low:      '#B45309',
+} as const
+
 function scoreColor(s: number) {
-  if (s >= 85) return { text: '#0d5c3a', bg: '#f0faf5', bar: '#0d5c3a' }
-  if (s >= 75) return { text: '#475569', bg: '#f8fafc', bar: '#64748b' }
-  return { text: '#d97706', bg: '#fffbeb', bar: '#d97706' }
+  if (s >= 85) return { text: '#6B2BE0', bg: '#F0E9FD', bar: 'linear-gradient(90deg,#6B2BE0 0%,#C42C93 100%)' }
+  if (s >= 75) return { text: '#5D5578', bg: '#F3F1F9', bar: '#9D93B8' }
+  return { text: '#B45309', bg: '#FDF3E2', bar: '#B45309' }
+}
+
+/** Badge token for the headline verdict — never a flat "success" for a weak report. */
+function verdictBadge(score: number, noSignal: boolean) {
+  if (noSignal) return 'badge-neutral'
+  if (score >= 85) return 'badge-info'
+  if (score >= 75) return 'badge-neutral'
+  return 'badge-warning'
 }
 
 export default function ResultsPage() {
@@ -227,7 +249,7 @@ export default function ResultsPage() {
 
   function downloadReport() {
     const rows = dims.map(d => `<tr><td>${d.name}</td><td style="font-weight:600">${d.score}/100</td><td>${d.score >= 85 ? 'Excellent' : d.score >= 75 ? 'Good' : 'Moderate'}</td></tr>`).join('')
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>TalbotIQ Report</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;color:#0f172a;background:#f8fafc;padding:48px}h1{font-size:28px;font-weight:700;color:#0d5c3a;margin-bottom:4px}.meta{font-size:13px;color:#64748b;margin-bottom:32px}table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:10px 14px;border:1px solid #e2e8f0}.score{font-size:48px;font-weight:800;color:#0d5c3a}</style></head><body><h1>TalbotIQ AI Interview Report</h1><p class="meta">Session: ${conv?.conversation_id ?? 'demo'} · Generated: ${new Date().toLocaleString()}</p><p class="score">${overall}<span style="font-size:20px;color:#64748b">/100</span></p><p style="margin:12px 0 32px;display:inline-block;background:#f0faf5;color:#0d5c3a;padding:4px 12px;border-radius:9999px;font-size:12px;border:1px solid #b3e9cd">${verdict}</p><table><tr><th>Dimension</th><th>Score</th><th>Grade</th></tr>${rows}</table></body></html>`
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>TalbotIQ Report</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Figtree,system-ui,sans-serif;color:#1B0B3B;background:#F7F5FB;padding:48px}h1{font-size:28px;font-weight:800;letter-spacing:-0.03em;color:#6B2BE0;margin-bottom:4px}.meta{font-size:13px;color:#7C7595;margin-bottom:32px}table{width:100%;border-collapse:collapse;font-size:13px;background:#ffffff}td,th{padding:10px 14px;border:1px solid #E7E2F2;text-align:left}th{font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#7C7595;background:#FAF9FD}.score{font-size:48px;font-weight:800;letter-spacing:-0.03em;color:#6B2BE0;font-variant-numeric:tabular-nums}</style></head><body><h1>TalbotIQ AI Interview Report</h1><p class="meta">Session: ${conv?.conversation_id ?? 'demo'} · Generated: ${new Date().toLocaleString()}</p><p class="score">${overall}<span style="font-size:20px;color:#7C7595">/100</span></p><p style="margin:12px 0 32px;display:inline-block;background:#F0E9FD;color:#4A1BA8;padding:4px 12px;border-radius:9999px;font-size:12px;font-weight:600;border:1px solid #E0D4FB">${verdict}</p><table><tr><th>Dimension</th><th>Score</th><th>Grade</th></tr>${rows}</table></body></html>`
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
     a.download = `TalbotIQ-Report-${conv?.conversation_id ?? 'demo'}.html`
@@ -236,53 +258,53 @@ export default function ResultsPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8 space-y-5">
+    <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
       <PageHeader
         kicker="Interview Complete"
         title={conv?.conversation_name ?? 'Interview Assessment'}
         description="Comprehensive candidate intelligence powered by conversational AI and behavioral analytics."
         action={
           <div className="text-right">
-            <p className="text-xs text-neutral-400">Session ID</p>
-            <p className="font-mono text-xs font-semibold text-neutral-700 mt-0.5">{conv?.conversation_id ?? 'TIQ-demo'}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Session ID</p>
+            <p className="font-mono text-xs font-semibold text-neutral-700 mt-1">{conv?.conversation_id ?? 'TIQ-demo'}</p>
           </div>
         }
       />
 
       {/* Hume batch processing status banner */}
       {humeIsProcessing && (
-        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-hume-border bg-hume-surface text-sm text-hume-teal">
-          <span className="w-2 h-2 rounded-full bg-hume-teal animate-pulse flex-shrink-0" />
-          <span className="font-mono text-xs">HUME AI · Analysing prosody — emotion results will appear below shortly</span>
+        <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl border border-primary-100 bg-primary-50 text-sm text-primary-700">
+          <span className="w-2 h-2 rounded-full bg-primary-700 animate-pulse flex-shrink-0" />
+          <span className="text-xs font-medium">Analysing voice prosody — emotion results will appear below as soon as they land.</span>
         </div>
       )}
 
       {/* KPI row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard label="Overall Score"     value={noSignal ? '—' : `${overall}/100`}    sub={verdict}                      trend={noSignal ? undefined : 'up'}  color="#0d5c3a" />
-        <StatCard label="Hiring Confidence" value={noSignal ? '—' : `${hiringConf}%`}    sub={noSignal ? 'Awaiting interview data' : 'Based on all signals'}         trend={noSignal ? undefined : 'up'}  color="#0d5c3a" />
-        <StatCard label="Words / Min"  value={fmtWpm}   sub={hasTranscript ? 'From Deepgram' : 'No transcript yet'} color={realWpm !== null && realWpm >= 110 && realWpm <= 170 ? '#0d5c3a' : '#d97706'} />
-        <StatCard label="Total Words"  value={hasTranscript ? `${realWordCount}` : '—'} sub={hasTranscript ? `${sentenceCount} sentences` : 'Deepgram required'} trend={hasTranscript ? 'up' : undefined} color="#0d5c3a" />
+        <StatCard label="Overall Score"     value={noSignal ? '—' : `${overall}/100`}    sub={verdict}                      trend={noSignal ? undefined : 'up'}  color={BAND.strong} />
+        <StatCard label="Hiring Confidence" value={noSignal ? '—' : `${hiringConf}%`}    sub={noSignal ? 'Awaiting interview data' : 'Based on all signals'}         trend={noSignal ? undefined : 'up'}  color={BAND.strong} />
+        <StatCard label="Words / Min"  value={fmtWpm}   sub={hasTranscript ? 'From Deepgram' : 'No transcript yet'} color={realWpm !== null && realWpm >= 110 && realWpm <= 170 ? BAND.strong : BAND.low} />
+        <StatCard label="Total Words"  value={hasTranscript ? `${realWordCount}` : '—'} sub={hasTranscript ? `${sentenceCount} sentences` : 'Deepgram required'} trend={hasTranscript ? 'up' : undefined} color={BAND.strong} />
       </div>
 
       {/* Score ring + dimensions */}
-      <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-[248px_1fr] gap-5">
         <Card className="p-6 flex flex-col items-center">
-          <div className="relative w-32 h-32 mb-4">
-            <svg width="128" height="128" viewBox="0 0 110 110" style={{ transform: 'rotate(-90deg)' }}>
-              <circle cx="55" cy="55" r="48" strokeWidth="7" stroke="#e2e8f0" fill="none" />
-              <circle cx="55" cy="55" r="48" strokeWidth="7" stroke="#0d5c3a" fill="none" strokeLinecap="round"
+          <div className="relative w-32 h-32 mb-5">
+            <svg width="128" height="128" viewBox="0 0 110 110" style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
+              <circle cx="55" cy="55" r="48" strokeWidth="7" stroke="#E7E2F2" fill="none" />
+              <circle cx="55" cy="55" r="48" strokeWidth="7" stroke="#6B2BE0" fill="none" strokeLinecap="round"
                 strokeDasharray="301.6" strokeDashoffset={offset} style={{ transition: 'stroke-dashoffset 1.5s ease' }} />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-black text-neutral-900">{noSignal ? '—' : overall}</span>
-              <span className="text-xs text-neutral-400 font-medium">/100</span>
+              <span className="font-display text-[34px] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-neutral-900">{noSignal ? '—' : overall}</span>
+              <span className="text-xs text-neutral-400 font-semibold mt-1">/100</span>
             </div>
           </div>
-          <p className="section-label mb-2">Overall Score</p>
-          <span className="badge badge-success px-3 py-1 text-xs font-semibold">{verdict}</span>
-          <div className="mt-5 w-full p-4 bg-neutral-50 rounded-xl border border-border">
-            <p className="text-xs font-semibold text-neutral-500 uppercase tracking-wide mb-2">AI Summary</p>
+          <p className="section-label mb-2.5">Overall Score</p>
+          <span className={cn('badge', verdictBadge(overall, noSignal), 'px-3 py-1 text-xs text-center')}>{verdict}</span>
+          <div className="mt-6 w-full p-4 bg-neutral-50 rounded-xl border border-border">
+            <p className="text-[11px] font-bold text-neutral-500 uppercase tracking-wide mb-2">AI Summary</p>
             <p className="text-xs text-neutral-600 leading-relaxed">
               {humeResult
                 ? `Dominant emotion: ${humeResult.overallTopEmotions[0]?.name ?? 'Engagement'}. Composite score from ${humeResult.timeline.length} prosody predictions across ${questionsAnswered} questions.`
@@ -298,7 +320,7 @@ export default function ResultsPage() {
               const c = scoreColor(d.score)
               return (
                 <div key={d.name} className="flex items-center gap-3">
-                  <span className="text-sm text-neutral-700 w-32 flex-shrink-0">{d.name}</span>
+                  <span className="text-sm font-medium text-neutral-700 w-32 flex-shrink-0">{d.name}</span>
                   <div className="flex-1 h-2 bg-neutral-100 rounded-full overflow-hidden">
                     <div className="h-full rounded-full transition-all duration-700" style={{ width: `${d.score}%`, background: c.bar }} />
                   </div>
@@ -307,10 +329,10 @@ export default function ResultsPage() {
               )
             })}
           </div>
-          <div className="flex gap-4 mt-5 pt-4 border-t border-border">
-            {[['#0d5c3a', '85+ Excellent'], ['#64748b', '75–84 Good'], ['#d97706', 'Below 75 Moderate']].map(([c, l]) => (
-              <span key={l} className="flex items-center gap-1.5 text-xs text-neutral-400">
-                <span className="w-2 h-2 rounded-full" style={{ background: c }} />{l}
+          <div className="flex flex-wrap gap-x-5 gap-y-2 mt-6 pt-4 border-t border-border">
+            {[[BAND.strong, '85+ Excellent'], [BAND.moderate, '75–84 Good'], [BAND.low, 'Below 75 Moderate']].map(([c, l]) => (
+              <span key={l} className="flex items-center gap-1.5 text-xs font-medium text-neutral-500">
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c }} />{l}
               </span>
             ))}
           </div>
@@ -318,11 +340,14 @@ export default function ResultsPage() {
       </div>
 
       {/* ── Hume AI Emotion Dashboard ─────────────────────────────────────────── */}
-      <div className="rounded-2xl bg-hume-base border border-hume-border p-6 space-y-6 shadow-sm">
+      <div className="rounded-3xl bg-white border border-border p-6 space-y-7 shadow-sm">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <p className="text-xs font-mono text-hume-muted uppercase tracking-widest mb-1">Hume AI · Prosody Analysis</p>
-            <h2 className="text-lg font-bold text-hume-text">Emotional Intelligence Report</h2>
+            <span className="pill mb-2.5 inline-flex">
+              <Waves size={12} strokeWidth={2} aria-hidden="true" /> Hume AI · Prosody
+            </span>
+            <h2 className="font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900">Emotional Intelligence Report</h2>
+            <p className="text-xs text-neutral-500 mt-1.5">Voice-only signals. Not a measure of intent, ability, or personality.</p>
           </div>
           {humeResult && <SentimentArc score={humeResult.compositeScore} label="Emotion Score" size={120} />}
         </div>
@@ -331,26 +356,26 @@ export default function ResultsPage() {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Overall Emotion Profile</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-500 mb-3">Overall Emotion Profile</p>
                 <EmotionRadar categoryScores={humeResult.overallCategoryScores} />
               </div>
               <div>
-                <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Category Breakdown</p>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-500 mb-3">Category Breakdown</p>
                 <EmotionCategoryPanel categoryScores={humeResult.overallCategoryScores} />
               </div>
             </div>
             <div>
-              <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Emotion Timeline</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-500 mb-3">Emotion Timeline</p>
               <EmotionTimeline timeline={humeResult.timeline} questionTimestamps={store.questionTimestamps} />
             </div>
             {perQuestionFiltered.length > 0 && (
               <>
                 <div>
-                  <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Per-Question Heatmap</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-500 mb-3">Per-Question Heatmap</p>
                   <EmotionHeatmap perQuestion={perQuestionFiltered} />
                 </div>
                 <div>
-                  <p className="text-xs text-hume-muted mb-3 font-mono uppercase tracking-wide">Question-by-Question Analysis</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-500 mb-3">Question-by-Question Analysis</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {perQuestionFiltered.map((q, i) => (
                       <PerQuestionCard key={i} summary={q} index={i} />
@@ -361,61 +386,72 @@ export default function ResultsPage() {
             )}
           </>
         ) : humeIsProcessing ? (
-          <div className="rounded-xl bg-hume-surface border border-hume-border p-10 flex flex-col items-center gap-4">
-            <span className="w-8 h-8 rounded-full border-2 border-hume-teal border-t-transparent animate-spin" />
-            <p className="text-hume-text text-sm">Processing prosody analysis — results will appear automatically.</p>
-            <p className="text-hume-muted text-xs font-mono">Job ID: {store.humeJobId}</p>
-            <button
-              className="text-xs text-hume-muted underline hover:text-hume-text transition-colors"
-              onClick={() => {
-                store.setHumeJobId(null)
-                store.setHumeJobStatus(null)
-              }}
-            >
-              Dismiss and show results without emotion data
-            </button>
+          /* Loading — skeletons shaped like the dashboard that's coming. */
+          <div className="rounded-2xl bg-neutral-50 border border-border p-6 space-y-6">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2 h-2 rounded-full bg-primary-700 animate-pulse flex-shrink-0" />
+              <p className="text-sm font-semibold text-neutral-800">Processing prosody analysis</p>
+              <span className="text-xs text-neutral-400">results appear automatically</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <Skeleton className="h-56 rounded-2xl" />
+              <div className="grid grid-cols-2 gap-3">
+                {[0, 1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-[86px] rounded-xl" />)}
+              </div>
+            </div>
+            <Skeleton className="h-40 rounded-2xl" />
+            <div className="flex items-center justify-between gap-4 flex-wrap pt-1 border-t border-border">
+              <p className="text-xs text-neutral-400 pt-4">Job ID <span className="font-mono text-neutral-500">{store.humeJobId}</span></p>
+              <button
+                className="text-xs font-semibold text-neutral-500 underline underline-offset-4 hover:text-neutral-800 transition-colors duration-150 pt-4"
+                onClick={() => {
+                  store.setHumeJobId(null)
+                  store.setHumeJobStatus(null)
+                }}
+              >
+                Skip the wait — show results without emotion data
+              </button>
+            </div>
           </div>
         ) : (
-          <div className="rounded-xl bg-hume-surface border border-hume-border p-8 text-center space-y-2">
-            <p className="text-hume-text text-sm font-medium">No voice-emotion data for this session.</p>
-            <p className="text-hume-muted text-xs leading-relaxed max-w-md mx-auto">
-              Emotion analysis runs on the interview audio after the interview ends — grant
-              microphone access during the session and finish with the <b>End Interview</b> button
-              so the recording is submitted. Speaking pace, filler words, the transcript, facial
-              analysis and the Gemini assessment are computed independently.
-            </p>
+          <div className="rounded-2xl bg-neutral-50 border border-border">
+            <EmptyState
+              icon={<Mic strokeWidth={1.75} />}
+              title="No voice-emotion data for this session"
+              description="Emotion analysis runs on the interview audio after the interview ends. Grant microphone access during the session and finish with End Interview so the recording is submitted. Speaking pace, filler words, the transcript, facial analysis and the Gemini assessment are computed independently."
+            />
           </div>
         )}
       </div>
 
       {/* Raw signals — real Deepgram data when available */}
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <SectionTitle>Voice & Signal Analytics</SectionTitle>
-          {hasTranscript && (
-            <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#0d5c3a] bg-success-bg border border-success-border px-2 py-1 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#0d5c3a]" />
+      <Card className="p-6">
+        <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
+          <SectionTitle className="mb-0 flex-1 min-w-[200px]">Voice & Signal Analytics</SectionTitle>
+          {hasTranscript ? (
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-success bg-success-bg border border-success-border px-2.5 py-1 rounded-full flex-shrink-0">
+              <span className="live-dot" />
               Deepgram Nova-3
             </span>
+          ) : (
+            <span className="text-[11px] font-medium text-neutral-400 flex-shrink-0">Transcription not captured</span>
           )}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: 'Words / Min',  value: fmtWpm,    color: realWpm !== null && realWpm >= 110 && realWpm <= 170 ? '#0d5c3a' : '#d97706', badge: realWpm !== null && realWpm > 170 ? 'FAST' : realWpm !== null && realWpm < 80 ? 'SLOW' : undefined },
-            { label: 'Filler Words', value: fmtFillers, color: realFillers !== null && realFillers <= 3 ? '#0d5c3a' : '#d97706', badge: realFillers !== null && realFillers >= 7 ? 'HIGH' : undefined },
-            { label: 'Total Words',  value: hasTranscript ? `${realWordCount}` : '—', color: '#0d5c3a', badge: undefined },
-            { label: 'Sentences',    value: hasTranscript ? `${sentenceCount}` : '—', color: '#0d5c3a', badge: undefined },
-            { label: 'Confidence',     value: confScore > 0 ? `${confScore}%` : hc ? `${confScore}%` : '—',    color: confScore >= 70 ? '#0d5c3a' : '#d97706', badge: confScore > 0 && confScore < 50 ? 'LOW' : undefined },
-            { label: 'Questions Done', value: `${questionsAnswered}`, color: '#0d5c3a',                                                 badge: undefined },
+            { label: 'Words / Min',  value: fmtWpm,    color: realWpm !== null && realWpm >= 110 && realWpm <= 170 ? BAND.strong : BAND.low, badge: realWpm !== null && realWpm > 170 ? 'Fast' : realWpm !== null && realWpm < 80 ? 'Slow' : undefined },
+            { label: 'Filler Words', value: fmtFillers, color: realFillers !== null && realFillers <= 3 ? BAND.strong : BAND.low, badge: realFillers !== null && realFillers >= 7 ? 'High' : undefined },
+            { label: 'Total Words',  value: hasTranscript ? `${realWordCount}` : '—', color: BAND.strong, badge: undefined },
+            { label: 'Sentences',    value: hasTranscript ? `${sentenceCount}` : '—', color: BAND.strong, badge: undefined },
+            { label: 'Confidence',     value: confScore > 0 ? `${confScore}%` : hc ? `${confScore}%` : '—',    color: confScore >= 70 ? BAND.strong : BAND.low, badge: confScore > 0 && confScore < 50 ? 'Low' : undefined },
+            { label: 'Questions Done', value: `${questionsAnswered}`, color: BAND.strong,                                                 badge: undefined },
           ].map(s => (
-            <div key={s.label} className="relative bg-neutral-50 rounded-xl border border-border p-3.5">
+            <div key={s.label} className="relative bg-neutral-50 rounded-xl border border-border p-4">
               {s.badge && (
-                <span className={cn('absolute top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded', 'badge badge-warning')}>
-                  {s.badge}
-                </span>
+                <span className="badge badge-warning absolute top-2.5 right-2.5">{s.badge}</span>
               )}
-              <p className="text-2xl font-bold tabular-nums" style={{ color: s.color }}>{s.value}</p>
-              <p className="text-xs text-neutral-400 mt-1">{s.label}</p>
+              <p className="text-2xl font-bold tabular-nums tracking-[-0.02em]" style={{ color: s.color }}>{s.value}</p>
+              <p className="text-xs font-medium text-neutral-500 mt-1.5">{s.label}</p>
             </div>
           ))}
         </div>
@@ -423,18 +459,22 @@ export default function ResultsPage() {
 
       {/* Strengths / Watch — dynamic */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <Card className="p-5">
-          <p className="text-xs font-semibold text-success uppercase tracking-wide mb-3 flex items-center gap-2">
-            <span className="w-4 h-4 rounded bg-success-bg flex items-center justify-center text-success text-[10px]">✓</span>
+        <Card className="p-6">
+          <p className="text-[11px] font-bold text-primary-700 uppercase tracking-wide mb-4 flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-primary-50 border border-primary-100 flex items-center justify-center flex-shrink-0">
+              <Check size={11} strokeWidth={3} aria-hidden="true" />
+            </span>
             Strengths
           </p>
           <div className="flex flex-wrap gap-2">
-            {strengths.map(s => <span key={s} className="badge badge-success px-2.5 py-1">{s}</span>)}
+            {strengths.map(s => <span key={s} className="badge badge-info px-2.5 py-1">{s}</span>)}
           </div>
         </Card>
-        <Card className="p-5">
-          <p className="text-xs font-semibold text-warning uppercase tracking-wide mb-3 flex items-center gap-2">
-            <span className="w-4 h-4 rounded bg-warning-bg flex items-center justify-center text-warning text-[10px]">⚠</span>
+        <Card className="p-6">
+          <p className="text-[11px] font-bold text-warning uppercase tracking-wide mb-4 flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-warning-bg border border-warning-border flex items-center justify-center flex-shrink-0">
+              <AlertTriangle size={11} strokeWidth={2.5} aria-hidden="true" />
+            </span>
             Watch Points
           </p>
           <div className="flex flex-wrap gap-2">
@@ -445,7 +485,7 @@ export default function ResultsPage() {
 
       {/* Interview timeline — per question */}
       {questionsAnswered > 0 && (
-        <Card className="p-5">
+        <Card className="p-6">
           <SectionTitle>Interview Timeline</SectionTitle>
           <div className="relative flex items-start px-4">
             <div className="absolute top-[21px] left-8 right-8 h-px bg-border" />
@@ -454,15 +494,15 @@ export default function ResultsPage() {
               const active = i === store.currentQuestionIdx
               return (
                 <div key={i} className="flex-1 flex flex-col items-center text-center relative z-10 px-1">
-                  <div className={cn('w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-bold bg-white mb-3 shadow-xs',
+                  <div className={cn('w-11 h-11 rounded-full border-2 flex items-center justify-center text-xs font-bold tabular-nums bg-white mb-3 shadow-xs',
                     done ? 'border-primary-700 text-primary-700' : active ? 'border-warning text-warning' : 'border-neutral-300 text-neutral-400')}>
-                    {done ? '✓' : i + 1}
+                    {done ? <Check size={16} strokeWidth={3} aria-hidden="true" /> : i + 1}
                   </div>
-                  <span className={cn('text-[9px] font-bold px-2 py-0.5 rounded-full mb-1.5 whitespace-nowrap border',
-                    done ? 'badge badge-success' : active ? 'badge badge-warning' : 'badge badge-neutral')}>
+                  <span className={cn('badge mb-1.5 whitespace-nowrap',
+                    done ? 'badge-info' : active ? 'badge-warning' : 'badge-neutral')}>
                     {done ? 'Answered' : active ? 'In Progress' : 'Pending'}
                   </span>
-                  <p className="text-[10px] text-neutral-400 leading-tight line-clamp-2">{q.slice(0, 40)}{q.length > 40 ? '…' : ''}</p>
+                  <p className="text-[11px] text-neutral-500 leading-tight line-clamp-2">{q.slice(0, 40)}{q.length > 40 ? '…' : ''}</p>
                 </div>
               )
             })}
@@ -470,18 +510,18 @@ export default function ResultsPage() {
         </Card>
       )}
 
-      {/* AI Recommendation */}
-      <div className="bg-primary-700 rounded-2xl p-6">
-        <div className="flex items-start gap-4 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/><polyline points="16,7 22,7 22,13"/></svg>
+      {/* AI Recommendation — the report's one full-bleed brand moment */}
+      <div className="bg-brand-field rounded-3xl p-7 shadow-md">
+        <div className="flex items-start gap-4 mb-6 flex-wrap sm:flex-nowrap">
+          <div className="w-11 h-11 rounded-2xl bg-white/15 flex items-center justify-center flex-shrink-0">
+            <TrendingUp size={19} strokeWidth={2} className="text-white" aria-hidden="true" />
           </div>
-          <div className="flex-1">
-            <p className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-1">AI Recommendation</p>
-            <p className="text-xl font-bold text-white">
+          <div className="flex-1 min-w-[240px]">
+            <p className="text-[11px] font-bold text-white/60 uppercase tracking-[0.1em] mb-1.5">AI Recommendation</p>
+            <p className="font-display text-xl font-extrabold tracking-[-0.03em] text-white">
               {overall >= 80 ? 'Proceed to Technical Round' : overall >= 65 ? 'Consider for Second Interview' : 'Further Evaluation Recommended'}
             </p>
-            <p className="text-sm text-white/65 mt-2 leading-relaxed">
+            <p className="text-sm text-white/75 mt-2.5 leading-relaxed max-w-2xl">
               {overall >= 80
                 ? `Strong across ${dims.filter(d => d.score >= 75).length} of ${dims.length} dimensions. Engagement at ${engageScore}% exceeds benchmark. Recommended for next stage.`
                 : overall >= 65
@@ -490,38 +530,37 @@ export default function ResultsPage() {
             </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-3xl font-black text-white">{hiringConf}%</p>
-            <p className="text-xs text-white/50">Hiring Confidence</p>
+            <p className="font-display text-3xl font-extrabold tracking-[-0.03em] tabular-nums text-white">{hiringConf}%</p>
+            <p className="text-[11px] font-medium text-white/60 mt-0.5">Hiring Confidence</p>
           </div>
         </div>
-        <div className="border-t border-white/10 pt-4">
+        <div className="border-t border-white/15 pt-5">
           <div className="flex justify-between text-xs mb-2">
-            <span className="text-white/50">Hiring Recommendation Confidence</span>
-            <span className="text-white font-semibold">{hiringConf}%</span>
+            <span className="text-white/60 font-medium">Hiring Recommendation Confidence</span>
+            <span className="text-white font-bold tabular-nums">{hiringConf}%</span>
           </div>
-          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-            <div className="h-full bg-white/70 rounded-full transition-all duration-700" style={{ width: `${hiringConf}%` }} />
+          <div className="h-1.5 bg-white/15 rounded-full overflow-hidden">
+            <div className="h-full bg-white rounded-full transition-all duration-700" style={{ width: `${hiringConf}%` }} />
           </div>
         </div>
       </div>
 
-      {/* Recruiter actions */}
       {/* ── Full Transcript ───────────────────────────────────────────────────── */}
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <SectionTitle>Interview Transcript</SectionTitle>
+      <Card className="p-6">
+        <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
+          <SectionTitle className="mb-0 flex-1 min-w-[200px]">Interview Transcript</SectionTitle>
           {hasTranscript ? (
-            <span className="flex items-center gap-1.5 text-[10px] font-mono text-[#0d5c3a] bg-success-bg border border-success-border px-2 py-1 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#0d5c3a]" />
+            <span className="flex items-center gap-1.5 text-[11px] font-semibold text-success bg-success-bg border border-success-border px-2.5 py-1 rounded-full flex-shrink-0 tabular-nums">
+              <span className="live-dot" />
               {realWordCount} words · {sentenceCount} sentences
             </span>
           ) : (
-            <span className="text-xs text-neutral-400">Deepgram Nova-3 · transcription not captured</span>
+            <span className="text-[11px] font-medium text-neutral-400 flex-shrink-0">Deepgram Nova-3 · not captured</span>
           )}
         </div>
 
         {hasTranscript ? (
-          <>
+          <div className="divide-y divide-border">
             {/* Group by question */}
             {store.questions.filter(Boolean).map((q, qi) => {
               const entries = transcript.filter(e => e.questionIdx === qi)
@@ -529,41 +568,42 @@ export default function ResultsPage() {
               const qWords = countWords(entries)
               const qFillers = entries.reduce((a, e) => a + countFillers(e.text), 0)
               return (
-                <div key={qi} className="mb-5 last:mb-0">
-                  <div className="flex items-start gap-3 mb-2">
-                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary-700 text-white text-[10px] font-bold flex items-center justify-center">
+                <div key={qi} className="py-5 first:pt-0 last:pb-0">
+                  <div className="flex items-start gap-3">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary-700 text-white text-[10px] font-bold tabular-nums flex items-center justify-center mt-px">
                       {qi + 1}
                     </span>
-                    <div className="flex-1">
-                      <p className="text-xs font-semibold text-neutral-500 italic mb-2">"{q}"</p>
-                      <div className="space-y-1.5 pl-1">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-neutral-700 mb-2.5 flex gap-1.5">
+                        <Quote size={13} strokeWidth={2} className="text-neutral-300 mt-1 flex-shrink-0" aria-hidden="true" />
+                        <span className="italic">{q}</span>
+                      </p>
+                      <div className="space-y-1.5">
                         {entries.map((e, i) => (
-                          <div key={i} className="bg-neutral-50 rounded-lg border border-border px-3 py-2">
-                            <p className="text-xs text-neutral-700 leading-relaxed">{e.text}</p>
+                          <div key={i} className="bg-neutral-50 rounded-xl border border-border px-3.5 py-2.5">
+                            <p className="text-sm text-neutral-700 leading-relaxed">{e.text}</p>
                           </div>
                         ))}
                       </div>
-                      <div className="flex gap-4 mt-2 text-[10px] text-neutral-400">
-                        <span>{qWords} words</span>
-                        {qFillers > 0 && <span className="text-warning">{qFillers} filler{qFillers !== 1 ? 's' : ''}</span>}
-                        <span>{new Date(entries[0].timestamp).toLocaleTimeString()}</span>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2.5 text-[11px] text-neutral-400">
+                        <span className="tabular-nums">{qWords} words</span>
+                        {qFillers > 0 && <span className="text-warning font-medium tabular-nums">{qFillers} filler{qFillers !== 1 ? 's' : ''}</span>}
+                        <span className="tabular-nums">{new Date(entries[0].timestamp).toLocaleTimeString()}</span>
                       </div>
                     </div>
                   </div>
-                  {qi < store.questions.filter(Boolean).length - 1 && <div className="border-t border-border mt-4" />}
                 </div>
               )
             })}
-          </>
-        ) : (
-          <div className="py-8 text-center">
-            <p className="text-sm text-neutral-400">No transcript recorded for this session.</p>
-            <p className="mt-1 text-xs text-neutral-400">
-              {store.deepgramKey
-                ? 'Make sure microphone access is granted during the interview.'
-                : 'Live transcription is not configured — set DEEPGRAM_API_KEY in the server environment.'}
-            </p>
           </div>
+        ) : (
+          <EmptyState
+            icon={<FileText strokeWidth={1.75} />}
+            title="No transcript recorded"
+            description={store.deepgramKey
+              ? 'Live transcription is configured but captured nothing. Make sure microphone access is granted when the interview starts.'
+              : 'Live transcription is not configured — set DEEPGRAM_API_KEY in the server environment, then run the interview again.'}
+          />
         )}
       </Card>
 
@@ -571,25 +611,32 @@ export default function ResultsPage() {
       {/* Visible diagnostic when the analysis can't run (no transcript) — a hidden
           section with no explanation looked like a silent failure. */}
       {gemini.status === 'idle' && !gemini.scorecard && !hasTranscript && (
-        <section className="space-y-3">
-          <h2 className="text-lg font-bold text-neutral-900">AI-Powered ATS Assessment</h2>
-          <Card className="p-6 text-center">
-            <p className="text-sm font-medium text-neutral-700">Waiting on a transcript</p>
-            <p className="mt-1 text-xs text-neutral-400 max-w-md mx-auto">
-              The Gemini assessment reasons over the Deepgram transcript, so it can't run for a
-              session with no captured speech. Voice-emotion and facial analysis above are independent.
-            </p>
+        <section className="space-y-4">
+          <h2 className="font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900">AI-Powered ATS Assessment</h2>
+          <Card className="p-6">
+            <div className="flex items-start gap-3">
+              <span className="w-9 h-9 rounded-full bg-neutral-100 border border-border text-neutral-500 flex items-center justify-center flex-shrink-0">
+                <Radio size={17} strokeWidth={1.75} aria-hidden="true" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-neutral-900">Waiting on a transcript</p>
+                <p className="mt-1 text-xs text-neutral-500 max-w-lg leading-relaxed">
+                  The Gemini assessment reasons over the Deepgram transcript, so it can't run for a
+                  session with no captured speech. Voice-emotion and facial analysis above are independent.
+                </p>
+              </div>
+            </div>
           </Card>
         </section>
       )}
       {(gemini.status !== 'idle' || gemini.scorecard) && (
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-neutral-900">AI-Powered ATS Assessment</h2>
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900">AI-Powered ATS Assessment</h2>
             {gemini.status === 'complete' && (
-              <button onClick={runAtsAnalysis} className="text-xs font-semibold text-primary-700 underline">
+              <Button variant="ghost" size="sm" icon={<RotateCcw size={13} />} onClick={runAtsAnalysis}>
                 Re-run analysis
-              </button>
+              </Button>
             )}
           </div>
           <ATSScorecardPanel
@@ -602,8 +649,8 @@ export default function ResultsPage() {
       )}
 
       {/* ── Facial Analysis (AWS Rekognition) — always shown, with capture diagnostics ── */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-neutral-900">Facial Analysis</h2>
+      <section className="space-y-4">
+        <h2 className="font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900">Facial Analysis</h2>
         <FacialAnalysisPanel
           summary={facialSummary}
           questionCount={store.questions.filter(Boolean).length}
@@ -611,16 +658,16 @@ export default function ResultsPage() {
         />
       </section>
 
-      <Card className="p-5">
+      <Card className="p-6">
         <SectionTitle>Recruiter Actions</SectionTitle>
         <div className="flex flex-wrap gap-3">
-          <Button onClick={() => setScheduleOpen(true)}>Schedule Technical Interview</Button>
-          <Button variant="secondary" onClick={downloadReport}>Download AI Report</Button>
-          <Button variant="secondary" onClick={() => {
+          <Button icon={<CalendarPlus size={15} />} onClick={() => setScheduleOpen(true)}>Schedule Technical Interview</Button>
+          <Button variant="secondary" icon={<Download size={15} />} onClick={downloadReport}>Download AI Report</Button>
+          <Button variant="secondary" icon={<Share2 size={15} />} onClick={() => {
             navigator.clipboard.writeText(`TalbotIQ Report — ${overall}/100 — ${verdict} — Session: ${conv?.conversation_id ?? 'demo'}`)
               .then(() => toast.success('Copied to clipboard'))
           }}>Share Profile</Button>
-          <Button variant="secondary" onClick={() => setOfferOpen(true)}>Generate Offer Rec.</Button>
+          <Button variant="secondary" icon={<FileText size={15} />} onClick={() => setOfferOpen(true)}>Generate Offer Rec.</Button>
           <Button variant="ghost" onClick={() => navigate('/setup')}>New Interview</Button>
         </div>
       </Card>
@@ -628,18 +675,18 @@ export default function ResultsPage() {
       {/* Schedule modal */}
       {scheduleOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/40 backdrop-blur-[2px]" onClick={() => setScheduleOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-neutral-900 mb-1">Schedule Technical Interview</h3>
+          <div role="dialog" aria-modal="true" aria-label="Schedule technical interview" className="bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900 mb-1">Schedule Technical Interview</h3>
             <p className="text-sm text-neutral-500 mb-6">Book the next round for this candidate.</p>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="field-label">Date</label><input type="date" className="input-base mt-1.5" /></div>
-                <div><label className="field-label">Time</label><input type="time" defaultValue="10:00" className="input-base mt-1.5" /></div>
+                <div><label className="field-label">Date</label><input type="date" className="input-base" /></div>
+                <div><label className="field-label">Time</label><input type="time" defaultValue="10:00" className="input-base" /></div>
               </div>
-              <div><label className="field-label">Interviewer</label><input type="text" placeholder="Interviewer name" className="input-base mt-1.5" /></div>
-              <div><label className="field-label">Notes</label><textarea placeholder="Areas to probe further…" className="textarea-base mt-1.5" rows={3} /></div>
+              <div><label className="field-label">Interviewer</label><input type="text" placeholder="Interviewer name" className="input-base" /></div>
+              <div><label className="field-label">Notes</label><textarea placeholder="Areas to probe further…" className="textarea-base" rows={3} /></div>
             </div>
-            <div className="flex gap-3 justify-end mt-6">
+            <div className="flex gap-3 justify-end mt-7">
               <Button variant="secondary" onClick={() => setScheduleOpen(false)}>Cancel</Button>
               <Button onClick={() => { toast.success('Interview scheduled'); setScheduleOpen(false) }}>Confirm Schedule</Button>
             </div>
@@ -650,8 +697,8 @@ export default function ResultsPage() {
       {/* Offer modal */}
       {offerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/40 backdrop-blur-[2px]" onClick={() => setOfferOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-lg animate-slide-up" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-neutral-900 mb-4">AI Offer Recommendation</h3>
+          <div role="dialog" aria-modal="true" aria-label="AI offer recommendation" className="bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-lg animate-slide-up" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900 mb-4">AI Offer Recommendation</h3>
             <pre className="bg-neutral-50 border border-border rounded-xl p-4 text-xs text-neutral-700 font-mono leading-relaxed whitespace-pre-wrap">
 {`OFFER RECOMMENDATION — TalbotIQ AI
 Session: ${conv?.conversation_id ?? 'demo'}

@@ -12,6 +12,13 @@ interface Props {
   label?: string
 }
 
+/** Two initials from a display name — the camera-off avatar's content. */
+function initialsOf(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)
+  const letters = parts.map((p) => p[0]).join('')
+  return letters ? letters.toUpperCase() : '?'
+}
+
 /**
  * One video tile for the live two-way call — attaches a Daily participant's
  * persistent video (and, for remote tiles, audio) tracks to plain
@@ -54,18 +61,29 @@ export function DailyVideoTile({ participant, muted = false, label }: Props) {
   const name = label ?? (participant.user_name || (isLocal ? 'You' : 'Guest'))
 
   return (
-    <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-border bg-neutral-900">
+    <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-brand-border bg-brand-card">
       <video ref={videoRef} autoPlay muted={isLocal} playsInline className="h-full w-full object-cover" />
       {!isLocal && <audio ref={audioRef} autoPlay muted={muted} />}
+
       {camOff && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-neutral-900 text-white/50">
-          <VideoOff size={22} />
-          <span className="text-xs">Camera off</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-brand-card">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-field text-base font-bold tracking-wide text-white shadow-md">
+            {initialsOf(name)}
+          </span>
+          <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-brand-gray">
+            <VideoOff size={13} /> Camera off
+          </span>
         </div>
       )}
-      <span className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white/90">
-        {name}
-        {micMuted && <MicOff size={11} className="text-red-400" />}
+
+      <span className="absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full border border-white/10 bg-brand-card/80 px-2.5 py-1 text-[11px] font-semibold text-white/90 backdrop-blur">
+        <span className="truncate">{name}</span>
+        {micMuted && (
+          <>
+            <MicOff size={11} aria-hidden="true" className="flex-shrink-0 text-red-300" />
+            <span className="sr-only">Microphone muted</span>
+          </>
+        )}
       </span>
     </div>
   )

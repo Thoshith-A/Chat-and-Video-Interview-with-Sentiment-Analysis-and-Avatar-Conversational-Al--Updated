@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, AlertTriangle } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, AlertTriangle, RefreshCw } from 'lucide-react'
 import type { BrandingConfig } from '@shared/types'
 import { sessionsApi, ApiError } from '@/lib/api'
 import { useDailyCall } from '../useDailyCall'
@@ -20,6 +20,45 @@ const RETRY_MS = 4000
 // ~40s of retries at RETRY_MS. (A 'waiting-host' 409 retries indefinitely — the
 // recruiter may take minutes — and is NOT bounded by this.)
 const MAX_TRANSIENT_RETRIES = 10
+
+/* ── Shared call-room atoms (one language across every live stage) ────────── */
+
+/** 56px circular control. */
+const CONTROL =
+  'flex h-14 w-14 items-center justify-center rounded-full border transition-all duration-150 ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-gold focus-visible:ring-offset-2 ' +
+  'focus-visible:ring-offset-brand-black'
+const CONTROL_IDLE = 'border-brand-border bg-white/5 text-white hover:bg-white/10'
+const CONTROL_OFF = 'border-danger/50 bg-danger/20 text-red-300 hover:bg-danger/30'
+
+/** Breathing ring — the lobby's "we're working on it" signal. */
+function PulseRing({ accent, reduce, children }: { accent: string; reduce: boolean | null; children: ReactNode }) {
+  return (
+    <div className="relative flex h-24 w-24 items-center justify-center">
+      {!reduce && [0, 1].map((i) => (
+        <motion.span
+          key={i}
+          className="absolute h-20 w-20 rounded-full"
+          style={{ background: `${accent}2E` }}
+          animate={{ scale: [1, 1.7], opacity: [0.5, 0] }}
+          transition={{ duration: 2.2, repeat: Infinity, delay: i * 1.1, ease: 'easeOut' }}
+        />
+      ))}
+      <span className="relative flex h-16 w-16 items-center justify-center rounded-full border border-brand-border bg-brand-card text-white">
+        {children}
+      </span>
+    </div>
+  )
+}
+
+/** Candidate-facing full-page recovery card. */
+function StageCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
+      <div className="w-full max-w-md rounded-3xl border border-border bg-white p-10 text-center shadow-lg">{children}</div>
+    </div>
+  )
+}
 
 /**
  * Candidate side of the live Two-way Interview. Joins the Daily room the
@@ -41,7 +80,7 @@ const MAX_TRANSIENT_RETRIES = 10
  */
 export function TwoWayStage({ sessionId, branding }: Props) {
   const reduce = useReducedMotion()
-  const accent = branding.accentColor || '#0d5c3a'
+  const accent = branding.accentColor || '#6B2BE0'
   const dc = useDailyCall()
 
   const [joinError, setJoinError] = useState<string | null>(null) // hard (non-retryable) join failure
@@ -152,7 +191,7 @@ export function TwoWayStage({ sessionId, branding }: Props) {
   /* ── finished ── */
   if (completed) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
         <Completion branding={branding} />
       </div>
     )
@@ -161,47 +200,48 @@ export function TwoWayStage({ sessionId, branding }: Props) {
   /* ── hard error — join failed for a reason that won't resolve on its own ── */
   if (joinError) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="max-w-md rounded-2xl border border-border bg-white p-10 text-center shadow-sm">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-danger-bg text-danger">
-            <AlertTriangle size={22} />
-          </span>
-          <h1 className="mt-4 text-xl font-bold text-neutral-900">We couldn’t join your interview</h1>
-          <p className="mt-2 text-sm leading-relaxed text-neutral-500">{joinError}</p>
-          <button
-            onClick={() => setAttempt((a) => a + 1)}
-            className="mt-5 rounded-full px-5 py-2 text-sm font-semibold text-white"
-            style={{ background: accent }}
-          >
-            Try again
-          </button>
-          <p className="mt-3 text-xs text-neutral-400">If this keeps happening, contact your recruiter.</p>
-        </div>
-      </div>
+      <StageCard>
+        <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-danger-border bg-danger-bg text-danger">
+          <AlertTriangle size={28} />
+        </span>
+        <h1 className="mt-5 font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900">
+          We couldn’t join your interview
+        </h1>
+        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-neutral-500">{joinError}</p>
+        <button
+          onClick={() => setAttempt((a) => a + 1)}
+          className="mt-6 inline-flex h-11 items-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-md transition-all duration-150 hover:-translate-y-px hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-2"
+          style={{ background: accent }}
+        >
+          <RefreshCw size={15} /> Try joining again
+        </button>
+        <p className="mt-4 text-xs text-neutral-400">If this keeps happening, contact your recruiter.</p>
+      </StageCard>
     )
   }
 
   /* ── Daily call error (device/connection) — surfaced from useDailyCall ── */
   if (dc.callState === 'error') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="max-w-md rounded-2xl border border-border bg-white p-10 text-center shadow-sm">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-danger-bg text-danger">
-            <AlertTriangle size={22} />
-          </span>
-          <h1 className="mt-4 text-xl font-bold text-neutral-900">Connection problem</h1>
-          <p className="mt-2 text-sm leading-relaxed text-neutral-500">
-            {dc.error ?? 'The call hit a connection problem.'}
-          </p>
-          <button
-            onClick={() => setAttempt((a) => a + 1)}
-            className="mt-5 rounded-full px-5 py-2 text-sm font-semibold text-white"
-            style={{ background: accent }}
-          >
-            Try again
-          </button>
-        </div>
-      </div>
+      <StageCard>
+        <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-danger-border bg-danger-bg text-danger">
+          <AlertTriangle size={28} />
+        </span>
+        <h1 className="mt-5 font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900">
+          The call hit a connection problem
+        </h1>
+        <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-neutral-500">
+          {dc.error ?? 'We lost the connection to the interview room.'}
+        </p>
+        <button
+          onClick={() => setAttempt((a) => a + 1)}
+          className="mt-6 inline-flex h-11 items-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-md transition-all duration-150 hover:-translate-y-px hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-2"
+          style={{ background: accent }}
+        >
+          <RefreshCw size={15} /> Reconnect
+        </button>
+        <p className="mt-4 text-xs text-neutral-400">Check your network, then try again — your session is still open.</p>
+      </StageCard>
     )
   }
 
@@ -209,43 +249,71 @@ export function TwoWayStage({ sessionId, branding }: Props) {
         or a dropped connection); finish() is completing the session above ── */
   if (dc.callState === 'left') {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-neutral-950 text-neutral-300">
-        <Loader2 size={26} className="animate-spin" />
-        <p className="text-sm">Wrapping up…</p>
+      <div className="flex h-screen flex-col items-center justify-center gap-5 bg-brand-black px-6 text-center">
+        <PulseRing accent={accent} reduce={reduce}>
+          <Loader2 size={24} className="animate-spin" />
+        </PulseRing>
+        <div>
+          <p className="font-display text-lg font-bold tracking-[-0.02em] text-white">Wrapping up your interview</p>
+          <p className="mt-1.5 text-sm text-brand-gray">Saving your session — this only takes a moment.</p>
+        </div>
       </div>
     )
   }
 
   /* ── lobby — waiting for the recruiter to start the room / admit the knock ── */
   if (waitingForHost || dc.callState !== 'joined' || !remote) {
+    // Presentational copy derivation — same four cases as before, one shape.
+    const lobby = reconnecting
+      ? {
+          chip: 'Reconnecting', // backend briefly unreachable (restart/deploy); retrying automatically
+          title: 'Reconnecting…',
+          body: 'We briefly lost the connection to the interview server — reconnecting automatically. No need to do anything.',
+        }
+      : waitingForHost
+        ? {
+            chip: 'Waiting room',
+            title: 'Waiting for the interviewer to start the interview…',
+            body: 'Your camera and mic are ready — you’ll be connected the moment the interviewer lets you in.',
+          }
+        : dc.callState === 'joined' && hadRemoteRef.current
+          ? {
+              chip: 'Reconnecting', // was live; the interviewer's tile just dropped momentarily
+              title: 'Reconnecting…',
+              body: 'We briefly lost the connection to the interview server — reconnecting automatically. No need to do anything.',
+            }
+          : {
+              chip: 'Knocking',
+              title: 'Waiting for the interviewer to admit you…',
+              body: 'Your camera and mic are ready — you’ll be connected the moment the interviewer lets you in.',
+            }
+
     return (
-      <div className="flex h-screen flex-col overflow-hidden bg-neutral-950">
-        <div className="flex h-[56px] flex-shrink-0 items-center border-b border-white/10 bg-neutral-950 px-4">
-          <span className="truncate font-bold text-white">{branding.companyName}</span>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
-          <motion.div
-            animate={reduce ? undefined : { scale: [1, 1.08, 1] }}
-            transition={{ duration: 1.8, repeat: Infinity }}
-            className="flex h-16 w-16 items-center justify-center rounded-full"
-            style={{ background: `${accent}33` }}
-          >
-            <Loader2 size={26} className="animate-spin text-white" />
-          </motion.div>
-          <p className="text-lg font-semibold text-white">
-            {reconnecting
-              ? 'Reconnecting…' // backend briefly unreachable (restart/deploy); retrying automatically
-              : waitingForHost
-                ? 'Waiting for the interviewer to start the interview…'
-                : dc.callState === 'joined' && hadRemoteRef.current
-                  ? 'Reconnecting…' // was live; the interviewer's tile just dropped momentarily
-                  : 'Waiting for the interviewer to admit you…'}
-          </p>
-          <p className="max-w-sm text-sm text-neutral-400">
-            {reconnecting
-              ? 'We briefly lost the connection to the interview server — reconnecting automatically. No need to do anything.'
-              : 'Your camera and mic are ready — you’ll be connected the moment the interviewer lets you in.'}
-          </p>
+      <div className="flex h-screen flex-col overflow-hidden bg-brand-black">
+        <header className="flex h-14 flex-shrink-0 items-center border-b border-brand-border bg-brand-card px-4">
+          <span className="truncate font-display font-bold tracking-[-0.02em] text-white">{branding.companyName}</span>
+        </header>
+
+        <div className="flex flex-1 flex-col items-center justify-center gap-6 px-6 text-center">
+          <PulseRing accent={accent} reduce={reduce}>
+            <Loader2 size={24} className="animate-spin" />
+          </PulseRing>
+
+          <div className="flex flex-col items-center gap-3">
+            <span
+              className="flex items-center gap-1.5 rounded-full border border-brand-border bg-white/5 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-gold-light"
+              aria-live="polite"
+            >
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-gold" />
+              {lobby.chip}
+            </span>
+            <h1 className="max-w-md font-display text-xl font-extrabold leading-snug tracking-[-0.03em] text-white">
+              {lobby.title}
+            </h1>
+            <p className="max-w-sm text-sm leading-relaxed text-brand-gray">{lobby.body}</p>
+          </div>
+
+          <p className="text-xs text-brand-gray/80">Keep this window open — you’ll join automatically.</p>
         </div>
       </div>
     )
@@ -253,46 +321,46 @@ export function TwoWayStage({ sessionId, branding }: Props) {
 
   /* ── the live room — full-viewport, interviewer big, self small ── */
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-neutral-950">
-      <div className="flex h-[56px] flex-shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-neutral-950 px-4">
-        <span className="flex items-center gap-2 truncate font-bold text-white">
-          {branding.companyName}
-          <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live
+    <div className="flex h-screen flex-col overflow-hidden bg-brand-black">
+      <header className="flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-brand-border bg-brand-card px-4">
+        <span className="flex min-w-0 items-center gap-2.5 font-display font-bold tracking-[-0.02em] text-white">
+          <span className="truncate">{branding.companyName}</span>
+          <span className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-brand-border bg-white/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-green-light">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-green-light" /> Live
           </span>
         </span>
         <button
           onClick={handleEnd}
-          className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-4 py-1.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/25"
+          className="inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border border-danger/40 bg-danger/15 px-4 py-1.5 text-sm font-semibold text-red-300 transition-colors duration-150 hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-card"
         >
           <PhoneOff size={15} /> End interview
         </button>
-      </div>
+      </header>
 
       <div className="relative flex-1 p-4">
         <div className="mx-auto h-full max-w-4xl">
           <DailyVideoTile participant={remote} label="Interviewer" />
         </div>
         {dc.localParticipant && (
-          <div className="absolute bottom-4 right-6 w-40 shadow-lg sm:w-52">
+          <div className="absolute bottom-4 right-6 w-40 overflow-hidden rounded-2xl shadow-xl sm:w-52">
             <DailyVideoTile participant={dc.localParticipant} label="You" />
           </div>
         )}
       </div>
 
-      <div className="border-t border-white/10 bg-neutral-950">
-        <div className="mx-auto flex max-w-3xl items-center justify-center gap-4 px-4 py-5">
+      <div className="flex-shrink-0 border-t border-brand-border bg-brand-black">
+        <div className="mx-auto flex max-w-3xl items-center justify-center gap-5 px-4 py-6">
           <button
             onClick={dc.toggleMic}
             aria-pressed={dc.muted}
-            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/15 bg-white/5 text-white transition-all hover:bg-white/10"
+            className={`${CONTROL} ${dc.muted ? CONTROL_OFF : CONTROL_IDLE}`}
             aria-label={dc.muted ? 'Unmute microphone' : 'Mute microphone'}
           >
-            {dc.muted ? <MicOff size={22} className="text-red-400" /> : <Mic size={22} />}
+            {dc.muted ? <MicOff size={22} /> : <Mic size={22} />}
           </button>
           <button
             onClick={handleEnd}
-            className="flex h-16 w-16 items-center justify-center rounded-full bg-danger text-white shadow-md transition-transform hover:scale-105"
+            className="flex h-16 w-16 items-center justify-center rounded-full bg-danger text-white shadow-lg transition-transform duration-150 hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-black"
             aria-label="End interview"
           >
             <PhoneOff size={24} />
@@ -300,10 +368,10 @@ export function TwoWayStage({ sessionId, branding }: Props) {
           <button
             onClick={dc.toggleCam}
             aria-pressed={dc.camOff}
-            className="flex h-14 w-14 items-center justify-center rounded-full border-2 border-white/15 bg-white/5 text-white transition-all hover:bg-white/10"
+            className={`${CONTROL} ${dc.camOff ? CONTROL_OFF : CONTROL_IDLE}`}
             aria-label={dc.camOff ? 'Turn camera on' : 'Turn camera off'}
           >
-            {dc.camOff ? <VideoOff size={22} className="text-red-400" /> : <Video size={22} />}
+            {dc.camOff ? <VideoOff size={22} /> : <Video size={22} />}
           </button>
         </div>
       </div>

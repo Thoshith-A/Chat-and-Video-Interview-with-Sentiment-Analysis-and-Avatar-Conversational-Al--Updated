@@ -1,8 +1,13 @@
 import { Link, useParams } from 'react-router-dom'
 import { MarketingLayout } from './MarketingLayout'
 import { NAV, PAGE_BY_SLUG, type MktPage } from './content'
-import { Reveal, CountUp } from './motion'
+import { Reveal } from './motion'
 import { RoiCalculator } from './RoiCalculator'
+import { Blocks, Related } from './sections'
+import { Ico } from './icons'
+
+const slugify = (s: string) =>
+  s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
 function Jsonld({ page }: { page: MktPage }) {
   const graph: unknown[] = [
@@ -36,10 +41,11 @@ export default function MarketingPage() {
   if (!page) {
     return (
       <MarketingLayout seo={{ title: 'Page not found — Mimic', desc: 'That page could not be found.' }}>
-        <main className="mkpage"><div className="wrap" style={{ padding: '96px 32px', textAlign: 'center' }}>
-          <p className="eyebrow" style={{ color: 'var(--m-violet)' }}>404</p>
-          <h1 className="h2" style={{ marginTop: 12 }}>We couldn’t find that page.</h1>
-          <p className="lede" style={{ margin: '14px auto 26px', maxWidth: '46ch' }}>The link may be old. Try the platform overview, or book a demo and we’ll point you the right way.</p>
+        <main className="mkpage"><div className="wrap" style={{ padding: '110px 40px', textAlign: 'center' }}>
+          <h1 className="h2">We couldn’t find that page.</h1>
+          <p className="lede" style={{ margin: '16px auto 30px', maxWidth: '46ch' }}>
+            The link may be old. Try the platform overview, or book a demo and we’ll point you the right way.
+          </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link className="btn btn-primary" to="/mimic">Back to home</Link>
             <Link className="btn btn-ghost" to="/mimic/solutions">Explore solutions</Link>
@@ -59,53 +65,82 @@ export default function MarketingPage() {
         <div className="wrap">
           <Breadcrumbs page={page} />
           <header className="mk-hero">
-            <p className="eyebrow" style={{ color: 'var(--m-violet)' }}>{page.kicker}</p>
             <h1>{page.h1}</h1>
-            <p className="lede" style={{ marginTop: 16 }}>{page.intro}</p>
-            <div style={{ marginTop: 24, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <p className="lede" style={{ marginTop: 18 }}>{page.intro}</p>
+            <div style={{ marginTop: 28, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <Link className="btn btn-primary" to="/mimic#demo">Book a demo</Link>
               {page.tier !== 'hub' && <Link className="btn btn-ghost" to={page.sectionTo}>All {page.section.toLowerCase()}</Link>}
             </div>
           </header>
 
-          {page.tier !== 'hub' && (
-            <Reveal delay={60}>
-              <div className="mk-proof">
-                {[['1.3 days', 'Median time to shortlist'], ['62%', 'Recruiter hours returned'], ['340k', 'Interviews scored']].map(([v, l]) => (
-                  <div className="cell" key={l}><div className="n"><CountUp value={v} /></div><div className="l">{l}</div></div>
+          {page.tier === 'hub' && group ? (
+            <>
+              <div className="hub-cols">
+                {group.columns.map((col, i) => (
+                  <Reveal key={col.title} as="section" className="hub-col" delay={i * 80}>
+                    <h2>{col.title}</h2>
+                    <ul>{col.links.map((l) => (
+                      <li key={l.label}><Link to={l.to}>{l.label}<Ico n="arrow" /></Link></li>
+                    ))}</ul>
+                  </Reveal>
                 ))}
               </div>
-            </Reveal>
+              {/* Hubs used to render their link columns and nothing else, so
+                  anything written in `sections` was silently dropped — five
+                  landing pages stuck at ~100 words. They render below now. */}
+              {page.sections.length > 0 && (
+                <div className="mk-body">
+                  {page.sections.map((s, i) => (
+                    <Reveal key={s.h2} as="section" className="mk-sec" delay={i * 70}>
+                      <h2 id={slugify(s.h2)}>{s.h2}</h2>
+                      {s.body && <p>{s.body}</p>}
+                      {s.bullets && <ul className="mk-bullets">{s.bullets.map((b) => <li key={b}>{b}</li>)}</ul>}
+                      <Blocks blocks={s.blocks} />
+                    </Reveal>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className={page.sections.length >= 4 ? 'mk-layout' : undefined}>
+              {/* Pages past ~600 words become a wall without an index. The TOC is
+                  plain anchor links — no scroll-spy, nothing to go stale. */}
+              {page.sections.length >= 4 && (
+                <nav className="mk-toc" aria-label="On this page">
+                  <h2>On this page</h2>
+                  <ul>
+                    {page.sections.map((s) => (
+                      <li key={s.h2}><a href={`#${slugify(s.h2)}`}>{s.h2}</a></li>
+                    ))}
+                    {page.faqs?.length ? <li><a href="#questions">Questions</a></li> : null}
+                  </ul>
+                </nav>
+              )}
+              <div className="mk-body">
+                {page.slug === 'resources/roi-calculator' && <Reveal><RoiCalculator /></Reveal>}
+                {page.sections.map((s, i) => (
+                  <Reveal key={s.h2} as="section" className="mk-sec" delay={i * 70}>
+                    <h2 id={slugify(s.h2)}>{s.h2}</h2>
+                    {s.body && <p>{s.body}</p>}
+                    {s.bullets && <ul className="mk-bullets">{s.bullets.map((b) => <li key={b}>{b}</li>)}</ul>}
+                    <Blocks blocks={s.blocks} />
+                  </Reveal>
+                ))}
+              </div>
+            </div>
           )}
 
-          {page.tier === 'hub' && group ? (
-            <div className="hub-cols">
-              {group.columns.map((col, i) => (
-                <Reveal key={col.title} as="section" className="hub-col" delay={i * 90}>
-                  <h2>{col.title}</h2>
-                  <ul>{col.links.map((l) => <li key={l.label}><Link to={l.to}>{l.label}<span aria-hidden="true">→</span></Link></li>)}</ul>
-                </Reveal>
-              ))}
-            </div>
-          ) : (
-            <div className="mk-body">
-              {page.slug === 'resources/roi-calculator' && <Reveal><RoiCalculator /></Reveal>}
-              {page.sections.map((s, i) => (
-                <Reveal key={s.h2} as="section" className="mk-sec" delay={i * 80}>
-                  <h2>{s.h2}</h2>
-                  <p>{s.body}</p>
-                  {s.bullets && <ul className="mk-bullets">{s.bullets.map((b) => <li key={b}>{b}</li>)}</ul>}
-                </Reveal>
-              ))}
-            </div>
-          )}
+          <Related links={page.related} />
 
           {page.faqs?.length ? (
-            <section className="mk-faq" aria-label="FAQ">
-              <h2 className="h2" style={{ fontSize: 26, marginBottom: 8 }}>Questions</h2>
+            <section className="mk-faq" aria-label="Frequently asked questions">
+              <h2 id="questions" className="h2" style={{ fontSize: 28, marginBottom: 10 }}>Questions</h2>
               <div className="faq">
                 {page.faqs.map((f, i) => (
-                  <details key={f.q} open={i === 0}><summary>{f.q}</summary><p>{f.a}</p></details>
+                  <details key={f.q} open={i === 0}>
+                    <summary>{f.q}<Ico n="chevron" className="chev" /></summary>
+                    <p>{f.a}</p>
+                  </details>
                 ))}
               </div>
             </section>
@@ -113,9 +148,12 @@ export default function MarketingPage() {
         </div>
 
         <section className="cta" style={{ marginTop: 8 }}>
-          <div className="wrap cta-in" style={{ gridTemplateColumns: '1fr auto', alignItems: 'center' }}>
-            <div><h2 style={{ fontSize: 34 }}>{cta.title}</h2><p className="sub">{cta.sub}</p></div>
-            <Link className="btn btn-light" to="/mimic#demo" style={{ alignSelf: 'center' }}>Book a demo</Link>
+          <div className="wrap cta-in" style={{ gridTemplateColumns: 'minmax(0,1fr) auto', alignItems: 'center' }}>
+            <div>
+              <h2 style={{ fontSize: 'clamp(28px,3vw,38px)' }}>{cta.title}</h2>
+              <p className="sub">{cta.sub}</p>
+            </div>
+            <Link className="btn btn-light btn-lg" to="/mimic#demo" style={{ alignSelf: 'center' }}>Book a demo</Link>
           </div>
         </section>
       </main>

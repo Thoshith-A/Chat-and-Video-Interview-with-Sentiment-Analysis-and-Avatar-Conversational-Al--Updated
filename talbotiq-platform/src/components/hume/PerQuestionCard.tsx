@@ -1,10 +1,12 @@
 import type { QuestionEmotionSummary } from '@/types/hume.types'
 import { EmotionRadar } from './EmotionRadar'
 
+// Dominant-emotion accent, kept inside the brand spectrum: violet for energised,
+// indigo for calm, amber for stress. Anything unmapped falls back to violet.
 const DOMINANT_COLOR: Record<string, string> = {
-  Energy: '#00c9a7', Excitement: '#00c9a7', Enthusiasm: '#00c9a7',
-  Calm: '#7c83fd', Serenity: '#7c83fd', Contentment: '#7c83fd',
-  Anxiety: '#ff6b6b', Stress: '#ff6b6b', Confusion: '#ff6b6b',
+  Energy: '#6B2BE0', Excitement: '#6B2BE0', Enthusiasm: '#6B2BE0',
+  Calm: '#5B6FE8', Serenity: '#5B6FE8', Contentment: '#5B6FE8',
+  Anxiety: '#B45309', Stress: '#B45309', Confusion: '#B45309',
 }
 
 interface Props {
@@ -13,20 +15,22 @@ interface Props {
 }
 
 export function PerQuestionCard({ summary, index }: Props) {
-  const dominantColor = DOMINANT_COLOR[summary.dominant] ?? '#e8b84b'
+  const dominantColor = DOMINANT_COLOR[summary.dominant] ?? '#6B2BE0'
 
   return (
-    <div className="rounded-2xl bg-hume-card border border-hume-border p-5 space-y-4 animate-slide-in-right">
+    <div className="rounded-2xl bg-hume-card border border-hume-border p-5 space-y-4">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-2xs font-mono text-hume-muted mb-1">QUESTION {index + 1}</p>
-          <p className="text-sm text-hume-text leading-relaxed line-clamp-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-neutral-500 mb-1.5">
+            Question {index + 1}
+          </p>
+          <p className="text-sm text-neutral-800 leading-relaxed line-clamp-2">
             {summary.questionText}
           </p>
         </div>
         <span
-          className="shrink-0 px-2 py-1 rounded-lg text-2xs font-mono font-semibold"
-          style={{ background: `${dominantColor}22`, color: dominantColor }}
+          className="shrink-0 px-2.5 py-1 rounded-full text-2xs font-bold uppercase tracking-wide border"
+          style={{ background: `${dominantColor}14`, color: dominantColor, borderColor: `${dominantColor}33` }}
         >
           {summary.dominant}
         </span>
@@ -38,9 +42,9 @@ export function PerQuestionCard({ summary, index }: Props) {
         {summary.topEmotions.slice(0, 4).map(e => (
           <span
             key={e.name}
-            className="px-2 py-0.5 rounded-full text-2xs bg-hume-surface border border-hume-border text-hume-text"
+            className="px-2.5 py-0.5 rounded-full text-2xs font-medium bg-white border border-border text-neutral-700"
           >
-            {e.name} · {Math.round(e.score * 100)}%
+            {e.name} <span className="tabular-nums text-neutral-500">{Math.round(e.score * 100)}%</span>
           </span>
         ))}
       </div>

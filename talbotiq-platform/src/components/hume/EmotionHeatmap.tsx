@@ -12,26 +12,21 @@ const CAT_LABELS: Record<EmotionCategory, string> = {
   disengagement: 'Disengaged',
 }
 
+// One brand hue per column, tinted by intensity — the ramp stays inside the
+// Mimic spectrum and always keeps ink-dark text legible on top.
+const CAT_RGB: Record<EmotionCategory, [number, number, number]> = {
+  positive_high: [107, 43, 224],   // #6B2BE0 violet
+  positive_calm: [91, 111, 232],   // #5B6FE8 indigo
+  cognitive:     [196, 44, 147],   // #C42C93 magenta
+  social:        [15, 122, 95],    // #0F7A5F success
+  negative:      [180, 83, 9],     // #B45309 warning
+  disengagement: [124, 117, 149],  // #7C7595 neutral
+}
+
 function heatColor(score: number, cat: EmotionCategory): string {
-  const t = score // 0..1
-  if (cat === 'negative' || cat === 'disengagement') {
-    // red scale
-    const r = Math.round(120 + t * 135)
-    const g = Math.round(40 - t * 20)
-    const b = Math.round(40 - t * 10)
-    return `rgba(${r},${g},${b},${0.15 + t * 0.7})`
-  }
-  if (cat === 'positive_high' || cat === 'positive_calm') {
-    const r = Math.round(t * 20)
-    const g = Math.round(100 + t * 101)
-    const b = Math.round(100 + t * 67)
-    return `rgba(${r},${g},${b},${0.15 + t * 0.7})`
-  }
-  // indigo/gold
-  const r = Math.round(100 + t * 132)
-  const g = Math.round(100 + t * 83)
-  const b = Math.round(150 + t * 75)
-  return `rgba(${r},${g},${b},${0.15 + t * 0.7})`
+  const t = Math.max(0, Math.min(1, score))
+  const [r, g, b] = CAT_RGB[cat]
+  return `rgba(${r},${g},${b},${(0.06 + t * 0.52).toFixed(3)})`
 }
 
 interface Props {
@@ -41,43 +36,46 @@ interface Props {
 export function EmotionHeatmap({ perQuestion }: Props) {
   if (perQuestion.length === 0) {
     return (
-      <div className="h-32 flex items-center justify-center text-hume-muted text-sm">
-        No data
+      <div className="h-32 flex items-center justify-center rounded-xl border border-dashed border-border bg-neutral-50 text-sm text-neutral-500">
+        No per-question emotion data for this session.
       </div>
     )
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-2xs">
+    <div className="overflow-x-auto rounded-xl border border-border bg-neutral-50">
+      <table className="w-full text-xs border-collapse">
         <thead>
-          <tr>
-            <th className="text-left text-hume-muted font-normal pb-2 pr-3 w-28">Question</th>
+          <tr className="border-b border-border">
+            <th className="text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-500 py-2.5 pl-4 pr-3 w-24">
+              Question
+            </th>
             {CATS.map(c => (
-              <th key={c} className="text-center text-hume-muted font-normal pb-2 px-1">
+              <th key={c} className="text-center text-[11px] font-semibold uppercase tracking-wide text-neutral-500 py-2.5 px-1.5">
                 {CAT_LABELS[c]}
               </th>
             ))}
+            <th className="w-2" />
           </tr>
         </thead>
         <tbody>
           {perQuestion.map((q, i) => (
-            <tr key={i} className="border-t border-hume-border">
-              <td className="py-2 pr-3 text-hume-text truncate max-w-[7rem]">
-                Q{i + 1}
-              </td>
+            <tr key={i} className="border-b border-border last:border-0">
+              <td className="h-11 pl-4 pr-3 font-semibold text-neutral-700">Q{i + 1}</td>
               {CATS.map(cat => {
                 const score = q.avgCategoryScores[cat]
                 return (
-                  <td
-                    key={cat}
-                    className="text-center py-1.5 px-1 font-mono rounded"
-                    style={{ background: heatColor(score, cat), color: '#0f172a' }}
-                  >
-                    {Math.round(score * 100)}
+                  <td key={cat} className="h-11 px-1.5 py-1">
+                    <span
+                      className="flex h-8 items-center justify-center rounded-lg font-semibold tabular-nums text-neutral-900"
+                      style={{ background: heatColor(score, cat) }}
+                    >
+                      {Math.round(score * 100)}
+                    </span>
                   </td>
                 )
               })}
+              <td />
             </tr>
           ))}
         </tbody>

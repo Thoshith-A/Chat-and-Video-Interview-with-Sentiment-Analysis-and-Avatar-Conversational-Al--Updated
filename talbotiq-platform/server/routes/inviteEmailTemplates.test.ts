@@ -36,8 +36,8 @@ const mk = (recruiterId: string): InviteEmailTemplate => ({
   name: 'x', isDefault: false,
   sender: { verifiedSenderEmail: '', fromName: 'x' },
   subject: 's', bodyHtml: '<p>{{interview_link}}</p>',
-  cta: { text: 'go', color: '#0d5c3a' },
-  branding: { companyName: 'c', accentColor: '#0d5c3a' },
+  cta: { text: 'go', color: '#6B2BE0' },
+  branding: { companyName: 'c', accentColor: '#6B2BE0' },
 })
 
 console.log('\n=== owns ===')

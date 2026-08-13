@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Card, Button } from '@/components/ui'
+import { KeyRound } from 'lucide-react'
+import { Card, Button, cn } from '@/components/ui'
 import { settingsApi } from '@/lib/api'
 import type { AppSettingsStatus, GeminiModel } from '@shared/types'
 
@@ -47,55 +48,79 @@ export function GeminiKeyCard() {
   }
 
   return (
-    <Card className="mb-5 divide-y divide-border">
-      <div className="px-6 py-4">
-        <h3 className="text-sm font-semibold text-neutral-800">Gemini API Key (AI Interview)</h3>
-        <p className="mt-0.5 text-xs text-neutral-400">
-          Used server-side for résumé question generation &amp; scoring. Stored on the server, never sent back to the browser.
-        </p>
+    <Card className="divide-y divide-border">
+      {/* Panel head — mirrors the rhythm of the other Settings panels. */}
+      <div className="flex items-start gap-3.5 px-6 py-5">
+        <span className="mt-px flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-primary-100 bg-primary-50 text-primary-700" aria-hidden>
+          <KeyRound size={17} />
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-display text-[15px] font-bold leading-tight tracking-[-0.02em] text-neutral-900">Gemini — AI interview</h2>
+          <p className="mt-1.5 text-xs leading-relaxed text-neutral-500">
+            Used server-side for résumé question generation &amp; scoring. Stored on the server, never sent back to the browser.
+          </p>
+        </div>
       </div>
-      <div className="space-y-4 px-6 py-5">
-        <div className="flex items-center gap-2 text-xs">
-          <span className="field-label">Status</span>
+
+      <div className="space-y-5 px-6 py-5">
+        {/* Status line — masked key stays monospaced so it can be compared at a glance. */}
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+          <span className="field-label mb-0">Status</span>
           {status?.geminiKeySet ? (
-            <span className="flex items-center gap-1.5 font-medium text-success">
-              <span className="live-dot" /> Set ({status.source}) · <span className="font-mono">{status.geminiKeyMasked}</span> · {status.model}
-            </span>
+            <>
+              <span className="badge badge-success"><span className="live-dot" />Active</span>
+              <span className="font-mono text-xs text-neutral-600">{status.geminiKeyMasked}</span>
+              <span className="text-xs text-neutral-400">·</span>
+              <span className="text-xs text-neutral-500">{status.source} · <span className="font-mono">{status.model}</span></span>
+            </>
           ) : (
-            <span className="font-medium text-amber-600">Not configured — using heuristic fallback</span>
+            <span className="badge badge-warning">Not configured — using heuristic fallback</span>
           )}
         </div>
 
         <div>
-          <label className="field-label mb-1.5 block">{status?.geminiKeySet ? 'Replace key' : 'API key'}</label>
+          <label htmlFor="gemini-api-key" className="field-label">{status?.geminiKeySet ? 'Replace key' : 'API key'}</label>
           <div className="relative">
             <input
+              id="gemini-api-key"
               type={show ? 'text' : 'password'}
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="AIza…"
-              className="input-base pr-14 font-mono text-xs"
+              className="input-base pr-16 font-mono text-xs"
             />
-            <button type="button" onClick={() => setShow((s) => !s)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-neutral-400 hover:text-neutral-700">
+            <button
+              type="button"
+              onClick={() => setShow((s) => !s)}
+              aria-label={show ? 'Hide the Gemini API key' : 'Show the Gemini API key'}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full px-2.5 py-1 text-[11px] font-semibold text-neutral-500 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-800"
+            >
               {show ? 'Hide' : 'Show'}
             </button>
           </div>
-          <p className="mt-1 text-xs text-neutral-400">Get one at aistudio.google.com → API keys. Keys start with “AIza”.</p>
+          <p className="mt-2 text-xs text-neutral-500">Get one at aistudio.google.com → API keys. Keys start with “AIza”.</p>
         </div>
 
-        <div className="flex items-center justify-between">
-          <div className="flex gap-1">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex items-center gap-1 rounded-full border border-border bg-neutral-100 p-1" role="group" aria-label="Gemini model">
             {(['gemini-2.5-flash', 'gemini-2.5-pro'] as GeminiModel[]).map((m) => (
-              <button key={m} onClick={() => setModel(m)}
-                className={`rounded-md px-2.5 py-1 text-xs font-semibold ${model === m ? 'bg-primary-700 text-white' : 'text-neutral-500 hover:bg-neutral-100'}`}>
+              <button
+                key={m}
+                type="button"
+                onClick={() => setModel(m)}
+                aria-pressed={model === m}
+                className={cn(
+                  'rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors duration-150',
+                  model === m ? 'bg-white text-primary-700 shadow-xs' : 'text-neutral-500 hover:text-neutral-800',
+                )}
+              >
                 {m.replace('gemini-2.5-', '')}
               </button>
             ))}
           </div>
           <div className="flex gap-2">
             {status?.source === 'saved' && (
-              <Button variant="secondary" size="sm" onClick={clear} disabled={busy}>Remove</Button>
+              <Button variant="secondary" size="sm" onClick={clear} disabled={busy}>Remove key</Button>
             )}
             <Button size="sm" loading={busy} onClick={save}>Save key</Button>
           </div>

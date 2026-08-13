@@ -1,14 +1,19 @@
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
+import { Activity } from 'lucide-react'
 import type { EmotionSnapshot, EmotionCategory } from '@/types/hume.types'
 
+// Brand series palette — violet leads, then indigo / magenta / amber. Distinct
+// at a glance without leaving the Mimic spectrum.
 const SERIES: { key: EmotionCategory; color: string; label: string }[] = [
-  { key: 'positive_high', color: '#00c9a7', label: 'Energy' },
-  { key: 'positive_calm', color: '#7c83fd', label: 'Calm' },
-  { key: 'cognitive',     color: '#e8b84b', label: 'Focus' },
-  { key: 'negative',      color: '#ff6b6b', label: 'Stress' },
+  { key: 'positive_high', color: '#6B2BE0', label: 'Energy' },
+  { key: 'positive_calm', color: '#5B6FE8', label: 'Calm' },
+  { key: 'cognitive',     color: '#C42C93', label: 'Focus' },
+  { key: 'negative',      color: '#B45309', label: 'Stress' },
 ]
+
+const GRID = '#E7E2F2'
 
 interface Props {
   timeline: EmotionSnapshot[]
@@ -18,8 +23,14 @@ interface Props {
 export function EmotionTimeline({ timeline }: Props) {
   if (timeline.length === 0) {
     return (
-      <div className="h-80 flex items-center justify-center text-neutral-400 text-sm">
-        No timeline data yet
+      <div className="h-80 flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-neutral-50">
+        <span className="w-11 h-11 rounded-full bg-white border border-border text-neutral-400 flex items-center justify-center">
+          <Activity size={20} strokeWidth={1.75} />
+        </span>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-neutral-700">No emotion timeline yet</p>
+          <p className="text-xs text-neutral-500 mt-1">Prosody predictions appear here once the audio analysis completes.</p>
+        </div>
       </div>
     )
   }
@@ -43,16 +54,16 @@ export function EmotionTimeline({ timeline }: Props) {
     <div className="w-full h-80">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 20, left: -4, bottom: 4 }}>
-          <CartesianGrid stroke="#e8ede9" strokeDasharray="4 4" vertical={false} />
+          <CartesianGrid stroke={GRID} strokeDasharray="4 4" vertical={false} />
           <XAxis
             dataKey="t"
-            tick={{ fill: '#94a3b8', fontSize: 11 }}
+            tick={{ fill: '#7C7595', fontSize: 11 }}
             tickFormatter={v => `${v}s`}
-            axisLine={{ stroke: '#dde8e0' }}
+            axisLine={{ stroke: GRID }}
             tickLine={false}
           />
           <YAxis
-            tick={{ fill: '#94a3b8', fontSize: 11 }}
+            tick={{ fill: '#7C7595', fontSize: 11 }}
             domain={[0, yMax]}
             tickFormatter={v => `${v}%`}
             axisLine={false}
@@ -60,14 +71,17 @@ export function EmotionTimeline({ timeline }: Props) {
             tickCount={6}
           />
           <Tooltip
+            cursor={{ stroke: GRID }}
             contentStyle={{
               background: '#ffffff',
-              border: '1px solid #dde8e0',
-              borderRadius: 8,
-              color: '#0f172a',
+              border: '1px solid #E7E2F2',
+              borderRadius: 10,
+              color: '#1B0B3B',
               fontSize: 12,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              fontFamily: 'Figtree, system-ui, sans-serif',
+              boxShadow: '0 8px 24px -4px rgb(27 11 59 / 0.10), 0 4px 10px -4px rgb(27 11 59 / 0.06)',
             }}
+            labelStyle={{ color: '#1B0B3B', fontWeight: 600 }}
             formatter={(v: number, name: string) => {
               const s = SERIES.find(s => s.key === name)
               return [`${v}%`, s?.label ?? name]
@@ -77,10 +91,10 @@ export function EmotionTimeline({ timeline }: Props) {
           <Legend
             iconType="circle"
             iconSize={8}
-            wrapperStyle={{ paddingTop: 8, fontSize: 12 }}
+            wrapperStyle={{ paddingTop: 10, fontSize: 12 }}
             formatter={(value) => {
               const s = SERIES.find(s => s.key === value)
-              return <span style={{ color: '#64748b' }}>{s?.label ?? value}</span>
+              return <span style={{ color: '#5D5578', fontWeight: 500 }}>{s?.label ?? value}</span>
             }}
           />
           {SERIES.map(sr => (
@@ -89,7 +103,7 @@ export function EmotionTimeline({ timeline }: Props) {
               type="monotone"
               dataKey={sr.key}
               stroke={sr.color}
-              strokeWidth={2.5}
+              strokeWidth={2.25}
               dot={false}
               activeDot={{ r: 4, strokeWidth: 0, fill: sr.color }}
             />

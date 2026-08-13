@@ -1,9 +1,11 @@
 /**
- * FaceScannerOverlay — the premium "face scanner" canvas drawn over the live
- * camera feed: a glowing wireframe mesh tracking the face, a target reticle with
- * animated corner brackets, a scanning sweep line, colour-state feedback
- * (amber while searching/misaligned → accent/green when locked), and a lock-in
- * progress ring that ends in a success glow pulse.
+ * FaceScannerOverlay — the "face scanner" canvas drawn over the live camera
+ * feed: a glowing wireframe mesh tracking the face, a target reticle with
+ * animated corner brackets, a scanning sweep line, colour-state feedback, and a
+ * lock-in progress ring that ends in a success glow pulse.
+ *
+ * Colour states follow the Mimic ramp: lavender-neutral while searching → soft
+ * violet while locking in → the caller's accent (mint) once locked.
  *
  * It owns its own requestAnimationFrame render loop and reads the latest
  * landmarks + visual state from refs, so the ~18fps detection rate never forces
@@ -35,7 +37,10 @@ interface Props {
   dense?: boolean
 }
 
-const AMBER = '#f0c040' // brand gold — searching / misaligned
+/** Searching — lavender-neutral, calm and unalarming. */
+const SEARCHING = '#9D93B8'
+/** Locking in — soft violet (brand-gold token value), clearly "something's happening". */
+const LOCKING = '#B98CFF'
 
 function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '')
@@ -46,8 +51,15 @@ function hexToRgb(hex: string): [number, number, number] {
 function lerp(a: number, b: number, t: number) {
   return a + (b - a) * t
 }
-function mixRgb(a: [number, number, number], b: [number, number, number], t: number): string {
-  return `rgb(${Math.round(lerp(a[0], b[0], t))}, ${Math.round(lerp(a[1], b[1], t))}, ${Math.round(lerp(a[2], b[2], t))})`
+function mixTuple(a: [number, number, number], b: [number, number, number], t: number): [number, number, number] {
+  return [
+    Math.round(lerp(a[0], b[0], t)),
+    Math.round(lerp(a[1], b[1], t)),
+    Math.round(lerp(a[2], b[2], t)),
+  ]
+}
+function rgbCss([r, g, b]: [number, number, number]): string {
+  return `rgb(${r}, ${g}, ${b})`
 }
 
 export function FaceScannerOverlay({
@@ -72,7 +84,8 @@ export function FaceScannerOverlay({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    const amberRgb = hexToRgb(AMBER)
+    const searchingRgb = hexToRgb(SEARCHING)
+    const lockingRgb = hexToRgb(LOCKING)
     const accentRgb = hexToRgb(accent)
 
     // Keep the backing store sized to the element's CSS box × DPR.
@@ -120,12 +133,14 @@ export function FaceScannerOverlay({
       if (vis.phase === 'success' && prevPhaseRef.current !== 'success') successAtRef.current = t
       prevPhaseRef.current = vis.phase
 
-      // Colour: amber while searching/adjusting; blend toward accent while
-      // holding; full accent once locked/success.
+      // Colour ramp: lavender-neutral while searching, warming to soft violet as
+      // a face is found, then blending into the accent (mint) as the lock fills.
       const good = vis.phase === 'holding' || vis.phase === 'locked' || vis.phase === 'success'
-      const blend = vis.phase === 'holding' ? Math.min(1, 0.35 + vis.progress * 0.65) : good ? 1 : 0
-      const color = mixRgb(amberRgb, accentRgb, blend)
-      const rgb = good ? accentRgb : amberRgb
+      const blend = vis.phase === 'holding' ? Math.min(1, vis.progress) : good ? 1 : 0
+      const rgb: [number, number, number] = good
+        ? mixTuple(lockingRgb, accentRgb, blend)
+        : mixTuple(searchingRgb, lockingRgb, vis.phase === 'adjusting' ? 0.5 : 0)
+      const color = rgbCss(rgb)
 
       const cx = w / 2
       const cy = h * 0.47
@@ -136,7 +151,9 @@ export function FaceScannerOverlay({
       ctx.save()
       ctx.lineWidth = 2
       ctx.strokeStyle = color
-      ctx.globalAlpha = 0.55
+      // The lavender/violet ramp sits lower-contrast than the old amber, so the
+      // reticle carries a touch more alpha to stay readable over a bright frame.
+      ctx.globalAlpha = 0.62
       ctx.shadowBlur = reducedMotion ? 0 : 14
       ctx.shadowColor = color
       ctx.beginPath()
@@ -237,7 +254,7 @@ export function FaceScannerOverlay({
       // ── Lock-in progress ring (hugs the reticle, fills from top) ───────
       if (vis.progress > 0 && vis.phase !== 'success') {
         ctx.save()
-        ctx.strokeStyle = mixRgb(amberRgb, accentRgb, Math.max(blend, 0.4))
+        ctx.strokeStyle = rgbCss(mixTuple(lockingRgb, accentRgb, blend))
         ctx.lineWidth = 4
         ctx.lineCap = 'round'
         ctx.shadowBlur = reducedMotion ? 0 : 12

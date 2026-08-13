@@ -57,8 +57,8 @@ function inviteEmail(role: string, fromName: string, link: string, candidateEmai
       <p>Hi,</p>
       <p><strong>${fromName}</strong> has invited you to a screening interview for the <strong>${role}</strong> role.</p>
       <p>When you're ready, open your interview, upload your résumé, and begin — it takes just a few minutes:</p>
-      <p><a href="${link}" style="display:inline-block;background:#0d5c3a;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Start your interview</a></p>
-      <p style="background:#f0faf5;border:1px solid #dcf5e8;border-radius:8px;padding:10px 14px;color:#0a4a2e;font-size:13px">
+      <p><a href="${link}" style="display:inline-block;background:#6B2BE0;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Start your interview</a></p>
+      <p style="background:#F5F0FE;border:1px solid #E0D4FB;border-radius:8px;padding:10px 14px;color:#4A1BA8;font-size:13px">
         <strong>Important:</strong> this invitation is linked to <strong>${candidateEmail}</strong>.
         Sign in — or create your candidate account — using this exact email address to open it.
       </p>

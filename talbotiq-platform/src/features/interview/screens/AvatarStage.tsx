@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import DailyIframe from '@daily-co/daily-js'
-import { Loader2, AlertTriangle, CheckCircle2, PhoneOff } from 'lucide-react'
+import { Loader2, AlertTriangle, CheckCircle2, PhoneOff, UserRound, RefreshCw } from 'lucide-react'
 import type { BrandingConfig } from '@shared/types'
 import { localTimeOfDay } from '@shared/speech'
 import { sessionsApi } from '@/lib/api'
@@ -37,7 +37,7 @@ type Stage = 'connecting' | 'live' | 'ending' | 'ended' | 'error'
  */
 export function AvatarStage({ sessionId, branding, preflight = false }: Props) {
   const reduce = useReducedMotion()
-  const accent = branding.accentColor || '#0d5c3a'
+  const accent = branding.accentColor || '#6B2BE0'
 
   const [stage, setStage] = useState<Stage>('connecting')
   // Face-fit gate (first entry only — mount-time value; later prop changes are
@@ -162,17 +162,18 @@ export function AvatarStage({ sessionId, branding, preflight = false }: Props) {
   /* ── finished ── */
   if (stage === 'ended') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
         <motion.div
           initial={reduce ? false : { opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          className="max-w-md rounded-2xl border border-border bg-white p-10 text-center shadow-sm"
+          transition={{ duration: 0.25 }}
+          className="w-full max-w-md rounded-3xl border border-border bg-white p-10 text-center shadow-lg"
         >
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: `${accent}14` }}>
-            <CheckCircle2 size={28} style={{ color: accent }} />
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: `${accent}14`, color: accent }}>
+            <CheckCircle2 size={30} />
           </div>
-          <h1 className="text-2xl font-bold text-neutral-900">All done, thank you!</h1>
-          <p className="mt-2 text-sm leading-relaxed text-neutral-500">
+          <h1 className="font-display text-2xl font-extrabold tracking-[-0.03em] text-neutral-900">All done, thank you!</h1>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-neutral-500">
             Your interview with {branding.companyName} is complete. You can close this window.
           </p>
         </motion.div>
@@ -183,21 +184,23 @@ export function AvatarStage({ sessionId, branding, preflight = false }: Props) {
   /* ── error (couldn't start) ── */
   if (stage === 'error') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="max-w-md rounded-2xl border border-border bg-white p-10 text-center shadow-sm">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-danger-bg text-danger">
-            <AlertTriangle size={22} />
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
+        <div className="w-full max-w-md rounded-3xl border border-border bg-white p-10 text-center shadow-lg">
+          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-danger-border bg-danger-bg text-danger">
+            <AlertTriangle size={28} />
           </span>
-          <h1 className="mt-4 text-xl font-bold text-neutral-900">We couldn’t start your interview</h1>
-          <p className="mt-2 text-sm leading-relaxed text-neutral-500">{error}</p>
+          <h1 className="mt-5 font-display text-xl font-extrabold tracking-[-0.03em] text-neutral-900">
+            We couldn’t start your interview
+          </h1>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-neutral-500">{error}</p>
           <button
             onClick={() => { setError(null); setAttempt((a) => a + 1) }}
-            className="mt-5 rounded-full px-5 py-2 text-sm font-semibold text-white"
+            className="mt-6 inline-flex h-11 items-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-md transition-all duration-150 hover:-translate-y-px hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-2"
             style={{ background: accent }}
           >
-            Try again
+            <RefreshCw size={15} /> Try again
           </button>
-          <p className="mt-3 text-xs text-neutral-400">If this keeps happening, contact your recruiter.</p>
+          <p className="mt-4 text-xs text-neutral-400">If this keeps happening, contact your recruiter.</p>
         </div>
       </div>
     )
@@ -212,34 +215,46 @@ export function AvatarStage({ sessionId, branding, preflight = false }: Props) {
     return <FaceFitCheck onReady={() => setFramed(true)} accentColor={accent} />
   }
 
+  const asked = Math.min(progress.asked, progress.total)
+
   /* ── the live room — full-viewport, no page scroll, Tavus UI untouched ── */
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-neutral-950">
-      <div className="flex h-[56px] flex-shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-neutral-950 px-4">
-        <span className="flex items-center gap-2 truncate font-bold text-white">
-          {branding.companyName}
+    <div className="flex h-screen flex-col overflow-hidden bg-brand-black">
+      <header className="flex h-14 flex-shrink-0 items-center justify-between gap-3 border-b border-brand-border bg-brand-card px-4">
+        <span className="flex min-w-0 items-center gap-2.5 font-display font-bold tracking-[-0.02em] text-white">
+          <span className="truncate">{branding.companyName}</span>
           {stage === 'live' && (
-            <span className="flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-emerald-300">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live
+            <span className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-brand-border bg-white/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-green-light">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-green-light" /> Live
             </span>
           )}
         </span>
-        <div className="flex items-center gap-3">
+
+        <div className="flex flex-shrink-0 items-center gap-3">
           {progress.total > 0 && progress.asked > 0 && (
-            <span className="hidden text-xs font-medium text-neutral-300 sm:inline">
-              Question {Math.min(progress.asked, progress.total)} of {progress.total}
+            <span
+              className="hidden items-center gap-2.5 rounded-full border border-brand-border bg-white/5 px-3 py-1.5 text-[11px] font-semibold text-brand-gold-light sm:inline-flex"
+              aria-live="polite"
+            >
+              <span className="h-1 w-12 overflow-hidden rounded-full bg-white/10">
+                <span
+                  className="block h-full rounded-full bg-brand-gold transition-[width] duration-500 ease-out"
+                  style={{ width: `${Math.round((asked / progress.total) * 100)}%` }}
+                />
+              </span>
+              <span className="tabular-nums">Question {asked} of {progress.total}</span>
             </span>
           )}
           <button
             onClick={() => { if (window.confirm('End the interview now? You can’t rejoin afterwards.')) void finish() }}
             disabled={stage === 'ending'}
-            className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-4 py-1.5 text-sm font-semibold text-red-300 transition-colors hover:bg-red-500/25 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-full border border-danger/40 bg-danger/15 px-4 py-1.5 text-sm font-semibold text-red-300 transition-colors duration-150 hover:bg-danger/25 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-card"
           >
             {stage === 'ending' ? <Loader2 size={15} className="animate-spin" /> : <PhoneOff size={15} />}
             End interview
           </button>
         </div>
-      </div>
+      </header>
 
       <div className="relative flex-1">
         {conversationUrl ? (
@@ -254,9 +269,44 @@ export function AvatarStage({ sessionId, branding, preflight = false }: Props) {
             title="AI Interviewer"
           />
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-neutral-300">
-            <Loader2 size={26} className="animate-spin" />
-            <p className="text-sm">{stage === 'ending' ? 'Wrapping up…' : 'Connecting your interviewer…'}</p>
+          // The room's frame, held open while Tavus spins it up.
+          <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-6">
+            <div className="flex h-full w-full max-w-4xl flex-col items-center justify-center gap-6 rounded-3xl border border-brand-border bg-brand-card/60 px-6 text-center">
+              <div className="relative flex h-28 w-28 items-center justify-center">
+                {!reduce && [0, 1].map((i) => (
+                  <motion.span
+                    key={i}
+                    className="absolute h-24 w-24 rounded-full"
+                    style={{ background: `${accent}2E` }}
+                    animate={{ scale: [1, 1.7], opacity: [0.5, 0] }}
+                    transition={{ duration: 2.2, repeat: Infinity, delay: i * 1.1, ease: 'easeOut' }}
+                  />
+                ))}
+                <span className="relative flex h-20 w-20 items-center justify-center rounded-full border border-brand-border bg-brand-card text-brand-gold">
+                  <UserRound size={32} />
+                </span>
+              </div>
+
+              <div className="flex flex-col items-center gap-2">
+                <span className="flex items-center gap-1.5 rounded-full border border-brand-border bg-white/5 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-brand-gold-light">
+                  <Loader2 size={11} className="animate-spin" />
+                  {stage === 'ending' ? 'Finishing' : 'Preparing'}
+                </span>
+                <p className="font-display text-lg font-bold tracking-[-0.02em] text-white" aria-live="polite">
+                  {stage === 'ending' ? 'Wrapping up your interview' : 'Connecting your interviewer'}
+                </p>
+                <p className="max-w-sm text-sm leading-relaxed text-brand-gray">
+                  {stage === 'ending'
+                    ? 'Saving your session — this only takes a moment.'
+                    : 'Setting up the room and your questions. This usually takes just a few seconds.'}
+                </p>
+              </div>
+
+              <div className="flex w-full max-w-[220px] flex-col items-center gap-2">
+                <span className="h-1.5 w-full animate-pulse rounded-full bg-white/10" />
+                <span className="h-1.5 w-2/3 animate-pulse rounded-full bg-white/5" />
+              </div>
+            </div>
           </div>
         )}
       </div>

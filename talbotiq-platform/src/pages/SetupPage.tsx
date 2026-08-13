@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -7,8 +7,8 @@ import { settingsApi } from '@/lib/api'
 import { avatarInterviewContext, avatarGreetingText, localTimeOfDay } from '@shared/speech'
 import { useAppStore } from '@/store/useAppStore'
 import type { Draft } from '@/store/useAppStore'
-import { Button, Card, Input, Textarea, Select, Toggle, Slider, JsonPreview, SectionTitle, PageHeader, Divider } from '@/components/ui'
-import { cn } from '@/components/ui'
+import { Button, Card, Input, Textarea, Select, Toggle, Slider, JsonPreview, Modal, Skeleton } from '@/components/ui'
+import { AlertCircle, Archive, Bot, Check, Database, Info, SlidersHorizontal, Trash2, X } from 'lucide-react'
 import { ReplicaPicker } from '@/components/tavus/ReplicaPicker'
 import { formatDistanceToNow } from 'date-fns'
 import type { CreateConversationInput, SupportedLanguage, PipelineMode } from '@/types/tavus.types'
@@ -30,6 +30,38 @@ const LANGS: { value: SupportedLanguage; label: string }[] = [
 const PIPELINES: { value: PipelineMode; label: string }[] = [
   { value: 'full', label: 'Full — audio + video' }, { value: 'echo', label: 'Echo — test mode' },
   { value: 'no_audio', label: 'No audio' }, { value: 'video_only', label: 'Video only' },
+]
+
+/* ── Shared card header — icon plate, title, optional note + aside ──────────── */
+function CardHead({ icon, title, description, aside, accent }: {
+  icon: ReactNode; title: string; description?: string; aside?: ReactNode; accent?: boolean
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 px-6 py-4">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className={
+          accent
+            ? 'mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-brand-field text-white shadow-primary-sm'
+            : 'mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-primary-100 bg-primary-50 text-primary-700'
+        }>
+          {icon}
+        </span>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold leading-tight text-neutral-800">{title}</h3>
+          {description && <p className="mt-1 text-xs leading-relaxed text-neutral-400">{description}</p>}
+        </div>
+      </div>
+      {aside && <div className="flex-shrink-0 pt-0.5">{aside}</div>}
+    </div>
+  )
+}
+
+/* ── One row of the sidebar's field glossary ────────────────────────────────── */
+const QUICK_REFERENCE: { field: string; meaning: string }[] = [
+  { field: 'conversational_context', meaning: 'The system prompt handed to the Tavus LLM.' },
+  { field: 'custom_greeting',        meaning: 'The avatar’s very first words on the call.' },
+  { field: 'apply_conversation_override', meaning: 'Must be true before text can be injected live.' },
+  { field: 'recording_s3_*',         meaning: 'Only needed when recording is enabled.' },
 ]
 
 type F = import('@/store/useAppStore').DraftForm
@@ -222,68 +254,109 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="max-w-[1400px] mx-auto px-6 py-8">
-      {/* Hero header — matches screenshot style */}
-      <div className="mb-10">
-        <span className="pill mb-4 inline-flex">AI Avatar Screening</span>
-        <h1 className="text-neutral-400 font-light text-4xl tracking-tight leading-none">
-          Configure Your
+    <div className="max-w-[1440px] mx-auto px-6 py-8">
+      {/* ── Hero — two-line display treatment ───────────────────────────────── */}
+      <header className="mb-10">
+        <span className="pill inline-flex">AI Avatar Screening</span>
+
+        <h1 className="mt-4 font-display font-extrabold tracking-[-0.03em] leading-[0.95]">
+          <span className="block text-[26px] text-neutral-400 sm:text-4xl">Configure your</span>
+          <span className="mt-1 block text-[38px] text-neutral-900 sm:text-5xl">Interview Session</span>
         </h1>
-        <h2 className="text-neutral-900 font-black text-5xl tracking-tighter leading-none mt-1 mb-5">
-          Interview Session
-        </h2>
-        <p className="text-neutral-500 text-base max-w-xl leading-relaxed">
-          Set up your AI avatar, questions, and analysis preferences — then
-          <span className="font-semibold text-neutral-700"> apply it to candidate interviews</span>:
-          every candidate who takes a Conversational AI interview meets this avatar,
-          which greets them by name and asks their session’s questions.
+
+        <p className="mt-5 max-w-xl text-base leading-relaxed text-neutral-500">
+          Set up the avatar, its voice, and the call properties — then
+          <span className="font-semibold text-neutral-700"> apply it to candidate interviews</span>.
+          Every candidate who takes a Conversational AI interview meets this avatar: it greets
+          them by name and asks their session’s questions.
         </p>
-        <div className="flex flex-wrap gap-3 mt-6">
+
+        <div className="mt-6 flex flex-wrap gap-3">
           <Button onClick={applyToCandidates} loading={applying}>
             Apply to Candidate Interviews
           </Button>
           <Button variant="secondary" onClick={() => setModal(true)} loading={create.isPending}>
             Launch Test Session
           </Button>
-          <Button variant="secondary" onClick={() => { setDraftName(''); setDraftModal(true) }}>Save Draft</Button>
+          <Button variant="ghost" onClick={() => { setDraftName(''); setDraftModal(true) }}>Save Draft</Button>
         </div>
-        {avatarApplied.data?.configured ? (
-          <p className="mt-3 text-xs font-medium text-primary-700">
-            ✓ An avatar is applied to candidate interviews
-            {avatarApplied.data.replicaId ? <> · replica <span className="font-mono">{avatarApplied.data.replicaId}</span></> : null}
-            {avatarApplied.data.updatedAt ? <> · updated {formatDistanceToNow(new Date(avatarApplied.data.updatedAt), { addSuffix: true })}</> : null}
-          </p>
-        ) : avatarApplied.isSuccess ? (
-          <p className="mt-3 text-xs text-amber-700">
-            No avatar applied yet — candidate Conversational AI interviews won’t start until you apply one.
-          </p>
-        ) : null}
-      </div>
 
-      {/* Saved Drafts */}
+        {/* Applied-status chip row */}
+        {avatarApplied.data?.configured ? (
+          <div className="mt-5 inline-flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-full border border-success-border bg-success-bg px-4 py-2">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-success">
+              <span className="live-dot" />
+              Live for candidate interviews
+            </span>
+            {avatarApplied.data.replicaId ? (
+              <>
+                <span className="h-3.5 w-px bg-success-border" aria-hidden="true" />
+                <span className="font-mono text-[11px] text-neutral-700">{avatarApplied.data.replicaId}</span>
+              </>
+            ) : null}
+            {avatarApplied.data.updatedAt ? (
+              <>
+                <span className="h-3.5 w-px bg-success-border" aria-hidden="true" />
+                <span className="text-[11px] text-neutral-500">
+                  updated {formatDistanceToNow(new Date(avatarApplied.data.updatedAt), { addSuffix: true })}
+                </span>
+              </>
+            ) : null}
+          </div>
+        ) : avatarApplied.isSuccess ? (
+          <div className="mt-5 inline-flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-full border border-warning-border bg-warning-bg px-4 py-2">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-warning">
+              <AlertCircle size={13} strokeWidth={2.25} aria-hidden="true" />
+              No avatar applied yet
+            </span>
+            <span className="h-3.5 w-px bg-warning-border" aria-hidden="true" />
+            <span className="text-[11px] text-neutral-600">Conversational AI interviews can’t start until you apply one.</span>
+          </div>
+        ) : avatarApplied.isError ? (
+          <div className="mt-5 inline-flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-full border border-border bg-neutral-100 px-4 py-2">
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-neutral-700">
+              <AlertCircle size={13} strokeWidth={2.25} aria-hidden="true" />
+              Couldn’t read the applied-avatar status
+            </span>
+            <span className="h-3.5 w-px bg-neutral-300" aria-hidden="true" />
+            <span className="text-[11px] text-neutral-500">Applying still saves your configuration.</span>
+          </div>
+        ) : (
+          <Skeleton className="mt-5 h-9 w-72 rounded-full" />
+        )}
+      </header>
+
+      {/* ── Saved drafts ─────────────────────────────────────────────────────── */}
       {store.drafts.length > 0 && (
         <Card className="mb-6 divide-y divide-border">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-800">Saved Drafts</h3>
-              <p className="text-xs text-neutral-400 mt-0.5">{store.drafts.length} draft{store.drafts.length !== 1 ? 's' : ''} — click to load</p>
-            </div>
-          </div>
-          <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <CardHead
+            icon={<Archive size={15} strokeWidth={2} aria-hidden="true" />}
+            title="Saved drafts"
+            description="Load a saved configuration back into the form below."
+            aside={<span className="badge badge-neutral tabular-nums">{store.drafts.length}</span>}
+          />
+          <div className="grid grid-cols-1 gap-3 px-6 py-5 sm:grid-cols-2 lg:grid-cols-3">
             {store.drafts.map((d: Draft) => (
-              <div key={d.id} className="flex items-start justify-between gap-2 p-3 rounded-xl border border-border hover:border-primary-300 hover:bg-primary-50 transition-all group cursor-pointer"
-                onClick={() => { setF({ ...DEF, ...d.form }); store.setQuestions(d.questions); toast.success(`Loaded "${d.name}"`) }}>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-neutral-800 truncate">{d.name}</p>
-                  <p className="text-xs text-neutral-400 mt-0.5">{d.questions.filter(Boolean).length} questions · saved {formatDistanceToNow(new Date(d.savedAt), { addSuffix: true })}</p>
-                  {d.form.replica_id && <p className="text-xs font-mono text-primary-600 truncate mt-0.5">{d.form.replica_id}</p>}
-                </div>
+              <div key={d.id} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => { setF({ ...DEF, ...d.form }); store.setQuestions(d.questions); toast.success(`Loaded "${d.name}"`) }}
+                  className="w-full rounded-xl border border-border bg-white p-3.5 pr-11 text-left transition-colors duration-150 hover:border-primary-300 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-700 focus-visible:ring-offset-1"
+                >
+                  <p className="truncate text-sm font-semibold text-neutral-800">{d.name}</p>
+                  <p className="mt-1 text-xs text-neutral-400">
+                    <span className="tabular-nums">{d.questions.filter(Boolean).length}</span> question{d.questions.filter(Boolean).length !== 1 ? 's' : ''}
+                    {' · saved '}{formatDistanceToNow(new Date(d.savedAt), { addSuffix: true })}
+                  </p>
+                  {d.form.replica_id && <p className="mt-1 truncate font-mono text-[11px] text-primary-700">{d.form.replica_id}</p>}
+                </button>
                 <button
                   onClick={e => { e.stopPropagation(); store.deleteDraft(d.id); toast('Draft deleted') }}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded text-neutral-300 hover:text-danger hover:bg-danger-bg transition-all flex-shrink-0 mt-0.5"
+                  className="absolute right-2 top-2 rounded-full p-1.5 text-neutral-400 opacity-0 transition-all duration-150 hover:bg-danger-bg hover:text-danger focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/40 group-hover:opacity-100"
                   title="Delete draft"
+                  aria-label={`Delete draft ${d.name}`}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  <Trash2 size={13} strokeWidth={2} aria-hidden="true" />
                 </button>
               </div>
             ))}
@@ -291,19 +364,21 @@ export default function SetupPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_380px]">
         {/* ── Left: form ── */}
         <div className="space-y-5">
 
           {/* Tavus config */}
           <Card className="divide-y divide-border">
-            <div className="px-6 py-4">
-              <h3 className="text-sm font-semibold text-neutral-800">Tavus Configuration</h3>
-              <p className="text-xs text-neutral-400 mt-0.5">Avatar and persona selection for this session</p>
-            </div>
-            <div className="px-6 py-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
-              {/* Replica — dropdown + manual ID search */}
-              <div className="flex flex-col gap-1.5">
+            <CardHead
+              accent
+              icon={<Bot size={15} strokeWidth={2} aria-hidden="true" />}
+              title="Avatar & persona"
+              description="The face, voice identity, and opening words candidates meet."
+            />
+            <div className="grid grid-cols-1 gap-5 px-6 py-5 sm:grid-cols-2">
+              {/* Replica — picker + manual ID entry */}
+              <div className="flex flex-col gap-2">
                 <ReplicaPicker
                   label="Replica (optional)"
                   replicas={allReplicas}
@@ -313,34 +388,39 @@ export default function SetupPage() {
                   noneLabel={allReplicas.length ? 'None (demo mode)' : 'None — no replicas found'}
                   loading={!replicas}
                 />
-                <div className="flex items-center gap-2 mt-1">
-                  <div className="flex-1 h-px bg-border" />
-                  <span className="text-[10px] text-neutral-400 uppercase tracking-wide font-medium">or enter ID</span>
-                  <div className="flex-1 h-px bg-border" />
+
+                <div className="flex items-center gap-2.5 pt-0.5">
+                  <span className="h-px flex-1 bg-border" aria-hidden="true" />
+                  <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-400">or paste an ID</span>
+                  <span className="h-px flex-1 bg-border" aria-hidden="true" />
                 </div>
+
                 <div className="relative">
                   <input
                     type="text"
                     value={f.replica_id}
                     onChange={e => set('replica_id', e.target.value.trim())}
                     placeholder="e.g. r5f0577fc829"
-                    className="input-base font-mono text-sm pr-8"
+                    aria-label="Replica ID"
+                    className="input-base pr-9 font-mono text-sm"
                   />
                   {f.replica_id && (
                     <button
                       type="button"
                       onClick={() => set('replica_id', '')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-300 hover:text-neutral-600 transition-colors text-lg leading-none"
-                      title="Clear"
-                    >×</button>
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-neutral-400 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-700"
+                      title="Clear replica ID"
+                      aria-label="Clear replica ID"
+                    ><X size={14} strokeWidth={2.25} aria-hidden="true" /></button>
                   )}
                 </div>
-                <p className="text-xs text-neutral-400">
+
+                <p className="text-xs leading-relaxed text-neutral-400">
                   {f.replica_id
-                    ? <span className="text-primary-700 font-medium">✓ Replica ID set: <span className="font-mono">{f.replica_id}</span></span>
+                    ? <span className="inline-flex items-center gap-1.5 font-medium text-primary-700"><Check size={12} strokeWidth={2.75} aria-hidden="true" /> Replica set · <span className="font-mono">{f.replica_id}</span></span>
                     : allReplicas.length
-                      ? `${customReplicas.length} custom · ${stockReplicas.length} stock available`
-                      : 'No replicas loaded — check API key in Settings'}
+                      ? <><span className="tabular-nums">{customReplicas.length}</span> custom · <span className="tabular-nums">{stockReplicas.length}</span> stock available</>
+                      : 'No replicas loaded — add your Tavus API key in Settings.'}
                 </p>
               </div>
 
@@ -357,9 +437,11 @@ export default function SetupPage() {
           {/* Questions are NOT configured here — they come from the invite flow:
               tailored per candidate from their résumé, or a chosen question set.
               The server injects them into each candidate's Tavus conversation. */}
-          <Card className="px-6 py-4">
+          <Card className="px-6 py-5">
             <div className="flex items-start gap-3 text-sm text-neutral-500">
-              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-primary-50 font-bold text-primary-700">i</span>
+              <span className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-primary-100 bg-primary-50 text-primary-700">
+                <Info size={15} strokeWidth={2} aria-hidden="true" />
+              </span>
               <p className="leading-relaxed">
                 <span className="font-semibold text-neutral-700">Interview questions are set when you invite candidates</span> — tailored to each
                 candidate's résumé or taken from your question set, chosen in{' '}
@@ -371,155 +453,142 @@ export default function SetupPage() {
 
           {/* Session properties */}
           <Card className="divide-y divide-border">
-            <div className="px-6 py-4">
-              <h3 className="text-sm font-semibold text-neutral-800">Session Properties</h3>
-              <p className="text-xs text-neutral-400 mt-0.5">All values map to the Tavus conversation properties object</p>
-            </div>
-            <div className="px-6 py-5 space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <CardHead
+              icon={<SlidersHorizontal size={15} strokeWidth={2} aria-hidden="true" />}
+              title="Session properties"
+              description="Every value here maps to the Tavus conversation properties object."
+            />
+            <div className="space-y-5 px-6 py-5">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 <Select label="Language" options={LANGS.map(l => ({ value: l.value, label: l.label }))} value={f.language} onChange={e => set('language', e.target.value as SupportedLanguage)} />
                 <Select label="Pipeline Mode" options={PIPELINES.map(p => ({ value: p.value, label: p.label }))} value={f.pipeline_mode} onChange={e => set('pipeline_mode', e.target.value as PipelineMode)} />
               </div>
               <Slider label="Max Call Duration" min={60} max={7200} step={60} value={f.max_call_duration} onChange={v => set('max_call_duration', v)} formatValue={v => `${Math.floor(v / 60)} min`} />
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Participant Left Timeout (s)" type="number" value={f.participant_left_timeout} onChange={e => set('participant_left_timeout', Number(e.target.value))} />
-                <Input label="Absent Timeout (s)" type="number" value={f.participant_absent_timeout} onChange={e => set('participant_absent_timeout', Number(e.target.value))} />
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                <Input label="Participant Left Timeout (s)" type="number" value={f.participant_left_timeout} onChange={e => set('participant_left_timeout', Number(e.target.value))} hint="Wait this long after the candidate drops before ending." />
+                <Input label="Absent Timeout (s)" type="number" value={f.participant_absent_timeout} onChange={e => set('participant_absent_timeout', Number(e.target.value))} hint="Wait this long for a candidate who never joins." />
               </div>
             </div>
-            <div className="px-6 py-2">
+            <div className="divide-y divide-border px-6">
               <Toggle checked={f.enable_transcription} onChange={v => set('enable_transcription', v)} label="Enable Transcription" description="Real-time transcription of candidate speech via Tavus" />
               <Toggle checked={f.enable_recording} onChange={v => set('enable_recording', v)} label="Enable Recording" description="Save the full session video to storage" />
               <Toggle checked={f.apply_conversation_override} onChange={v => set('apply_conversation_override', v)} label="Conversation Override" description="Allow real-time text injection during the call" />
               <Toggle checked={f.apply_greenscreen} onChange={v => set('apply_greenscreen', v)} label="Virtual Background" description="Replace avatar background with a custom image" />
             </div>
             {f.apply_greenscreen && (
-              <div className="px-6 pb-5">
-                <Input label="Background Image URL" value={f.background_url} onChange={e => set('background_url', e.target.value)} placeholder="https://cdn.example.com/office-background.jpg" />
+              <div className="px-6 py-5">
+                <Input label="Background Image URL" value={f.background_url} onChange={e => set('background_url', e.target.value)} placeholder="https://cdn.example.com/office-background.jpg" hint="A 16:9 image works best behind the avatar." />
               </div>
             )}
           </Card>
 
-          {/* S3 Storage */}
+          {/* S3 Storage — revealed when recording is on */}
           {f.enable_recording && (
-            <Card className="divide-y divide-border">
-              <div className="px-6 py-4">
-                <h3 className="text-sm font-semibold text-neutral-800">S3 Recording Storage</h3>
-                <p className="text-xs text-neutral-400 mt-0.5">Configure AWS S3 to store session recordings</p>
-              </div>
-              <div className="px-6 py-5 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Card className="divide-y divide-border animate-slide-up">
+              <CardHead
+                icon={<Database size={15} strokeWidth={2} aria-hidden="true" />}
+                title="S3 recording storage"
+                description="Where finished session recordings are written."
+                aside={<span className="badge badge-info">Recording on</span>}
+              />
+              <div className="space-y-5 px-6 py-5">
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   <Input label="Bucket Name" value={f.recording_s3_bucket_name} onChange={e => set('recording_s3_bucket_name', e.target.value)} placeholder="my-talbotiq-recordings" />
                   <Input label="Region" value={f.recording_s3_bucket_region} onChange={e => set('recording_s3_bucket_region', e.target.value)} placeholder="us-east-1" />
                 </div>
-                <Input label="AWS Assume Role ARN" value={f.aws_assume_role_arn} onChange={e => set('aws_assume_role_arn', e.target.value)} placeholder="arn:aws:iam::123456789012:role/TavusRecordingRole" />
+                <Input label="AWS Assume Role ARN" value={f.aws_assume_role_arn} onChange={e => set('aws_assume_role_arn', e.target.value)} placeholder="arn:aws:iam::123456789012:role/TavusRecordingRole" hint="Tavus assumes this role to write into your bucket." />
               </div>
             </Card>
           )}
         </div>
 
-        {/* ── Right: JSON preview ── */}
-        <div className="hidden xl:flex flex-col gap-4 sticky top-20 h-fit">
+        {/* ── Right: live request preview ── */}
+        <aside className="sticky top-20 hidden h-fit flex-col gap-5 xl:flex">
           <JsonPreview data={payload} title="Request Preview" method="POST" endpoint="/v2/conversations" />
-          <Card className="p-4">
-            <p className="text-xs font-semibold text-neutral-700 mb-2">Quick Reference</p>
-            <div className="space-y-1.5 text-xs text-neutral-500">
-              <p><span className="font-mono text-primary-600">conversational_context</span> = system prompt</p>
-              <p><span className="font-mono text-primary-600">custom_greeting</span> = avatar's first words</p>
-              <p><span className="font-mono text-primary-600">override</span> requires property set to true</p>
-              <p><span className="font-mono text-primary-600">s3_*</span> fields only needed if recording enabled</p>
-            </div>
+          <Card className="p-5">
+            <p className="section-label">Field glossary</p>
+            <dl className="mt-4 space-y-3.5">
+              {QUICK_REFERENCE.map(({ field, meaning }) => (
+                <div key={field}>
+                  <dt className="font-mono text-[11px] font-medium text-primary-700">{field}</dt>
+                  <dd className="mt-0.5 text-xs leading-relaxed text-neutral-500">{meaning}</dd>
+                </div>
+              ))}
+            </dl>
           </Card>
-        </div>
+        </aside>
       </div>
 
-      {/* Save Draft modal */}
-      {draftModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/40 backdrop-blur-[2px]" onClick={() => setDraftModal(false)}>
-          <div className="relative bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-neutral-900">Save Draft</h3>
-            <p className="text-sm text-neutral-500 mt-1 mb-6">Give this draft a name so you can find it later.</p>
-            <Input label="Draft Name *" value={draftName} onChange={e => setDraftName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && draftName.trim()) {
-                  store.saveDraft(draftName.trim(), f, store.questions)
-                  toast.success(`Draft "${draftName.trim()}" saved`)
-                  setDraftModal(false)
-                }
-              }}
-              placeholder="e.g. Senior Engineer Screen" autoFocus />
-            <div className="flex gap-3 justify-end mt-6">
-              <Button variant="secondary" onClick={() => setDraftModal(false)}>Cancel</Button>
-              <Button onClick={() => {
-                if (!draftName.trim()) { toast.error('Enter a draft name'); return }
-                store.saveDraft(draftName.trim(), f, store.questions)
-                toast.success(`Draft "${draftName.trim()}" saved`)
-                setDraftModal(false)
-              }}>Save Draft</Button>
-            </div>
+      {/* ── Save Draft modal ─────────────────────────────────────────────────── */}
+      <Modal open={draftModal} onClose={() => setDraftModal(false)} title="Save draft" description="Name this configuration so you can load it again later." width="max-w-md">
+        <Input label="Draft Name *" value={draftName} onChange={e => setDraftName(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && draftName.trim()) {
+              store.saveDraft(draftName.trim(), f, store.questions)
+              toast.success(`Draft "${draftName.trim()}" saved`)
+              setDraftModal(false)
+            }
+          }}
+          placeholder="e.g. Senior Engineer Screen" hint="Press Enter to save." autoFocus />
+        <div className="mt-7 flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setDraftModal(false)}>Cancel</Button>
+          <Button onClick={() => {
+            if (!draftName.trim()) { toast.error('Enter a draft name'); return }
+            store.saveDraft(draftName.trim(), f, store.questions)
+            toast.success(`Draft "${draftName.trim()}" saved`)
+            setDraftModal(false)
+          }}>Save draft</Button>
+        </div>
+      </Modal>
+
+      {/* ── Launch modal ─────────────────────────────────────────────────────── */}
+      <Modal open={modal} onClose={() => setModal(false)} title="Confirm test session" description="Enter the candidate's name — the avatar greets them by it." width="max-w-md">
+        <Input label="Candidate Name *" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') confirmLaunch() }} placeholder="e.g. Arjun Kumar" hint={f.replica_id ? undefined : 'No replica selected — this will run in Demo Mode, without avatar video.'} autoFocus />
+        <div className="mt-7 flex justify-end gap-3">
+          <Button variant="secondary" onClick={() => setModal(false)}>Cancel</Button>
+          <Button onClick={confirmLaunch} loading={create.isPending}>Launch interview</Button>
+        </div>
+      </Modal>
+
+      {/* ── Tavus error — demo mode stays the hero recovery ──────────────────── */}
+      <Modal open={errorModal.open} onClose={() => setErrorModal({ open: false, message: '' })} width="max-w-md">
+        <div className="mb-5 flex items-start gap-4">
+          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-danger-border bg-danger-bg text-danger">
+            <AlertCircle size={18} strokeWidth={2.25} aria-hidden="true" />
+          </span>
+          <div>
+            <h3 className="text-lg font-bold leading-tight text-neutral-900">Tavus could not create the session</h3>
+            <p className="mt-1 text-sm text-neutral-500">Your configuration is safe — nothing was lost.</p>
           </div>
         </div>
-      )}
 
-      {/* Launch modal */}
-      {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/40 backdrop-blur-[2px]" onClick={() => setModal(false)}>
-          <div className="relative bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-bold text-neutral-900">Confirm Session</h3>
-            <p className="text-sm text-neutral-500 mt-1 mb-6">Enter the candidate's name to personalise this interview session.</p>
-            <Input label="Candidate Name *" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') confirmLaunch() }} placeholder="e.g. Arjun Kumar" autoFocus />
-            <div className="flex gap-3 justify-end mt-6">
-              <Button variant="secondary" onClick={() => setModal(false)}>Cancel</Button>
-              <Button onClick={confirmLaunch} loading={create.isPending}>Launch Interview</Button>
-            </div>
+        <div className="mb-5 rounded-xl border border-danger-border bg-danger-bg px-4 py-3">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-danger/70">What Tavus returned</p>
+          <p className="mt-1 text-sm font-medium text-danger">{errorModal.message}</p>
+        </div>
+
+        {/credit/i.test(errorModal.message) && (
+          <div className="mb-5 space-y-1 rounded-xl border border-warning-border bg-warning-bg px-4 py-3 text-sm">
+            <p className="font-semibold text-warning">Your Tavus account is out of conversational credits.</p>
+            <p className="text-neutral-600">To resume live avatar interviews, buy more credits at <span className="font-mono text-xs">tavus.io → Billing</span>.</p>
+          </div>
+        )}
+
+        {/* Actions — demo-mode fallback stays the hero recovery */}
+        <div className="flex flex-col gap-3">
+          <Button size="lg" onClick={launchDemoMode} className="w-full">
+            Continue in Demo Mode (no avatar)
+          </Button>
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={() => { setErrorModal({ open: false, message: '' }); setModal(true) }}>
+              Try again
+            </Button>
+            <Button variant="ghost" className="flex-1" onClick={() => setErrorModal({ open: false, message: '' })}>
+              Dismiss
+            </Button>
           </div>
         </div>
-      )}
-
-      {/* Tavus error — offer demo mode fallback */}
-      {errorModal.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/50 backdrop-blur-[2px]" onClick={() => setErrorModal({ open: false, message: '' })}>
-          <div className="relative bg-white rounded-2xl shadow-xl border border-border p-8 w-full max-w-md animate-slide-up" onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div className="flex items-start gap-4 mb-5">
-              <div className="w-10 h-10 rounded-xl bg-danger-bg flex items-center justify-center flex-shrink-0">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-neutral-900 leading-tight">Tavus API Error</h3>
-                <p className="text-sm text-neutral-500 mt-0.5">The session could not be created.</p>
-              </div>
-            </div>
-
-            {/* Error message */}
-            <div className="bg-danger-bg border border-danger-border rounded-xl px-4 py-3 mb-5">
-              <p className="text-sm text-danger font-medium">{errorModal.message}</p>
-            </div>
-
-            {/* Guidance */}
-            {/credit/i.test(errorModal.message) && (
-              <div className="bg-warning-bg border border-warning-border rounded-xl px-4 py-3 mb-5 text-sm text-amber-800 space-y-1">
-                <p className="font-semibold">Your Tavus account is out of conversational credits.</p>
-                <p>To resume live avatar interviews, purchase additional credits at <span className="font-mono text-xs">tavus.io → Billing</span>.</p>
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex flex-col gap-3">
-              <Button onClick={launchDemoMode} className="w-full">
-                Continue in Demo Mode (no avatar)
-              </Button>
-              <div className="flex gap-3">
-                <Button variant="secondary" className="flex-1" onClick={() => { setErrorModal({ open: false, message: '' }); setModal(true) }}>
-                  Try Again
-                </Button>
-                <Button variant="ghost" className="flex-1" onClick={() => setErrorModal({ open: false, message: '' })}>
-                  Dismiss
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   )
 }

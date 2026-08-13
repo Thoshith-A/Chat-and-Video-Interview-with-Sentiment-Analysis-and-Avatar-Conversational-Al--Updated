@@ -53,7 +53,7 @@ console.log('\n=== defaultInviteEmailTemplate ===')
 {
   const t = defaultInviteEmailTemplate()
   assert('CTA defaults to "Start your interview"', t.cta.text === 'Start your interview')
-  assert('CTA colour is brand green', t.cta.color === '#0d5c3a')
+  assert('CTA colour is brand violet', t.cta.color === '#6B2BE0')
   assert('is marked isDefault', t.isDefault === true)
   assert(
     'default passes locked-token validation',

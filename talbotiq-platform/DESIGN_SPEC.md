@@ -1,5 +1,16 @@
 # TalbotIQ — Design Specification (Hand-off)
 
+> ## ⚠️ SUPERSEDED — 2026-08-12
+>
+> This document describes the **retired green system** (`#0d5c3a` primary,
+> `#eff5f0` canvas, `#dde8e0` borders, Inter). The product now runs the violet
+> system inherited from the parent brand. **Do not build from this file.**
+>
+> Current source of truth: **`/DESIGN.md`** at the repository root, plus
+> `tailwind.config.js` and `src/index.css`.
+>
+> Kept only as a record of what the system looked like before the revamp.
+
 A complete, implementation-ready spec of the TalbotIQ design system. Every value
 below is taken from the live codebase (`tailwind.config.js`, `src/index.css`,
 `src/components/ui/index.tsx`). Where a requested item does **not** exist in this

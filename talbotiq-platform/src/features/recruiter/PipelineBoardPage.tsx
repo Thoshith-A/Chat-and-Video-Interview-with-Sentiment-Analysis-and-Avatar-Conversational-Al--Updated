@@ -7,10 +7,13 @@ import {
   useDraggable, useDroppable, pointerWithin, rectIntersection,
   type CollisionDetection, type DragEndEvent, type DragStartEvent,
 } from '@dnd-kit/core'
-import { ArrowLeft, AlertTriangle, GripVertical, Download, History as HistoryIcon, Undo2 } from 'lucide-react'
+import {
+  ArrowLeft, ArrowRight, AlertTriangle, CheckCircle2, GripVertical, Download,
+  History as HistoryIcon, Undo2, XCircle,
+} from 'lucide-react'
 import { pipelinesApi, downloadCsv } from '@/lib/api'
 import { useAutopilotActions } from '@/features/guide/autopilot/registry'
-import { Card, Button, Badge, PageHeader, Skeleton, Select, cn } from '@/components/ui'
+import { Card, Button, Badge, PageHeader, Skeleton, Select, EmptyState, cn } from '@/components/ui'
 import { AdvanceModal, type AdvanceModalKind } from './AdvanceModal'
 import type { BoardCard, BoardColumn, PipelineBoard, RoundDef, AuditEntry } from '@shared/types'
 
@@ -34,6 +37,13 @@ const ROUND_STATUS_LABEL: Record<BoardCard['roundStatus'], { label: string; vari
   none: { label: 'Invited', variant: 'neutral' },
 }
 
+/** Empty-lane copy, per column kind — a lane says what it is, not just "empty". */
+const EMPTY_LANE_LABEL: Record<BoardColumn['kind'], string> = {
+  round: 'No candidates in this round',
+  selected: 'No one selected yet',
+  not_advancing: 'Nobody here',
+}
+
 /** Client mirror of the server's pure `selectByCriteria` (server/routes/pipelines.ts)
  *  — kept in sync deliberately (both null-score-excluding, both top-N-by-score-desc)
  *  so the quick-advance preview always matches what the server would actually pick. */
@@ -53,8 +63,9 @@ const ACTION_VERB: Record<AuditEntry['action'], string> = {
   not_advancing: 'Not advancing', moved_back: 'Moved back',
 }
 
-/** Read-only, human-readable rendering of one audit entry for the per-card history panel. */
-function describeEntry(entry: AuditEntry, rounds: RoundDef[]): string {
+/** Read-only, human-readable rendering of one audit entry for the per-card history
+ *  timeline — the action on one line, its timestamp/basis/email result muted below. */
+function describeEntry(entry: AuditEntry, rounds: RoundDef[]): { what: string; meta: string } {
   let what = ACTION_VERB[entry.action]
   if (entry.action === 'advanced' || entry.action === 'moved_back') {
     what += ` ${roundLabel(rounds, entry.fromRound)} → ${roundLabel(rounds, entry.toRound)}`
@@ -63,10 +74,10 @@ function describeEntry(entry: AuditEntry, rounds: RoundDef[]): string {
   } else if (entry.action === 'selected' && entry.fromRound !== undefined) {
     what += ` from ${roundLabel(rounds, entry.fromRound)}`
   }
-  const bits = [what, new Date(entry.at).toLocaleString()]
+  const bits = [new Date(entry.at).toLocaleString()]
   if (entry.basis) bits.push(entry.basis)
   if (entry.emailResult) bits.push(`email ${entry.emailResult}`)
-  return bits.join(' · ')
+  return { what, meta: bits.join(' · ') }
 }
 
 function Cardlet({
@@ -94,61 +105,95 @@ function Cardlet({
   // terminal 'selected'/'not_advancing' candidate always 400s) plus the brief's
   // currentRoundIndex>0 + not-yet-completed conditions.
   const canMoveBack = card.status === 'in_round' && card.currentRoundIndex > 0 && card.roundStatus !== 'completed'
+  const hasActions = card.advanceable || card.status === 'in_round' || canMoveBack || card.history.length > 0
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={cn('card p-3', card.advanceable && 'ring-1 ring-primary-300', isDragging && 'opacity-40 shadow-lg')}
+      className={cn(
+        'card p-3.5 transition-shadow duration-150',
+        card.advanceable ? 'border-primary-200' : 'border-border',
+        isDragging ? 'opacity-40 shadow-lg' : 'hover:shadow',
+      )}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-neutral-800">{card.candidateName || card.candidateEmail}</div>
-          <div className="truncate text-xs text-neutral-400">{card.candidateEmail}</div>
+          <div className="truncate text-sm font-bold tracking-[-0.01em] text-neutral-900">{card.candidateName || card.candidateEmail}</div>
+          {/* Only a secondary line when it says something new — unnamed
+              candidates fall back to the email above, and printing it twice
+              reads as a rendering bug. */}
+          {card.candidateName && (
+            <div className="truncate font-mono text-[11px] leading-4 text-neutral-400">{card.candidateEmail}</div>
+          )}
         </div>
         {card.advanceable && (
           <button
             {...attributes}
             {...listeners}
-            className="shrink-0 cursor-grab touch-none rounded p-1 text-neutral-300 hover:text-neutral-500 active:cursor-grabbing"
+            className="shrink-0 cursor-grab touch-none rounded-lg border border-primary-100 bg-primary-50 p-1 text-primary-400 transition-colors duration-150 hover:border-primary-300 hover:bg-primary-100 hover:text-primary-700 active:cursor-grabbing"
             aria-label="Drag to advance"
           >
-            <GripVertical size={14} />
+            <GripVertical size={14} aria-hidden />
           </button>
         )}
       </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
+
+      <div className="mt-2.5 flex items-center justify-between gap-2">
         <Badge variant={s.variant}>{s.label}</Badge>
         {card.score !== null
-          ? <span className="text-sm font-semibold text-neutral-700">{card.score}</span>
-          : <span className="text-xs text-neutral-300">—</span>}
+          ? <span className="text-right text-sm font-bold tabular-nums text-neutral-900">{card.score}</span>
+          : <span title="No score yet" className="text-right text-xs font-medium text-neutral-300">—</span>}
       </div>
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        {card.advanceable && (
-          <button onClick={() => onAdvance(card)} className="text-xs font-medium text-primary-700 hover:underline">
-            Advance →
-          </button>
-        )}
-        {card.status === 'in_round' && (
-          <button onClick={() => onReject(card)} className="text-xs text-neutral-400 hover:text-danger">
-            Not advancing
-          </button>
-        )}
-        {canMoveBack && (
-          <button onClick={() => onMoveBack(card)} className="inline-flex items-center gap-1 text-xs text-neutral-400 hover:text-neutral-700">
-            <Undo2 size={11} /> Move back
-          </button>
-        )}
-        {card.history.length > 0 && (
-          <button onClick={onToggleAudit} className="inline-flex items-center gap-1 text-xs text-neutral-400 hover:text-neutral-700">
-            <HistoryIcon size={11} /> {auditOpen ? 'Hide' : 'History'}
-          </button>
-        )}
-      </div>
-      {auditOpen && card.history.length > 0 && (
-        <div className="mt-2 space-y-1 rounded-lg bg-neutral-50 p-2 text-[11px] leading-snug text-neutral-500">
-          {card.history.map((h, i) => <div key={i}>{describeEntry(h, rounds)}</div>)}
+
+      {hasActions && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border pt-2.5">
+          {card.advanceable && (
+            <button onClick={() => onAdvance(card)} className="inline-flex items-center gap-1 text-xs font-bold text-primary-700 transition-colors duration-150 hover:text-primary-800">
+              Advance <ArrowRight size={12} aria-hidden />
+            </button>
+          )}
+          {card.status === 'in_round' && (
+            <button onClick={() => onReject(card)} className="text-xs font-medium text-neutral-400 transition-colors duration-150 hover:text-danger">
+              Not advancing
+            </button>
+          )}
+          {canMoveBack && (
+            <button onClick={() => onMoveBack(card)} className="inline-flex items-center gap-1 text-xs font-medium text-neutral-400 transition-colors duration-150 hover:text-neutral-700">
+              <Undo2 size={11} aria-hidden /> Move back
+            </button>
+          )}
+          {card.history.length > 0 && (
+            <button
+              onClick={onToggleAudit}
+              aria-expanded={auditOpen}
+              className={cn(
+                'ml-auto inline-flex items-center gap-1 text-xs font-medium transition-colors duration-150 hover:text-neutral-700',
+                auditOpen ? 'text-neutral-700' : 'text-neutral-400',
+              )}
+            >
+              <HistoryIcon size={11} aria-hidden /> {auditOpen ? 'Hide' : 'History'}
+            </button>
+          )}
         </div>
+      )}
+
+      {auditOpen && card.history.length > 0 && (
+        <ol className="mt-3 rounded-xl border border-border bg-neutral-50 px-3 py-2.5">
+          {card.history.map((h, i) => {
+            const e = describeEntry(h, rounds)
+            return (
+              <li key={i} className="relative pb-2.5 pl-4 last:pb-0">
+                <span aria-hidden className="absolute left-0 top-[5px] h-1.5 w-1.5 rounded-full bg-primary-300 ring-2 ring-neutral-50" />
+                {i < card.history.length - 1 && (
+                  <span aria-hidden className="absolute bottom-0 left-[2.5px] top-[13px] w-px bg-border" />
+                )}
+                <span className="block text-[11px] font-semibold leading-snug text-neutral-700">{e.what}</span>
+                <span className="block text-[11px] leading-snug text-neutral-400">{e.meta}</span>
+              </li>
+            )
+          })}
+        </ol>
       )}
     </div>
   )
@@ -163,20 +208,22 @@ function QuickAdvanceBar({ round, onApply }: { round: RoundDef | undefined; onAp
   const [value, setValue] = useState<number>(round?.advanceRule?.value ?? 60)
 
   return (
-    <div className="mb-2 flex items-center gap-1 px-1">
+    <div className="mb-2.5 flex items-center gap-1.5 rounded-xl border border-border bg-white p-1.5 shadow-xs">
       <Select
+        aria-label="Quick-advance rule"
         value={mode}
         onChange={(e) => setMode(e.target.value as 'threshold' | 'topN')}
         options={[{ value: 'threshold', label: 'Score ≥' }, { value: 'topN', label: 'Top N' }]}
-        className="!h-8 w-24 !py-0 text-xs"
+        className="!h-8 w-[92px] !rounded-lg !border-neutral-200 !pl-2.5 !pr-7 text-xs font-semibold"
       />
       <input
+        aria-label="Quick-advance value"
         type="number"
         value={value}
         onChange={(e) => setValue(Number(e.target.value))}
-        className="input-base h-8 w-16 px-2 text-xs"
+        className="input-base !h-8 w-14 !rounded-lg !border-neutral-200 px-2 text-xs font-semibold tabular-nums"
       />
-      <Button size="sm" variant="outline" onClick={() => onApply(mode, value)}>Apply</Button>
+      <Button size="sm" variant="outline" className="ml-auto" onClick={() => onApply(mode, value)}>Apply</Button>
     </div>
   )
 }
@@ -189,11 +236,36 @@ function DroppableColumn({ col, children }: { col: BoardColumn; children: React.
       className={cn(
         // min-h keeps EMPTY columns (Selected / Not-advancing) a large, reliable
         // drop target — otherwise a short empty column is nearly impossible to hit.
-        'flex min-h-[16rem] w-72 shrink-0 flex-col rounded-2xl bg-neutral-50 p-3 transition-colors',
-        isOver && 'bg-primary-50 ring-2 ring-primary-300',
+        'flex min-h-[16rem] w-72 shrink-0 flex-col rounded-2xl border p-3 transition-colors duration-150',
+        isOver ? 'border-primary-200 bg-primary-50 ring-2 ring-primary-300' : 'border-transparent bg-neutral-100/70',
       )}
     >
       {children}
+    </div>
+  )
+}
+
+/** Column header strip — lane title + count. Selected reads mint (the positive
+ *  terminal lane); rounds and Not-advancing stay neutral. */
+function ColumnHead({ col }: { col: BoardColumn }) {
+  return (
+    <div
+      className={cn(
+        'mb-2.5 flex items-center justify-between gap-2 rounded-xl border px-2.5 py-1.5',
+        col.kind === 'selected' ? 'border-mint-border bg-mint-bg' : 'border-transparent bg-white/60',
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        {col.kind === 'selected' && <CheckCircle2 size={13} aria-hidden className="shrink-0 text-mint-ink" />}
+        {col.kind === 'not_advancing' && <XCircle size={13} aria-hidden className="shrink-0 text-neutral-400" />}
+        <span className="truncate text-[13px] font-bold tracking-[-0.01em] text-neutral-900">{col.title}</span>
+      </span>
+      <Badge
+        variant="neutral"
+        className={cn('shrink-0 tabular-nums', col.kind === 'selected' && 'border-mint-border bg-white/80 text-mint-ink')}
+      >
+        {col.cards.length}
+      </Badge>
     </div>
   )
 }
@@ -213,10 +285,7 @@ function Column({
 }) {
   return (
     <DroppableColumn col={col}>
-      <div className="mb-2 flex items-center justify-between px-1">
-        <span className="text-sm font-semibold text-neutral-700">{col.title}</span>
-        <span className="text-xs text-neutral-400">{col.cards.length}</span>
-      </div>
+      <ColumnHead col={col} />
 
       {col.kind === 'round' && (
         <QuickAdvanceBar
@@ -226,14 +295,21 @@ function Column({
       )}
 
       {col.kind === 'selected' && col.cards.length > 0 && (
-        <div className="mb-2 px-1">
-          <Button size="sm" variant="outline" icon={<Download size={13} />} onClick={onExportCsv}>Export CSV</Button>
+        <div className="mb-2.5">
+          <Button size="sm" variant="outline" icon={<Download size={13} />} className="w-full" onClick={onExportCsv}>
+            Export CSV
+          </Button>
         </div>
       )}
 
       <div className="flex-1 space-y-2">
         {col.cards.length === 0
-          ? <div className="flex h-full min-h-[6rem] items-center justify-center rounded-xl border border-dashed border-neutral-200 px-1 text-center text-xs text-neutral-300">Drop here</div>
+          ? (
+            <div className="flex h-full min-h-[7rem] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-neutral-300 px-3 text-center">
+              <span className="text-xs font-medium text-neutral-500">{EMPTY_LANE_LABEL[col.kind]}</span>
+              <span className="text-[11px] text-neutral-400">Drop a card here to move it</span>
+            </div>
+          )
           : col.cards.map((c) => (
             <Cardlet
               key={c.pipelineCandidateId}
@@ -405,11 +481,37 @@ export default function PipelineBoardPage() {
 
   if (q.isLoading) {
     return (
-      <div className="max-w-[1440px] mx-auto px-6 py-8 space-y-4">
-        <Skeleton className="h-5 w-32" />
-        <Skeleton className="h-10 w-72" />
-        <div className="flex gap-3 overflow-x-auto pb-4">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="h-64 w-72 shrink-0" />)}
+      <div className="max-w-[1440px] mx-auto px-6 py-8">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="mt-5 h-6 w-32 rounded-full" />
+        <Skeleton className="mt-3 h-8 w-72" />
+        <Skeleton className="mt-3 h-4 w-96" />
+        <div className="mt-9 flex gap-4 overflow-x-auto pb-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="flex min-h-[16rem] w-72 shrink-0 flex-col rounded-2xl bg-neutral-100/70 p-3">
+              <div className="flex items-center justify-between rounded-xl bg-white/60 px-2.5 py-2">
+                <Skeleton className="h-3.5 w-24" />
+                <Skeleton className="h-5 w-7 rounded-full" />
+              </div>
+              <div className="mt-2.5 flex items-center gap-1.5 rounded-xl border border-border bg-white p-1.5">
+                <Skeleton className="h-8 w-[92px] rounded-lg" />
+                <Skeleton className="h-8 w-14 rounded-lg" />
+                <Skeleton className="ml-auto h-8 w-16 rounded-full" />
+              </div>
+              <div className="mt-2.5 space-y-2">
+                {[0, 1].map((k) => (
+                  <div key={k} className="card p-3.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="mt-2 h-3 w-40" />
+                    <div className="mt-3 flex items-center justify-between">
+                      <Skeleton className="h-5 w-16 rounded-full" />
+                      <Skeleton className="h-4 w-8" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     )
@@ -417,19 +519,23 @@ export default function PipelineBoardPage() {
 
   // Only a hard failure with NO data at all blocks the page (mirrors ReportPage).
   if (!q.data) {
-    const reason = q.error instanceof Error ? q.error.message : 'Something went wrong while fetching it.'
+    const reason = q.error instanceof Error ? q.error.message : 'The board didn’t come back from the server.'
     return (
       <div className="max-w-[1440px] mx-auto px-6 py-8">
         <Card className="p-0">
-          <div className="flex flex-col items-center gap-3 p-10 text-center">
-            <AlertTriangle className="text-warning" size={24} />
-            <p className="font-semibold text-neutral-700">Couldn’t load this pipeline</p>
-            <p className="text-sm text-neutral-400">{reason}</p>
-            <div className="flex items-center gap-3">
-              <Button onClick={() => void q.refetch()}>Try again</Button>
-              <Link to="/pipelines" className="text-sm font-medium text-primary-700">Back to pipelines</Link>
-            </div>
-          </div>
+          <EmptyState
+            icon={<AlertTriangle />}
+            title="Couldn’t load this pipeline"
+            description={reason}
+            action={(
+              <div className="flex items-center gap-4">
+                <Button onClick={() => void q.refetch()}>Try again</Button>
+                <Link to="/pipelines" className="text-sm font-semibold text-primary-700 transition-colors duration-150 hover:text-primary-800">
+                  Back to pipelines
+                </Link>
+              </div>
+            )}
+          />
         </Card>
       </div>
     )
@@ -522,17 +628,20 @@ export default function PipelineBoardPage() {
 
   return (
     <div className="max-w-[1440px] mx-auto px-6 py-8">
-      <Link to="/pipelines" className="mb-3 inline-flex items-center gap-1.5 text-sm font-medium text-neutral-500 hover:text-neutral-800">
-        <ArrowLeft size={15} /> Pipelines
+      <Link
+        to="/pipelines"
+        className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-neutral-500 transition-colors duration-150 hover:text-primary-700"
+      >
+        <ArrowLeft size={15} aria-hidden /> All pipelines
       </Link>
       <PageHeader
         kicker="Pipeline Board"
         title={board.pipeline.role}
-        description={`${roundsLen} round${roundsLen === 1 ? '' : 's'} · candidate progression · drag an advanceable card, or use Advance / the quick-advance bar`}
+        description={`${roundsLen} round${roundsLen === 1 ? '' : 's'} · drag an advanceable card to the next lane, or use Advance and the quick-advance bar. Nothing moves until you confirm.`}
       />
 
       <DndContext sensors={sensors} collisionDetection={boardCollision} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="flex gap-3 overflow-x-auto pb-4">
+        <div className="flex gap-4 overflow-x-auto pb-4">
           {board.columns.map((col) => (
             <Column
               key={col.key}
@@ -550,9 +659,14 @@ export default function PipelineBoardPage() {
         </div>
         <DragOverlay>
           {activeCard ? (
-            <div className="card w-72 p-3 opacity-90 shadow-xl ring-2 ring-primary-400">
-              <div className="truncate text-sm font-medium text-neutral-800">{activeCard.candidateName || activeCard.candidateEmail}</div>
-              <div className="truncate text-xs text-neutral-400">{activeCard.candidateEmail}</div>
+            <div className="w-72 rotate-1 rounded-2xl border border-primary-300 bg-white p-3.5 shadow-xl">
+              <div className="truncate text-sm font-bold tracking-[-0.01em] text-neutral-900">{activeCard.candidateName || activeCard.candidateEmail}</div>
+              {activeCard.candidateName && (
+                <div className="truncate font-mono text-[11px] leading-4 text-neutral-400">{activeCard.candidateEmail}</div>
+              )}
+              {activeCard.score !== null && (
+                <div className="mt-2 text-right text-sm font-bold tabular-nums text-neutral-900">{activeCard.score}</div>
+              )}
             </div>
           ) : null}
         </DragOverlay>

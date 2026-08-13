@@ -1,68 +1,79 @@
-import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
-import { Nav } from '@/components/layout/Nav'
-import { refreshServiceStatus } from '@/store/useAppStore'
-import { AuthProvider } from '@/features/auth/AuthProvider'
-import { RequireRecruiter, RequireCandidate, HomeRedirect } from '@/features/auth/guards'
-import LoginPage from '@/features/auth/LoginPage'
-import AccessDenied from '@/features/auth/AccessDenied'
-import CandidateHome from '@/features/candidate/CandidateHome'
-import MimicSite from '@/features/marketing/MimicSite'
-import MarketingPage from '@/features/marketing/MarketingPage'
-import SetupPage from '@/pages/SetupPage'
-import AvatarScreeningGate from '@/features/avatar-screening/AvatarScreeningGate'
-import ResultsPage from '@/pages/ResultsPage'
-import ReplicasPage from '@/pages/ReplicasPage'
-import PersonasPage from '@/pages/PersonasPage'
-import AnalyticsPage from '@/pages/AnalyticsPage'
-import SettingsPage from '@/pages/SettingsPage'
-import TemplatesPage from '@/features/recruiter/TemplatesPage'
-import TemplateEditorPage from '@/features/recruiter/TemplateEditorPage'
-import QuestionSetsPage from '@/features/recruiter/QuestionSetsPage'
-import SessionsPage from '@/features/recruiter/SessionsPage'
-import PipelinesPage from '@/features/recruiter/PipelinesPage'
-import PipelineBoardPage from '@/features/recruiter/PipelineBoardPage'
-import InviteWizard from '@/features/recruiter/InviteWizard'
-import ReportPage from '@/features/recruiter/ReportPage'
-import LiveInterviewPage from '@/features/recruiter/LiveInterviewPage'
-import TakeInterviewPage from '@/features/interview/TakeInterviewPage'
-import MimicGuide from '@/features/guide/MimicGuide'
-import { IntroFaceSync } from '@/features/intro/IntroFaceSync'
+
+/**
+ * Every route is code-split.
+ *
+ * Before this, all page components were imported statically, so the whole
+ * application shipped as one 3.6 MB chunk (1,030 KB gzipped) — and the *public*
+ * marketing page at /mimic downloaded every byte of it: Firebase, TanStack
+ * Query, Recharts, dnd-kit, jsPDF, tiptap and the video SDKs, none of which a
+ * marketing page uses. Splitting per route means a visitor pays only for the
+ * page they asked for.
+ *
+ * Guards, Nav and HomeRedirect stay static: they are small, and they decide
+ * which chunk to fetch, so deferring them would just add a round-trip.
+ */
+const LoginPage          = lazy(() => import('@/features/auth/LoginPage'))
+const AccessDenied       = lazy(() => import('@/features/auth/AccessDenied'))
+const CandidateHome      = lazy(() => import('@/features/candidate/CandidateHome'))
+const MimicSite          = lazy(() => import('@/features/marketing/MimicSite'))
+const MarketingPage      = lazy(() => import('@/features/marketing/MarketingPage'))
+const SetupPage          = lazy(() => import('@/pages/SetupPage'))
+const AvatarScreeningGate = lazy(() => import('@/features/avatar-screening/AvatarScreeningGate'))
+const ResultsPage        = lazy(() => import('@/pages/ResultsPage'))
+const ReplicasPage       = lazy(() => import('@/pages/ReplicasPage'))
+const PersonasPage       = lazy(() => import('@/pages/PersonasPage'))
+const AnalyticsPage      = lazy(() => import('@/pages/AnalyticsPage'))
+const SettingsPage       = lazy(() => import('@/pages/SettingsPage'))
+const TemplatesPage      = lazy(() => import('@/features/recruiter/TemplatesPage'))
+const TemplateEditorPage = lazy(() => import('@/features/recruiter/TemplateEditorPage'))
+const QuestionSetsPage   = lazy(() => import('@/features/recruiter/QuestionSetsPage'))
+const SessionsPage       = lazy(() => import('@/features/recruiter/SessionsPage'))
+const PipelinesPage      = lazy(() => import('@/features/recruiter/PipelinesPage'))
+const PipelineBoardPage  = lazy(() => import('@/features/recruiter/PipelineBoardPage'))
+const InviteWizard       = lazy(() => import('@/features/recruiter/InviteWizard'))
+const ReportPage         = lazy(() => import('@/features/recruiter/ReportPage'))
+const LiveInterviewPage  = lazy(() => import('@/features/recruiter/LiveInterviewPage'))
+const TakeInterviewPage  = lazy(() => import('@/features/interview/TakeInterviewPage'))
+
+/**
+ * The auth boundary. Everything below reaches Firebase — the guards and Nav via
+ * `useAuth`, IntroFaceSync via `getIdTokenOrNull` — so all of it is imported
+ * lazily. A static import of any one of them puts the 167 KB SDK back on the
+ * public marketing pages, which is exactly what used to happen.
+ */
+const AuthedApp        = lazy(() => import('@/AuthedApp'))
+const RecruiterShell   = lazy(() => import('@/components/layout/RecruiterShell'))
+const RequireRecruiter = lazy(() => import('@/features/auth/guards').then((m) => ({ default: m.RequireRecruiter })))
+const RequireCandidate = lazy(() => import('@/features/auth/guards').then((m) => ({ default: m.RequireCandidate })))
+const HomeRedirect     = lazy(() => import('@/features/auth/guards').then((m) => ({ default: m.HomeRedirect })))
+
+/** Route-transition fallback. Deliberately quiet — a spinner that appears for
+ *  120ms reads as jank, so this is just the page ground. */
+function RouteFallback() {
+  return <div className="min-h-screen bg-background" aria-busy="true" aria-live="polite" />
+}
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 15_000 } } })
-
-/** Recruiter app chrome — top nav + routed content. Mounts only for an
- *  authenticated recruiter, so this is where we (re)load the server-side
- *  service-configuration flags now that the request carries the ID token. */
-function RecruiterShell() {
-  useEffect(() => { refreshServiceStatus() }, [])
-  return (
-    <div className="min-h-screen bg-background font-sans">
-      <Nav />
-      <main>
-        <Outlet />
-      </main>
-      {/* Background, one-time sync of real replica thumbnails into the intro's
-          face cache (IndexedDB). Renders nothing; no extra Tavus call. */}
-      <IntroFaceSync />
-    </div>
-  )
-}
 
 export default function App() {
   return (
     <QueryClientProvider client={qc}>
-      <AuthProvider>
         <BrowserRouter>
+          <Suspense fallback={<RouteFallback />}>
           <Routes>
-            {/* Public */}
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/access-denied" element={<AccessDenied />} />
-            {/* Public marketing site (pre-login). Additive; existing routes/auth untouched. */}
+            {/* Public marketing site — deliberately OUTSIDE AuthProvider so it
+                never loads the Firebase SDK. These pages use no auth. */}
             <Route path="/mimic" element={<MimicSite />} />
             <Route path="/mimic/*" element={<MarketingPage />} />
+
+            {/* Everything below needs an identity. */}
+            <Route element={<AuthedApp />}>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/access-denied" element={<AccessDenied />} />
 
             {/* Candidate-only — assigned-session list + the interview itself */}
             <Route element={<RequireCandidate />}>
@@ -105,11 +116,9 @@ export default function App() {
             {/* Root + unknown → route to the signed-in user's home (or login) */}
             <Route path="/" element={<HomeRedirect />} />
             <Route path="*" element={<HomeRedirect />} />
+            </Route>
           </Routes>
-
-          {/* Global in-app help assistant. Inside the router so its deep-links
-              navigate; renders only for signed-in users (recruiter or candidate). */}
-          <MimicGuide />
+          </Suspense>
         </BrowserRouter>
 
         <Toaster
@@ -119,22 +128,21 @@ export default function App() {
             duration: 4000,
             style: {
               background: '#fff',
-              color: '#0f172a',
-              border: '1px solid #e2e8f0',
-              borderRadius: '10px',
+              color: '#1B0B3B',
+              border: '1px solid #E7E2F2',
+              borderRadius: '14px',
               padding: '12px 16px',
               fontSize: '13px',
-              fontFamily: 'Inter, system-ui, sans-serif',
+              fontFamily: 'Figtree, system-ui, sans-serif',
               fontWeight: '500',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+              boxShadow: '0 6px 18px -4px rgba(27,11,59,0.14)',
               maxWidth: '380px',
             },
-            success: { iconTheme: { primary: '#6B2BE0', secondary: '#fff' } },
+            success: { iconTheme: { primary: '#0F7A5F', secondary: '#fff' } },
             error: { iconTheme: { primary: '#dc2626', secondary: '#fff' } },
             loading: { iconTheme: { primary: '#6B2BE0', secondary: '#fff' } },
           }}
         />
-      </AuthProvider>
     </QueryClientProvider>
   )
 }

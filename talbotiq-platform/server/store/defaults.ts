@@ -148,7 +148,7 @@ export const DEFAULT_INTEGRITY: IntegrityConfig = {
 
 export const DEFAULT_BRANDING: BrandingConfig = {
   companyName: 'TalbotIQ',
-  accentColor: '#0d5c3a',
+  accentColor: '#6B2BE0',
   welcomeMessage:
     'Welcome to your interview. Find a quiet spot, take a breath, and answer naturally — there are no trick questions.',
 }

@@ -16,7 +16,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   ScanFace, Users, Move, Eye, Sun, Maximize2, Minimize2, ArrowRight, Check,
-  CheckCircle2, Camera, CameraOff, RefreshCw, ShieldCheck, Loader2,
+  CheckCircle2, Camera, CameraOff, RefreshCw, ShieldCheck, Loader2, Glasses,
+  Image as ImageIcon, type LucideIcon,
 } from 'lucide-react'
 import { FaceScannerOverlay, type ScannerVisualState } from './FaceScannerOverlay'
 import { useFaceLandmarker } from './useFaceLandmarker'
@@ -29,7 +30,7 @@ import {
 interface Props {
   /** Called once the candidate is framed + has started — hands off to Tavus. */
   onReady: () => void
-  /** Brand accent (hex). Defaults to the TalbotIQ primary green. */
+  /** Brand accent (hex). Defaults to the Mimic primary violet. */
   accentColor?: string
   candidateName?: string
   /** Override the configured auto-start behaviour for this mount. */
@@ -38,7 +39,14 @@ interface Props {
 
 type CameraState = 'requesting' | 'ready' | 'denied' | 'error'
 
-const HINT_ICON: Record<HintId, typeof ScanFace> = {
+/* ── Dark-surface state palette ──────────────────────────────────────────────
+   The stage is brand-black, so the accent used for INK is the light violet
+   (brand-gold token) rather than the deep primary, which would disappear. Mint
+   marks the positive/locked state; the caller's accent fills solid controls. */
+const INK_ACCENT = '#B98CFF'   // brand-gold — violet that reads on near-black
+const LOCK = '#8FE3D0'         // mint — framed, held, locked in (always dark ink on top)
+
+const HINT_ICON: Record<HintId, LucideIcon> = {
   no_face: ScanFace,
   multiple: Users,
   move_closer: Maximize2,
@@ -49,18 +57,18 @@ const HINT_ICON: Record<HintId, typeof ScanFace> = {
   hold: CheckCircle2,
 }
 
-const TIPS = [
-  'Face the camera with your whole face visible',
-  'Use even, front-facing lighting — avoid strong backlight',
-  'Remove hats, sunglasses, or masks',
-  'A plain, quiet background works best',
+const TIPS: Array<{ text: string; Icon: LucideIcon }> = [
+  { text: 'Face the camera with your whole face visible', Icon: ScanFace },
+  { text: 'Use even, front-facing light — avoid strong backlight', Icon: Sun },
+  { text: 'Remove hats, sunglasses, or masks', Icon: Glasses },
+  { text: 'A plain, quiet background works best', Icon: ImageIcon },
 ]
 
 const EMPTY_CHECKS: FramingChecks = {
   present: false, single: false, centered: false, distanceOk: false, frontal: false, lightingOk: false,
 }
 
-export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, autoStart = AUTO_START }: Props) {
+export function FaceFitCheck({ onReady, accentColor = '#6B2BE0', candidateName, autoStart = AUTO_START }: Props) {
   const reduce = useReducedMotion() ?? false
   const accent = accentColor
 
@@ -243,40 +251,40 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
   ]
 
   return (
-    <div className="relative flex min-h-screen w-full flex-col items-center justify-center overflow-y-auto bg-[#080808] px-4 py-8 font-sans text-white">
+    <div className="relative flex min-h-screen w-full flex-col items-center justify-center overflow-y-auto bg-brand-black px-4 py-8 font-sans text-white">
       {/* Ambient glow backdrop */}
       {!reduce && (
         <div
-          className="pointer-events-none absolute inset-0 opacity-60"
-          style={{ background: `radial-gradient(70% 55% at 50% 38%, ${accent}22 0%, transparent 70%)` }}
+          className="pointer-events-none absolute inset-0 opacity-70"
+          style={{ background: `radial-gradient(70% 55% at 50% 38%, ${accent}33 0%, transparent 70%)` }}
         />
       )}
 
       <div className="relative z-10 w-full max-w-md">
         {/* Eyebrow + heading */}
-        <div className="mb-5 text-center">
+        <div className="mb-6 text-center">
           <span
-            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wider"
-            style={{ borderColor: `${accent}55`, color: accent, background: `${accent}14` }}
+            className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em]"
+            style={{ borderColor: `${INK_ACCENT}59`, color: INK_ACCENT, background: `${INK_ACCENT}1f` }}
           >
-            <ScanFace size={13} /> Pre-flight framing check
+            <ScanFace size={13} strokeWidth={2} aria-hidden="true" /> Pre-flight framing check
           </span>
-          <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
+          <h1 className="mt-4 font-display text-2xl font-extrabold tracking-[-0.03em] sm:text-3xl">
             {locked ? 'Perfect — you’re all set' : 'Let’s frame your face'}
           </h1>
-          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-neutral-400">
+          <p className="mx-auto mt-2.5 max-w-sm text-sm leading-relaxed text-brand-gray">
             {locked
               ? candidateName
                 ? `Thanks, ${candidateName}. Starting your interview…`
                 : 'Starting your interview…'
-              : 'Fit your face inside the frame and hold steady. Good positioning and even lighting help the AI capture your responses accurately — for the most reliable results.'}
+              : 'Fit your face inside the frame and hold steady. Good positioning and even lighting help the AI capture your responses accurately.'}
           </p>
         </div>
 
         {/* ── Camera stage ── */}
         <div
-          className="relative mx-auto aspect-[4/5] w-full overflow-hidden rounded-3xl border bg-neutral-950 shadow-2xl"
-          style={{ borderColor: good ? `${accent}aa` : '#2d2d2d', transition: 'border-color .4s' }}
+          className="relative mx-auto aspect-[4/5] w-full overflow-hidden rounded-3xl border-2 bg-brand-card shadow-xl"
+          style={{ borderColor: good ? `${LOCK}b3` : '#332154', transition: 'border-color .4s ease' }}
         >
           <video
             ref={videoRef}
@@ -294,7 +302,7 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
               facesRef={facesRef}
               stateRef={visRef}
               mesh={fallback ? null : mesh}
-              accent={accent}
+              accent={LOCK}
               mirror={MIRROR}
               reducedMotion={reduce}
               dense={!!dense}
@@ -304,8 +312,8 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
           {/* Loading model */}
           {camera === 'ready' && modelStatus === 'loading' && (
             <div className="absolute inset-x-0 top-3 flex justify-center">
-              <span className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs font-medium text-neutral-200 backdrop-blur">
-                <Loader2 size={13} className="animate-spin" /> Starting face tracking…
+              <span className="flex items-center gap-2 rounded-full border border-brand-border bg-brand-black/80 px-3 py-1.5 text-xs font-medium text-brand-gold-light backdrop-blur">
+                <Loader2 size={13} className="animate-spin" aria-hidden="true" /> Starting face tracking…
               </span>
             </div>
           )}
@@ -315,24 +323,33 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
               {camera === 'requesting' && (
                 <>
-                  <Camera size={30} className="text-neutral-400" />
-                  <p className="text-sm text-neutral-300">Requesting camera access…</p>
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full border border-brand-border bg-white/5 text-brand-gray">
+                    <Camera size={24} strokeWidth={1.75} aria-hidden="true" />
+                  </span>
+                  <p className="text-sm text-brand-gray">Requesting camera access…</p>
                 </>
               )}
               {(camera === 'denied' || camera === 'error') && (
                 <>
-                  <CameraOff size={30} className="text-amber-400" />
-                  <p className="max-w-xs text-sm text-neutral-200">
-                    {camera === 'denied'
-                      ? 'Camera access is blocked. Enable it in your browser, then retry.'
-                      : 'We couldn’t start your camera.'}
-                  </p>
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full border border-brand-border bg-white/5" style={{ color: INK_ACCENT }}>
+                    <CameraOff size={24} strokeWidth={1.75} aria-hidden="true" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {camera === 'denied' ? 'Camera access is blocked' : 'We couldn’t start your camera'}
+                    </p>
+                    <p className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-brand-gray">
+                      {camera === 'denied'
+                        ? 'Allow camera and microphone for this site in your browser settings, then try again.'
+                        : 'Close any other app using the camera, then try again.'}
+                    </p>
+                  </div>
                   <button
                     onClick={requestCamera}
-                    className="mt-1 inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-sm font-semibold"
+                    className="mt-1 inline-flex h-10 items-center gap-1.5 rounded-full px-5 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-px"
                     style={{ background: accent }}
                   >
-                    <RefreshCw size={14} /> Retry
+                    <RefreshCw size={14} aria-hidden="true" /> Try camera again
                   </button>
                 </>
               )}
@@ -348,10 +365,10 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
                 className="absolute inset-x-0 bottom-3 flex justify-center"
               >
                 <span
-                  className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-semibold text-white shadow-lg"
-                  style={{ background: accent }}
+                  className="flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-bold shadow-lg"
+                  style={{ background: LOCK, color: '#1B0B3B' }}
                 >
-                  <Check size={15} strokeWidth={3} /> Locked in
+                  <Check size={15} strokeWidth={3} aria-hidden="true" /> Locked in
                 </span>
               </motion.div>
             )}
@@ -364,18 +381,20 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
             <AnimatePresence mode="wait">
               <motion.div
                 key={hint}
+                role="status"
+                aria-live="polite"
                 initial={reduce ? { opacity: 0 } : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
                 transition={{ duration: 0.2 }}
-                className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium"
+                className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold"
                 style={{
-                  borderColor: good ? `${accent}80` : '#3a3a2a',
-                  background: good ? `${accent}1f` : 'rgba(240,192,64,0.12)',
-                  color: good ? '#d7f5e5' : '#f0c040',
+                  borderColor: good ? `${LOCK}66` : `${INK_ACCENT}4d`,
+                  background: good ? `${LOCK}1f` : `${INK_ACCENT}1a`,
+                  color: good ? LOCK : INK_ACCENT,
                 }}
               >
-                <HintIcon size={16} /> {hintText(hint)}
+                <HintIcon size={16} strokeWidth={2} aria-hidden="true" /> {hintText(hint)}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -387,14 +406,16 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
             {checklist.map(({ ok, label, Icon }) => (
               <span
                 key={label}
-                className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors"
+                className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors duration-150"
                 style={{
-                  borderColor: ok ? `${accent}66` : '#242424',
-                  background: ok ? `${accent}1a` : '#141414',
-                  color: ok ? '#c9efdc' : '#8a8a8a',
+                  borderColor: ok ? `${LOCK}59` : '#332154',
+                  background: ok ? `${LOCK}1a` : 'rgba(255,255,255,0.03)',
+                  color: ok ? LOCK : '#9D93B8',
                 }}
               >
-                {ok ? <Check size={12} strokeWidth={3} style={{ color: accent }} /> : <Icon size={12} />}
+                {ok
+                  ? <Check size={12} strokeWidth={3} aria-hidden="true" />
+                  : <Icon size={12} strokeWidth={2} aria-hidden="true" />}
                 {label}
               </span>
             ))}
@@ -402,11 +423,11 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
         )}
 
         {/* ── Footer: start / countdown / fallback ── */}
-        <div className="mt-5">
+        <div className="mt-6">
           {/* Handoff in progress (camera released, freeing the device for Tavus) */}
           {starting && (
-            <p className="flex items-center justify-center gap-2 text-sm font-medium text-neutral-300">
-              <Loader2 size={15} className="animate-spin" style={{ color: accent }} /> Starting your interview…
+            <p className="flex items-center justify-center gap-2 text-sm font-semibold text-white" role="status" aria-live="polite">
+              <Loader2 size={15} className="animate-spin" style={{ color: LOCK }} aria-hidden="true" /> Starting your interview…
             </p>
           )}
 
@@ -414,25 +435,25 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
           {locked && !autoStart && !starting && (
             <button
               onClick={proceed}
-              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-semibold text-white shadow-lg transition-transform active:scale-[.99]"
-              style={{ background: accent }}
+              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full text-base font-semibold text-neutral-900 shadow-mint-sm transition-transform duration-150 hover:-translate-y-px active:translate-y-0"
+              style={{ background: LOCK }}
             >
-              Start interview <ArrowRight size={18} />
+              Start interview <ArrowRight size={18} strokeWidth={2.25} aria-hidden="true" />
             </button>
           )}
 
           {/* Guide-only fallback: manual confirm (CV unavailable/slow) */}
           {camera === 'ready' && fallback && !locked && !starting && (
             <div className="text-center">
-              <p className="mb-3 text-xs text-neutral-500">
+              <p className="mx-auto mb-3 max-w-xs text-xs leading-relaxed text-brand-gray">
                 Live face tracking isn’t available on this device — center your face in the oval and continue.
               </p>
               <button
                 onClick={proceed}
-                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-semibold text-white shadow-lg"
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full text-base font-semibold text-white shadow-primary-sm transition-transform duration-150 hover:-translate-y-px active:translate-y-0"
                 style={{ background: accent }}
               >
-                <CheckCircle2 size={18} /> I’m ready, start
+                <CheckCircle2 size={18} strokeWidth={2} aria-hidden="true" /> I’m ready, start
               </button>
             </div>
           )}
@@ -442,7 +463,7 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
             <div className="text-center">
               <button
                 onClick={proceed}
-                className="text-xs font-medium text-neutral-400 underline decoration-neutral-600 underline-offset-4 hover:text-neutral-200"
+                className="rounded-full px-3 py-1.5 text-xs font-semibold text-brand-gray underline decoration-brand-border underline-offset-4 transition-colors duration-150 hover:text-white hover:decoration-brand-gold"
               >
                 Having trouble? Start the interview anyway
               </button>
@@ -451,22 +472,22 @@ export function FaceFitCheck({ onReady, accentColor = '#0d5c3a', candidateName, 
         </div>
 
         {/* ── Privacy line ── */}
-        <p className="mt-5 flex items-center justify-center gap-1.5 text-center text-[11px] leading-relaxed text-neutral-500">
-          <ShieldCheck size={13} className="flex-shrink-0" />
+        <p className="mt-6 flex items-center justify-center gap-1.5 text-center text-[11px] leading-relaxed text-brand-gray">
+          <ShieldCheck size={13} strokeWidth={1.75} className="flex-shrink-0" aria-hidden="true" />
           Face positioning runs privately on your device — nothing is uploaded.
         </p>
 
         {/* ── Tips ── */}
         {!locked && (
-          <div className="mx-auto mt-4 max-w-sm">
-            <p className="mb-2 text-center text-[11px] font-semibold uppercase tracking-wider text-neutral-500">
+          <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-brand-border bg-brand-card/60 p-4">
+            <p className="mb-3 text-center text-[11px] font-bold uppercase tracking-[0.08em]" style={{ color: INK_ACCENT }}>
               For the most reliable results
             </p>
-            <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-              {TIPS.map((tip) => (
-                <li key={tip} className="flex items-start gap-1.5 text-xs leading-snug text-neutral-400">
-                  <Check size={12} className="mt-0.5 flex-shrink-0" style={{ color: accent }} />
-                  {tip}
+            <ul className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              {TIPS.map(({ text, Icon }) => (
+                <li key={text} className="flex items-start gap-2 text-xs leading-snug text-brand-gray">
+                  <Icon size={14} strokeWidth={1.75} className="mt-px flex-shrink-0" style={{ color: INK_ACCENT }} aria-hidden="true" />
+                  {text}
                 </li>
               ))}
             </ul>

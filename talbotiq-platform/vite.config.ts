@@ -4,6 +4,31 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        /**
+         * Split the big third-party dependencies into their own chunks.
+         *
+         * This is a bundling change only — no application code moves. The point
+         * is cacheability and visibility: React and Firebase change far less
+         * often than product code, so isolating them means a normal deploy no
+         * longer invalidates them in every visitor's cache, and the build output
+         * shows what each dependency actually costs.
+         *
+         * Note this does NOT remove Firebase from the marketing page's critical
+         * path — AuthProvider still imports it eagerly, so it is still fetched.
+         * Doing that requires changing where AuthProvider mounts, which is auth
+         * code and needs sign-off.
+         */
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-firebase': ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          'vendor-query': ['@tanstack/react-query'],
+        },
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

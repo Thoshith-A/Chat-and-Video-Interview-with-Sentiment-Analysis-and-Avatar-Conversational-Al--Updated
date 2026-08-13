@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { AlertTriangle, Lightbulb, Send, FastForward } from 'lucide-react'
+import { AlertTriangle, Lightbulb, Send, FastForward, Lock, Loader2 } from 'lucide-react'
 import { cn } from '@/components/ui'
 import { CircularCountdown } from '../components/CircularCountdown'
 import { CameraRecorder } from '../components/CameraRecorder'
@@ -44,6 +44,10 @@ export function QuestionStage({
 
   if (!question) return null
 
+  const accent = state.branding.accentColor
+  const accentVar = { '--accent': accent } as CSSProperties
+  const words = text.trim().split(/\s+/).filter(Boolean).length
+
   return (
     <motion.div
       initial={reduce ? false : { opacity: 0, x: 24 }}
@@ -53,17 +57,20 @@ export function QuestionStage({
       className="space-y-6"
     >
       {/* Question + countdown */}
-      <div className="flex items-start justify-between gap-6">
-        <div className="min-w-0">
+      <div className="flex items-start justify-between gap-5">
+        <div className="min-w-0 pt-1">
           <span
             className={cn(
-              'text-xs font-bold uppercase tracking-widest',
-              isAnswer ? 'text-success' : 'text-neutral-400',
+              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em]',
+              isAnswer
+                ? 'border-success-border bg-success-bg text-success'
+                : 'border-neutral-200 bg-neutral-100 text-neutral-500',
             )}
           >
+            {isAnswer && <span className="live-dot" aria-hidden="true" />}
             {isAnswer ? 'Answering' : 'Preparation'}
           </span>
-          <h2 className="mt-2 text-2xl font-bold leading-snug tracking-tight text-neutral-900">
+          <h2 className="mt-4 text-balance font-display text-[26px] font-extrabold leading-[1.22] tracking-[-0.03em] text-neutral-900 sm:text-[30px]">
             {question.text}
           </h2>
         </div>
@@ -78,11 +85,19 @@ export function QuestionStage({
         </div>
       </div>
 
-      {/* Preparation tip */}
+      {/* Preparation tip — composed row, warning accent on a calm neutral card */}
       {!isAnswer && (
-        <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          <Lightbulb size={16} className="mt-0.5 flex-shrink-0" />
-          <span>Tip: structure your answer with <strong>STAR</strong> — Situation, Task, Action, Result.</span>
+        <div className="flex items-start gap-3.5 rounded-2xl border border-border bg-neutral-50 p-4">
+          <span className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-warning-border bg-warning-bg text-warning">
+            <Lightbulb size={17} strokeWidth={1.75} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-warning">Interview tip</p>
+            <p className="mt-1 text-sm leading-relaxed text-neutral-700">
+              Structure your answer with <strong className="font-semibold text-neutral-900">STAR</strong> — situation,
+              task, action, result.
+            </p>
+          </div>
         </div>
       )}
 
@@ -90,7 +105,27 @@ export function QuestionStage({
       {track === 'video_avatar' ? (
         <CameraRecorder active={isAnswer} accentColor={state.branding.accentColor} />
       ) : (
-        <div>
+        <div
+          style={accentVar}
+          className={cn(
+            'overflow-hidden rounded-2xl border-[1.5px] transition-[border-color,box-shadow] duration-150',
+            isAnswer
+              ? 'border-border bg-white focus-within:border-[var(--accent)] focus-within:shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_14%,transparent)]'
+              : 'border-dashed border-neutral-200 bg-neutral-50',
+          )}
+        >
+          <div className={cn('flex items-center justify-between gap-3 border-b px-5 py-2.5', isAnswer ? 'border-border' : 'border-neutral-200')}>
+            <span className="text-[11px] font-bold uppercase tracking-[0.08em] text-neutral-500">Your answer</span>
+            {isAnswer ? (
+              <span className="text-xs font-medium tabular-nums text-neutral-400">
+                {words} {words === 1 ? 'word' : 'words'}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-neutral-400">
+                <Lock size={12} strokeWidth={2} aria-hidden="true" /> Unlocks when the answer timer starts
+              </span>
+            )}
+          </div>
           <textarea
             ref={taRef}
             value={text}
@@ -101,53 +136,64 @@ export function QuestionStage({
             placeholder={isAnswer ? 'Type your answer here…' : 'Your answer box unlocks when the answer timer begins.'}
             aria-label="Your answer"
             className={cn(
-              'h-56 w-full resize-none rounded-xl border-2 bg-white p-4 text-[15px] leading-relaxed text-neutral-800 transition-all focus:outline-none',
-              isAnswer ? 'border-border focus:border-primary-400' : 'cursor-not-allowed border-dashed border-neutral-200 bg-neutral-50 text-neutral-400',
+              'h-56 w-full resize-none bg-transparent px-5 py-4 text-[15px] leading-[1.7] text-neutral-800 outline-none placeholder:text-neutral-400',
+              !isAnswer && 'cursor-not-allowed text-neutral-400',
             )}
           />
-          {isAnswer && (
-            <p className="mt-1.5 text-right text-xs text-neutral-400 tabular-nums">
-              {text.trim().split(/\s+/).filter(Boolean).length} words
-            </p>
-          )}
         </div>
       )}
 
-      {/* Warning */}
+      {/* Auto-submit warning */}
       {warning && (
         <motion.div
           initial={reduce ? false : { opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex items-center gap-2 rounded-lg border border-danger-border bg-danger-bg px-3 py-2 text-sm font-medium text-danger"
+          role="alert"
+          className="flex items-center gap-3 rounded-2xl border border-danger-border bg-danger-bg px-4 py-3"
         >
-          <AlertTriangle size={15} /> {secondsLeft}s left — your answer will auto-submit at zero.
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-danger-border bg-white text-danger">
+            <AlertTriangle size={15} strokeWidth={2} />
+          </span>
+          <p className="text-sm font-semibold text-danger">
+            <span className="tabular-nums">{secondsLeft}s</span> left — your answer submits automatically at zero.
+          </p>
         </motion.div>
       )}
 
       {/* Controls */}
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-neutral-400">
-          {isAnswer ? 'You can’t return to this question once you continue.' : 'Read the question and gather your thoughts.'}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xs text-xs leading-relaxed text-neutral-400">
+          {isAnswer
+            ? 'Saved as you type. You can’t return to this question once you continue.'
+            : 'Read the question and gather your thoughts.'}
         </p>
         <div className="flex gap-2">
           {!isAnswer && timing.allowSkipPrep && (
             <button
+              type="button"
               onClick={onSkipPrep}
               disabled={busy}
-              className="inline-flex h-10 items-center gap-2 rounded-lg border-2 px-4 text-sm font-semibold transition-all disabled:opacity-50"
-              style={{ borderColor: state.branding.accentColor, color: state.branding.accentColor }}
+              className="inline-flex h-10 items-center gap-2 rounded-full border-[1.5px] bg-white px-5 text-sm font-semibold transition-all duration-150 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ borderColor: accent, color: accent }}
             >
-              <FastForward size={16} /> Start answering now
+              {busy
+                ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                : <FastForward size={16} aria-hidden="true" />}
+              Start answering now
             </button>
           )}
           {isAnswer && timing.allowEarlySubmit && (
             <button
+              type="button"
               onClick={() => onSubmit(text)}
               disabled={busy}
-              className="inline-flex h-10 items-center gap-2 rounded-lg px-5 text-sm font-semibold text-white transition-all disabled:opacity-50"
-              style={{ background: state.branding.accentColor }}
+              className="inline-flex h-10 items-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-sm transition-all duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+              style={{ background: accent }}
             >
-              <Send size={16} /> Submit &amp; continue
+              {busy
+                ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                : <Send size={16} aria-hidden="true" />}
+              Submit &amp; continue
             </button>
           )}
         </div>
