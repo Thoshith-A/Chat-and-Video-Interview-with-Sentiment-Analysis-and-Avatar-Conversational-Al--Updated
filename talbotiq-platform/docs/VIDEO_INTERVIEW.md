@@ -1,25 +1,30 @@
 # Video Interview Track
 
-The **Video Interview** track is a one-way video mode where candidates record answers to interview questions via their webcam. Recordings are stored on Firebase Storage, transcribed server-side via Deepgram, scored via Gemini, and analyzed for facial engagement via AWS Rekognition.
+The **Video Interview** track is a one-way video mode where candidates answer interview questions on camera. Answers are captured as **live transcript text** (Deepgram), scored via Gemini, and analyzed for facial engagement via AWS Rekognition.
+
+> ⚠️ **Corrected 12 Aug 2026.** This document previously stated that answer clips are recorded and uploaded to Firebase Storage. **They are not.** The live-transcription rework (`docs/superpowers/plans/2026-07-16-video-interview-live-rework.md`) removed video recording and upload from this track: the camera is a **preview only**, and the answer submitted to the server is the transcript text. See the docstring at `src/features/interview/screens/VideoStage.tsx:38-44` ("No video is recorded/uploaded") and note that `src/lib/storage.ts` is now used only by the **Two-way** track. Sections below that describe clip upload are retained for the Storage-rules walkthrough, which still applies to the Two-way recording. See `docs/DATA_STORAGE_AUDIT.md` for the verified end-to-end data map.
 
 ## Overview
 
 - **Track type:** `video` (alongside `voice`, `video_avatar`, `chat`, `chatbot`)
-- **Candidate flow:** Consent gate → 30-second prep countdown → record per question → submit answer (MediaRecorder stops) → upload to Firebase Storage → server advances
-- **Recruiter view:** Report page with video playback, transcript, Gemini per-question scores, and AWS Rekognition facial analysis (engagement/emotion metrics)
+- **Candidate flow:** Consent gate → 30-second prep countdown → answer phase opens and live transcription starts → candidate submits (or client pre-empts the server deadline) → transcript submitted as the answer → server advances
+- **Recruiter view:** Report page with transcript, Gemini per-question scores, and AWS Rekognition facial analysis (engagement/emotion metrics). **No video playback for this track** — no clip exists.
 
 ## Pipeline
 
 ```
 ┌─ Candidate Interview ──────────────────────────────────────┐
-│ 1. Consent gate (data collection, facial recording)        │
-│ 2. 30-second prep countdown (question visible)             │
-│ 3. Record answer (MediaRecorder via getUserMedia)         │
+│ 1. Consent gate (data collection, facial analysis)         │
+│ 2. 30-second prep countdown (question visible, camera      │
+│    preview live)                                           │
+│ 3. Answer phase → live transcription starts off the shared │
+│    stream's audio track (Deepgram relay). NO recording.    │
 │ 4. Question advances automatically after time expires      │
-│ 5. Pre-submit upload (~3s before deadline) to Firebase     │
-│    Storage at /interviews/{sessionId}/{fileName}           │
-│ 6. Server auto-submit if client upload fails               │
-│ 7. Submit answer → POST /api/sessions/:id/answers          │
+│ 5. Client pre-emptive submit (~3s before the server        │
+│    deadline) stops transcription                           │
+│ 6. Server auto-submit if the client submit fails           │
+│ 7. Submit answer (transcript text) → POST                  │
+│    /api/sessions/:id/answers                               │
 └────────────────────────────────────────────────────────────┘
                             ↓
 ┌─ Async Processing ─────────────────────────────────────────┐

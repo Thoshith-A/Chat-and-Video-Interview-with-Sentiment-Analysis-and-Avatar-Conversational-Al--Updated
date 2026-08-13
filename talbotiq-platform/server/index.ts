@@ -35,6 +35,11 @@ if (allowedOrigins) console.log(`[server] CORS restricted to: ${allowedOrigins.j
 else console.log('[server] CORS: all origins allowed (set CORS_ORIGINS to restrict)')
 app.use(express.json({ limit: '4mb' }))
 
+// NOTE: this path is render.yaml's healthCheckPath, so it deliberately stays
+// 200 even when `persistence.ok` is false. A failing disk is a data-integrity
+// problem, not a liveness one — returning 503 would make Render restart or fail
+// the deploy, which cannot fix a full disk and would turn degraded-but-serving
+// into a full outage. Alert on `persistence.ok === false` instead.
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -42,6 +47,7 @@ app.get('/api/health', (_req, res) => {
     gemini: Boolean(process.env.GEMINI_API_KEY),
     auth: authConfigured(),
     authMode: authConfigured() ? 'firebase' : 'none',
+    persistence: db.saveHealth(),
   })
 })
 

@@ -34,8 +34,6 @@ interface AppState {
   tavusKey: string
   deepgramKey: string
   humeKey: string
-  awsKey: string
-  anthropicKey: string
   geminiKey: string
   awsProxyUrl: string
   webhookUrl: string
@@ -78,8 +76,6 @@ interface AppState {
   setTavusKey: (k: string) => void
   setDeepgramKey: (k: string) => void
   setHumeKey: (k: string) => void
-  setAwsKey: (k: string) => void
-  setAnthropicKey: (k: string) => void
   setGeminiKey: (k: string) => void
   setAwsProxyUrl: (url: string) => void
   setWebhookUrl: (k: string) => void
@@ -111,8 +107,6 @@ export const useAppStore = create<AppState>()(
       tavusKey: '',
       deepgramKey: '',
       humeKey: '',
-      awsKey: '',
-      anthropicKey: '',
       geminiKey: '',
       awsProxyUrl: '/api/avatar/analyze-face',
       webhookUrl: '',
@@ -142,8 +136,6 @@ export const useAppStore = create<AppState>()(
       setTavusKey: (k) => { set({ tavusKey: k }); tavus.setKey(k) },
       setDeepgramKey: (k) => set({ deepgramKey: k }),
       setHumeKey: (k) => set({ humeKey: k }),
-      setAwsKey: (k) => set({ awsKey: k }),
-      setAnthropicKey: (k) => set({ anthropicKey: k }),
       setGeminiKey: (k) => set({ geminiKey: k }),
       setAwsProxyUrl: (url) => set({ awsProxyUrl: url }),
       setWebhookUrl: (k) => set({ webhookUrl: k }),
@@ -190,10 +182,20 @@ export const useAppStore = create<AppState>()(
       name: 'talbotiq-store',
       // Only the Tavus key + recruiter preferences persist client-side. The
       // deepgram/hume/gemini "configured" flags come fresh from the server each load.
+      //
+      // `awsKey`/`anthropicKey` used to be persisted here too. They were dead —
+      // nothing outside this file ever read them (AWS Rekognition goes through the
+      // server proxy at awsProxyUrl; there is no Anthropic caller at all) — so
+      // they were storing secrets in localStorage for no functional reason and
+      // have been removed entirely.
+      //
+      // TODO(phase-1): `tavusKey` is the LAST real secret held client-side. It is
+      // still here because src/services/tavus.ts calls tavusapi.com directly from
+      // the browser for the recruiter Setup/Replicas pages. Route those through a
+      // server proxy (the candidate path already is — see server/routes/avatar.ts),
+      // then drop this line too. See docs/STORAGE_MIGRATION_PROMPT.md Phase 1.
       partialize: (s) => ({
         tavusKey: s.tavusKey,
-        awsKey: s.awsKey,
-        anthropicKey: s.anthropicKey,
         webhookUrl: s.webhookUrl,
         defaultReplicaId: s.defaultReplicaId,
         defaultPersonaId: s.defaultPersonaId,

@@ -81,6 +81,15 @@ class Database {
 
   private timer: ReturnType<typeof setTimeout> | null = null
 
+  // Save health. A failing write is the store's most dangerous failure mode:
+  // saveNow() deliberately never throws (callers are fire-and-forget), so a full
+  // or unwritable disk would otherwise lose data SILENTLY while the API keeps
+  // answering 200s. Tracking it here lets /api/health surface it and lets an
+  // alert key on the '[db] save failed' log line.
+  private saveFailures = 0
+  private lastSaveError: string | null = null
+  private lastSavedAt: string | null = null
+
   init() {
     try {
       if (fs.existsSync(DATA_FILE)) {
@@ -115,7 +124,19 @@ class Database {
     this.timer = setTimeout(() => this.saveNow(), 400)
   }
 
-  saveNow() {
+  /**
+   * Persist the snapshot ATOMICALLY: serialise to a temp file in the same
+   * directory, then rename over the target. rename(2) is atomic within a
+   * filesystem, so a crash (or a disk filling up) mid-write can never leave a
+   * truncated db.json where init() would read it — the previous good snapshot
+   * survives instead. Mirrors the write-then-rename already used by
+   * routes/faceCache.ts.
+   *
+   * Never throws — callers are fire-and-forget via scheduleSave(). Returns
+   * whether the write succeeded, and records the outcome for saveHealth().
+   */
+  saveNow(): boolean {
+    const tmp = `${DATA_FILE}.${process.pid}.${Date.now()}.tmp`
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true })
       const snap: Snapshot = {
@@ -130,9 +151,32 @@ class Database {
         leads: this.leads,
         settings: this.settings,
       }
-      fs.writeFileSync(DATA_FILE, JSON.stringify(snap, null, 2))
+      fs.writeFileSync(tmp, JSON.stringify(snap, null, 2))
+      fs.renameSync(tmp, DATA_FILE)
+      if (this.saveFailures > 0)
+        console.log(`[db] save recovered after ${this.saveFailures} consecutive failure(s)`)
+      this.saveFailures = 0
+      this.lastSaveError = null
+      this.lastSavedAt = new Date().toISOString()
+      return true
     } catch (err) {
-      console.error('[db] save failed:', err)
+      this.saveFailures += 1
+      this.lastSaveError = err instanceof Error ? err.message : String(err)
+      // Alert on this line: it is the only signal that data is being lost.
+      console.error(`[db] save failed (${this.saveFailures} consecutive):`, err)
+      // Don't leave the partial temp file behind to fill the disk further.
+      try { fs.rmSync(tmp, { force: true }) } catch { /* best-effort */ }
+      return false
+    }
+  }
+
+  /** Persistence health for /api/health — makes silent data loss observable. */
+  saveHealth(): { ok: boolean; consecutiveFailures: number; lastError: string | null; lastSavedAt: string | null } {
+    return {
+      ok: this.saveFailures === 0,
+      consecutiveFailures: this.saveFailures,
+      lastError: this.lastSaveError,
+      lastSavedAt: this.lastSavedAt,
     }
   }
 }
